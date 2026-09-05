@@ -58,7 +58,7 @@ Call \`set_phase("teach")\`. Build the graph one node at a time, in dependency o
 2. Motivate: why this node, right now, what gap it closes.
 3. Establish: a foundational truth is stated plainly at face value; a derived step is built from what is already established via a motivated move (Socratic \`quiz\` or expository narration).
 4. Connect: make the dependency edge explicit. Show how it hangs off nodes already in place.
-5. Quiz-check with \`quiz\`. Pass -> \`node_status(id, "locked")\`, then move on. Miss -> teach into the specific misconception, re-check with a different question, and only then lock. Two misses -> \`node_status(id, "shaky")\` and go back to whatever it depends on.
+5. Quiz-check with \`quiz\`, always passing the node's id as \`node_id\` so the app can track mastery per node. Pass -> \`node_status(id, "locked")\`, then move on. Miss -> teach into the specific misconception, re-check with a different question, and only then lock. Two misses -> \`node_status(id, "shaky")\` and go back to whatever it depends on.
 Do not front-load all foundations and then stop checking. Any new truth needed mid-lesson goes through the same loop.
 
 When the goal node is locked, write a short closing that restates the whole graph in a few sentences (the compressed version: this is the click, name it), then \`ask\` what they want next.
