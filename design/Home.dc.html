@@ -10,112 +10,121 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
   <style>
     body { margin: 0; background: #0e0c0a; color: #efe9dc; font-family: 'Instrument Sans', 'Helvetica Neue', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-    a { color: #e8b04b; text-decoration: none; } a:hover { color: #f1c46b; }
+    a { color: #efe9dc; text-decoration: none; } a:hover { color: #e8b04b; }
     .serif { font-family: 'Instrument Serif', Georgia, 'Times New Roman', serif; font-weight: 400; }
     .mono { font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace; }
     .eyebrow { font-family: 'JetBrains Mono', Menlo, monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: #8d8477; }
     .grain { position: absolute; inset: 0; pointer-events: none; opacity: 0.045; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
-    .sugg { display: flex; align-items: center; gap: 10px; font-family: 'Instrument Serif', Georgia, serif; font-style: italic; font-size: 19px; color: #b8b0a2; border-bottom: 1px solid rgba(239,233,220,0.1); padding: 10px 0; }
-    .sugg:hover { color: #efe9dc; border-color: rgba(232,176,75,0.6); }
-    .idx { display: grid; grid-template-columns: 34px minmax(0, 1fr) 120px 70px; align-items: center; gap: 16px; height: 58px; border-bottom: 1px solid rgba(239,233,220,0.08); }
-    .tick { width: 5px; height: 14px; border-radius: 2px; background: #2a2620; }
-    .tick.on { background: #e8b04b; }
-    .caret { display: inline-block; width: 2px; height: 26px; background: #e8b04b; animation: blink 1s steps(2) infinite; vertical-align: middle; }
+    .node { position: absolute; width: 168px; height: 50px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 12px; box-sizing: border-box; font-size: 13px; line-height: 1.2; font-weight: 500; border-radius: 10px; border: 1px solid rgba(239,233,220,0.14); background: #15130f; color: #a89f92; }
+    .node.truth { border-radius: 6px; }
+    .node.goal { border-radius: 999px; width: 192px; }
+    .node.locked { background: #e8b04b; border-color: #f1c46b; color: #17130b; }
+    .node.teaching { border-color: #7fc4c9; color: #efe9dc; background: #171a19; }
+    .edge { fill: none; stroke: rgba(239,233,220,0.14); stroke-width: 1.5; }
+    .edge.gold { stroke: rgba(232,176,75,0.7); }
+    .edge.teal { stroke: #7fc4c9; stroke-dasharray: 6 5; }
+    .row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: baseline; gap: 18px; padding: 14px 0; border-top: 1px solid rgba(239,233,220,0.1); }
+    .caret { display: inline-block; width: 2px; height: 30px; background: #e8b04b; vertical-align: -6px; animation: blink 1s steps(2) infinite; }
     @keyframes blink { 50% { opacity: 0; } }
+    .try { display: flex; align-items: baseline; gap: 12px; padding: 9px 0; border-top: 1px solid rgba(239,233,220,0.1); font-family: 'Instrument Serif', Georgia, serif; font-size: 19px; color: #b8b0a2; }
+    .try:hover { color: #efe9dc; }
   </style>
 </helmet>
 
-<div style="position: relative; width: 1440px; height: 900px; overflow: hidden; background: radial-gradient(900px 520px at 12% 10%, rgba(232,176,75,0.09), transparent 62%), #0e0c0a; display: grid; grid-template-columns: minmax(0, 1fr) 520px; column-gap: 80px; padding: 0 72px 0 88px; box-sizing: border-box;">
+<div style="position: relative; width: 1440px; height: 900px; overflow: hidden; background: #0e0c0a; padding: 28px 56px 32px; box-sizing: border-box; display: flex; flex-direction: column;">
   <div class="grain"></div>
 
-  <!-- Left: statement + input -->
-  <div style="position: relative; display: flex; flex-direction: column; padding-top: 64px;">
-    <div style="display: flex; align-items: center; gap: 12px;">
-      <svg width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 34 L27 66 M50 34 L73 66" stroke="#efe9dc" stroke-width="6" stroke-linecap="round"/><circle cx="50" cy="24" r="11" fill="#e8b04b"/><circle cx="27" cy="76" r="11" fill="#efe9dc"/><circle cx="73" cy="76" r="11" fill="#efe9dc"/></svg>
-      <span class="eyebrow" style="color: #b8b0a2;">Derive</span>
-      <span class="eyebrow" style="margin-left: auto;">Runs on your Claude subscription</span>
+  <!-- Masthead -->
+  <div style="position: relative; display: flex; align-items: baseline; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid rgba(239,233,220,0.14);">
+    <div style="display: flex; align-items: baseline; gap: 14px;">
+      <span class="serif" style="font-size: 26px; color: #f6f1e6; letter-spacing: -0.01em;">Derive</span>
+      <span class="mono" style="font-size: 11px; color: #6a6257;">v0.2</span>
     </div>
-
-    <h1 class="serif" style="margin: 96px 0 0; font-size: 84px; line-height: 0.98; letter-spacing: -0.02em; color: #f6f1e6; max-width: 640px; text-wrap: balance;">Understand it from the ground up, <em style="color: #e8b04b;">not memorize it.</em></h1>
-
-    <p style="margin: 28px 0 0; max-width: 560px; font-size: 18px; line-height: 1.55; color: #b8b0a2;">Derive finds the edge of what you already know, draws the dependency map from unconditional truths to your goal, and teaches one node at a time. It does not move on until each one locks.</p>
-
-    <div style="margin-top: 48px; display: flex; align-items: center; gap: 16px; height: 66px; padding: 0 10px 0 22px; border: 1px solid rgba(239,233,220,0.16); border-radius: 18px; background: rgba(18,16,12,0.85); box-shadow: 0 40px 80px -50px rgba(232,176,75,0.35);">
-      <span class="mono" style="font-size: 18px; color: #e8b04b;">›</span>
-      <span class="serif" style="font-size: 24px; color: #efe9dc;">What do you want to actually understand?</span>
-      <span class="caret"></span>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 18px; border-radius: 13px; background: #e8b04b; color: #17130b; font-weight: 600; font-size: 14px;">Start
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
-      </div>
-    </div>
-
-    <div style="margin-top: 26px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 40px; max-width: 640px;">
-      <div class="sugg"><span>Why does gradient descent work?</span><span class="mono" style="margin-left: auto; font-size: 11px; font-style: normal; color: #6a6257;">→</span></div>
-      <div class="sugg"><span>What is a monad, really?</span><span class="mono" style="margin-left: auto; font-size: 11px; font-style: normal; color: #6a6257;">→</span></div>
-      <div class="sugg"><span>How does TCP make an unreliable network reliable?</span><span class="mono" style="margin-left: auto; font-size: 11px; font-style: normal; color: #6a6257;">→</span></div>
-      <div class="sugg"><span>Why does public-key cryptography work?</span><span class="mono" style="margin-left: auto; font-size: 11px; font-style: normal; color: #6a6257;">→</span></div>
-    </div>
-
-    <div style="margin-top: auto; padding-bottom: 28px; display: flex; gap: 28px;" class="mono">
-      <span style="font-size: 11px; color: #6a6257;">probe → plan → teach</span>
-      <span style="font-size: 11px; color: #6a6257;">local · sqlite · claude agent sdk</span>
-      <a href="#" style="font-size: 11px; margin-left: auto;">github.com/jicanta/derive</a>
+    <div class="mono" style="display: flex; gap: 34px; font-size: 11px; letter-spacing: 0.06em; color: #8d8477;">
+      <span>atlas</span>
+      <span>claude code plugin</span>
+      <span>github</span>
+      <span style="color: #6a6257;">runs on your claude subscription</span>
     </div>
   </div>
 
-  <!-- Right: ledger -->
-  <div style="position: relative; display: flex; flex-direction: column; padding-top: 150px;">
-    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-top: 1px solid rgba(239,233,220,0.14); border-bottom: 1px solid rgba(239,233,220,0.14);">
-      <div style="padding: 18px 0 20px;">
-        <div class="eyebrow">Nodes locked</div>
-        <div class="serif" style="font-size: 56px; line-height: 1; color: #e8b04b; margin-top: 10px;">14</div>
+  <!-- Hero: statement + input | live graph -->
+  <div style="position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 560px minmax(0, 1fr); column-gap: 72px; padding-top: 56px;">
+    <div style="display: flex; flex-direction: column;">
+      <h1 class="serif" style="margin: 0; font-size: 62px; line-height: 1.02; letter-spacing: -0.02em; color: #f6f1e6; text-wrap: balance;">A tutor that finds where your understanding ends, and builds from there.</h1>
+      <p style="margin: 26px 0 0; max-width: 46ch; font-size: 17px; line-height: 1.6; color: #a89f92;">It probes until it knows what you hold and what you don't. It draws the map from unconditional truths to your goal. Then it teaches one node at a time, and will not move on until each one locks.</p>
+
+      <div style="margin-top: 52px; border-bottom: 1px solid rgba(239,233,220,0.4); padding-bottom: 12px; display: flex; align-items: baseline; gap: 16px;">
+        <span class="mono" style="font-size: 20px; color: #e8b04b;">›</span>
+        <span class="serif" style="font-size: 30px; color: #f6f1e6; flex: 1;">What do you want to actually understand?<span class="caret"></span></span>
+        <span class="mono" style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #8d8477;">enter ↵</span>
       </div>
-      <div style="padding: 18px 0 20px 22px; border-left: 1px solid rgba(239,233,220,0.1);">
-        <div class="eyebrow">Accuracy</div>
-        <div class="serif" style="font-size: 56px; line-height: 1; color: #f6f1e6; margin-top: 10px;">82<span style="font-size: 28px; color: #8d8477;">%</span></div>
+
+      <div style="margin-top: 26px;">
+        <div class="eyebrow" style="margin-bottom: 4px;">Or start from one of these</div>
+        <div class="try"><span>Why does gradient descent work?</span></div>
+        <div class="try"><span>How does TCP make an unreliable network reliable?</span></div>
+        <div class="try"><span>What is a monad, really?</span></div>
       </div>
-      <div style="padding: 18px 0 20px 22px; border-left: 1px solid rgba(239,233,220,0.1);">
-        <div class="eyebrow" style="color: #7fc4c9;">Due today</div>
-        <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 10px;">
-          <div class="serif" style="font-size: 56px; line-height: 1; color: #7fc4c9;">4</div>
-          <a href="#" class="mono" style="font-size: 11px; color: #7fc4c9; letter-spacing: 0.12em; text-transform: uppercase;">Review ↗</a>
-        </div>
+
+      <div style="margin-top: auto; display: flex; gap: 26px; align-items: baseline;" class="mono">
+        <span style="font-size: 11px; color: #8d8477;"><span style="color: #e8b04b;">14</span> nodes locked</span>
+        <span style="font-size: 11px; color: #8d8477;"><span style="color: #efe9dc;">82%</span> first-try</span>
+        <span style="font-size: 11px; color: #7fc4c9;">4 due today → review</span>
       </div>
     </div>
 
-    <div style="margin-top: 44px; display: flex; align-items: baseline; justify-content: space-between;">
-      <div class="eyebrow">Your lessons</div>
-      <a href="#" class="eyebrow" style="color: #8d8477;">Atlas ↗</a>
-    </div>
+    <!-- Live graph: the learner's most recent lesson, real states -->
+    <div style="position: relative; border-left: 1px solid rgba(239,233,220,0.1); padding-left: 48px; display: flex; flex-direction: column;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between;">
+        <div>
+          <div class="eyebrow">Where you left off</div>
+          <div class="serif" style="font-size: 24px; color: #f6f1e6; margin-top: 6px;">Why does gradient descent work?</div>
+        </div>
+        <div class="mono" style="font-size: 11px; color: #8d8477;"><span style="color: #e8b04b;">3</span> / 9 locked · <span style="color: #efe9dc;">continue →</span></div>
+      </div>
 
-    <div style="margin-top: 10px; display: flex; flex-direction: column;">
-      <div class="idx">
-        <span class="mono" style="font-size: 11px; color: #6a6257;">01</span>
-        <div style="min-width: 0;">
-          <div class="serif" style="font-size: 21px; color: #f6f1e6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Why does gradient descent work?</div>
-          <div class="mono" style="font-size: 10.5px; color: #6a6257; margin-top: 3px;">teach · 12m ago · <span style="color: #7fc4c9;">live</span></div>
-        </div>
-        <div style="display: flex; gap: 3px;"><span class="tick on"></span><span class="tick on"></span><span class="tick on"></span><span class="tick"></span><span class="tick"></span><span class="tick"></span><span class="tick"></span><span class="tick"></span><span class="tick"></span></div>
-        <span class="mono" style="font-size: 11px; color: #8d8477; text-align: right;"><span style="color: #e8b04b;">3</span>/9</span>
+      <div style="position: relative; flex: 1; margin-top: 18px;">
+        <svg width="700" height="560" viewBox="0 0 700 560" style="position: absolute; inset: 0;">
+          <path class="edge gold" d="M470 470 L470 430 Q470 410 450 410 L380 410 Q360 410 360 390 L360 372"/>
+          <path class="edge gold" d="M250 470 L250 430 Q250 410 270 410 L340 410 Q360 410 360 390"/>
+          <path class="edge teal" d="M360 322 L360 296 Q360 276 340 276 L230 276 Q210 276 210 256 L210 240"/>
+          <path class="edge" d="M360 322 L360 296 Q360 276 380 276 L490 276 Q510 276 510 256 L510 240"/>
+          <path class="edge" d="M510 190 L510 150"/>
+          <path class="edge" d="M210 190 L210 150"/>
+          <path class="edge" d="M330 240 L330 220 Q330 206 316 206 L224 206 Q210 206 210 192"/>
+          <path class="edge" d="M210 100 L210 70 Q210 52 228 52 L336 52 Q354 52 354 34"/>
+          <path class="edge" d="M510 100 L510 70 Q510 52 492 52 L384 52 Q366 52 366 34"/>
+        </svg>
+        <div class="node goal" style="left: 264px; top: -16px;">Why gradient descent works</div>
+        <div class="node" style="left: 126px; top: 100px;">Gradients must die out</div>
+        <div class="node" style="left: 426px; top: 100px;">Speed set by L over mu</div>
+        <div class="node truth" style="left: 246px; top: 190px;">f is bounded below</div>
+        <div class="node" style="left: 426px; top: 190px;">Why 1/L and 2/L</div>
+        <div class="node teaching" style="left: 276px; top: 322px;">Guaranteed decrease per step</div>
+        <div class="node locked" style="left: 166px; top: 470px;">Curvature ceiling traps f</div>
+        <div class="node truth locked" style="left: 386px; top: 470px;">Gradient = linear model</div>
+        <div class="node truth locked" style="left: 166px; top: 520px;">Error is second order</div>
       </div>
-      <div class="idx">
-        <span class="mono" style="font-size: 11px; color: #6a6257;">02</span>
-        <div style="min-width: 0;">
-          <div class="serif" style="font-size: 21px; color: #f6f1e6;">How does TCP make an unreliable network reliable?</div>
-          <div class="mono" style="font-size: 10.5px; color: #6a6257; margin-top: 3px;">done · yesterday</div>
-        </div>
-        <div style="display: flex; gap: 3px;"><span class="tick on"></span><span class="tick on"></span><span class="tick on"></span><span class="tick on"></span><span class="tick on"></span><span class="tick on"></span><span class="tick on"></span></div>
-        <span class="mono" style="font-size: 11px; color: #8d8477; text-align: right;"><span style="color: #e8b04b;">7</span>/7</span>
+
+      <div class="mono" style="display: flex; gap: 22px; font-size: 10px; color: #6a6257; letter-spacing: 0.06em;">
+        <span>■ locked</span><span style="color: #7fc4c9;">◌ teaching</span><span>□ pending</span>
       </div>
-      <div class="idx">
-        <span class="mono" style="font-size: 11px; color: #6a6257;">03</span>
-        <div style="min-width: 0;">
-          <div class="serif" style="font-size: 21px; color: #f6f1e6;">Why does public-key cryptography work?</div>
-          <div class="mono" style="font-size: 10.5px; color: #6a6257; margin-top: 3px;">teach · 3d ago · <span style="color: #d98b6a;">1 shaky</span></div>
-        </div>
-        <div style="display: flex; gap: 3px;"><span class="tick on"></span><span class="tick on"></span><span class="tick on"></span><span class="tick on"></span><span class="tick" style="background: #d98b6a;"></span><span class="tick"></span><span class="tick"></span><span class="tick"></span></div>
-        <span class="mono" style="font-size: 11px; color: #8d8477; text-align: right;"><span style="color: #e8b04b;">4</span>/8</span>
-      </div>
+    </div>
+  </div>
+
+  <!-- Index -->
+  <div style="position: relative; margin-top: 28px;">
+    <div class="eyebrow" style="margin-bottom: 6px;">Your lessons</div>
+    <div class="row">
+      <span class="mono" style="font-size: 11px; color: #6a6257;">01</span>
+      <span class="serif" style="font-size: 21px; color: #f6f1e6;">Why does gradient descent work? <span class="mono" style="font-size: 10.5px; color: #6a6257; margin-left: 12px;">teach · 12m ago</span></span>
+      <span class="mono" style="font-size: 11px; color: #8d8477;"><span style="color: #e8b04b;">3</span>/9</span>
+    </div>
+    <div class="row">
+      <span class="mono" style="font-size: 11px; color: #6a6257;">02</span>
+      <span class="serif" style="font-size: 21px; color: #f6f1e6;">How does TCP make an unreliable network reliable? <span class="mono" style="font-size: 10.5px; color: #6a6257; margin-left: 12px;">done · yesterday · claude code</span></span>
+      <span class="mono" style="font-size: 11px; color: #8d8477;"><span style="color: #e8b04b;">7</span>/7</span>
     </div>
   </div>
 </div>

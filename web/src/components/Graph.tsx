@@ -12,7 +12,6 @@ import {
   type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Check } from 'lucide-react';
 import { memo, useEffect, useMemo } from 'react';
 import type { GraphNode } from '../lib/types';
 
@@ -73,7 +72,6 @@ export const DeriveNode = memo(function DeriveNode({ data }: NodeProps<RFNode>) 
       <Handle type="source" position={Position.Top} />
       {kind === 'truth' && status !== 'locked' && <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-gold-500" />}
       <span className="line-clamp-2">{label}</span>
-      {status === 'locked' && !due && <Check size={13} className="absolute right-2 top-2" />}
     </div>
   );
 });

@@ -83,7 +83,7 @@ export function LessonPage() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-[radial-gradient(1200px_600px_at_8%_-10%,rgba(232,176,75,0.07),transparent_60%)]">
+    <div className="h-full flex flex-col">
       <header className="flex items-center gap-5 px-5 md:px-6 h-[60px] border-b hairline shrink-0">
         <Link to="/" className="text-ink-400 hover:text-ink-50 transition-colors" title="All lessons">
           <ArrowLeft size={18} strokeWidth={1.8} />

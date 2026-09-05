@@ -1,16 +1,20 @@
-import { ArrowRight, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Graph } from '../components/Graph';
 import { api } from '../lib/api';
-import type { LessonSummary, Stats } from '../lib/types';
+import type { GraphNode, Lesson, LessonSummary, NodeRow, Stats } from '../lib/types';
 
-const SUGGESTIONS = [
-  'Why does gradient descent work?',
-  'What is a monad, really?',
-  'How does TCP make an unreliable network reliable?',
-  'Why does public-key cryptography work?',
-  'How do transformers attend?',
-  'Why is the sky blue?',
+const TRY = ['Why does gradient descent work?', 'How does TCP make an unreliable network reliable?', 'What is a monad, really?'];
+
+/** Shown to a brand-new learner so the hero is never an empty box. */
+const EXAMPLE: GraphNode[] = [
+  { id: 'packets', label: 'All communication is packets', kind: 'truth', depends_on: [], status: 'locked' },
+  { id: 'loss', label: 'Packets can be lost', kind: 'truth', depends_on: [], status: 'locked' },
+  { id: 'seq', label: 'Sequence numbers give order', kind: 'derived', depends_on: ['packets'], status: 'locked' },
+  { id: 'ack', label: 'Acks + retransmit recover loss', kind: 'derived', depends_on: ['loss', 'seq'], status: 'teaching' },
+  { id: 'window', label: 'A window keeps the pipe full', kind: 'derived', depends_on: ['ack'], status: 'pending' },
+  { id: 'goal', label: 'A reliable byte stream', kind: 'goal', depends_on: ['window'], status: 'pending' },
 ];
 
 export function HomePage() {
@@ -18,12 +22,22 @@ export function HomePage() {
   const [topic, setTopic] = useState('');
   const [lessons, setLessons] = useState<LessonSummary[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [recent, setRecent] = useState<{ lesson: Lesson; nodes: GraphNode[] } | null>(null);
   const [starting, setStarting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const refresh = () => {
-    api.lessons().then(setLessons).catch(() => undefined);
     api.stats().then(setStats).catch(() => undefined);
+    api
+      .lessons()
+      .then(async (ls) => {
+        setLessons(ls);
+        const last = ls.find((l) => l.nodes > 0);
+        if (!last) return setRecent(null);
+        const d = await api.lesson(last.id);
+        setRecent({ lesson: d.lesson, nodes: toGraph(d.nodes) });
+      })
+      .catch(() => undefined);
   };
   useEffect(refresh, []);
 
@@ -50,120 +64,138 @@ export function HomePage() {
   };
 
   const acc = stats && stats.quizzes ? Math.round((100 * stats.correct) / stats.quizzes) : null;
-  const hasHistory = !!stats && (stats.lessons > 0 || stats.due > 0);
+  const heroNodes = recent?.nodes ?? EXAMPLE;
+  const heroLocked = useMemo(() => heroNodes.filter((n) => n.status === 'locked').length, [heroNodes]);
 
   return (
-    <div className="min-h-full overflow-y-auto scroll-thin bg-[radial-gradient(900px_520px_at_12%_10%,rgba(232,176,75,0.09),transparent_62%)]">
-      <div className={`mx-auto px-6 md:px-[72px] pt-14 md:pt-16 pb-16 grid gap-x-20 gap-y-14 ${hasHistory ? 'max-w-[1440px] lg:grid-cols-[minmax(0,1fr)_520px]' : 'max-w-[980px]'}`}>
-        <div className="flex flex-col min-h-[calc(100vh-8rem)]">
-          <div className="flex items-center gap-3">
-            <Logo />
-            <span className="eyebrow text-ink-300">Derive</span>
-            <span className="eyebrow ml-auto hidden sm:inline">Runs on your Claude subscription</span>
+    <div className="min-h-full overflow-y-auto scroll-thin">
+      <div className="mx-auto max-w-[1440px] px-6 md:px-14 pt-7 pb-10 flex flex-col min-h-full">
+        {/* Masthead */}
+        <header className="flex items-baseline justify-between pb-4 border-b border-ink-100/14">
+          <div className="flex items-baseline gap-3.5">
+            <span className="font-serif text-[26px] tracking-[-0.01em] text-ink-50">Derive</span>
+            <span className="font-mono text-[11px] text-ink-500">v0.2</span>
           </div>
+          <nav className="hidden md:flex gap-8 font-mono text-[11px] tracking-[0.06em] text-ink-400">
+            <Link to="/atlas" className="hover:text-ink-50">atlas</Link>
+            <a href="https://github.com/jicanta/derive#inside-claude-code" className="hover:text-ink-50">claude code plugin</a>
+            <a href="https://github.com/jicanta/derive" className="hover:text-ink-50">github</a>
+            <span className="text-ink-500">runs on your claude subscription</span>
+          </nav>
+        </header>
 
-          <h1 className="font-serif text-[3.2rem] md:text-[5.25rem] leading-[0.98] tracking-[-0.02em] text-ink-50 mt-16 md:mt-24 max-w-[16ch] text-balance">
-            Understand it from the ground up, <em className="text-gold-500">not memorize it.</em>
-          </h1>
-          <p className="mt-7 max-w-[56ch] text-[17px] md:text-lg leading-relaxed text-ink-300">
-            Derive finds the edge of what you already know, draws the dependency map from unconditional truths to your goal, and teaches one node at a time. It does not move on until each one locks.
-          </p>
+        {/* Hero */}
+        <section className="grid lg:grid-cols-[minmax(0,560px)_minmax(0,1fr)] gap-x-[72px] gap-y-14 pt-12 md:pt-14 flex-1">
+          <div className="flex flex-col">
+            <h1 className="font-serif text-[2.6rem] md:text-[3.9rem] leading-[1.02] tracking-[-0.02em] text-ink-50 text-balance">
+              A tutor that finds where your understanding ends, and builds from there.
+            </h1>
+            <p className="mt-6 max-w-[46ch] text-[17px] leading-[1.6] text-ink-300">
+              It probes until it knows what you hold and what you don't. It draws the map from unconditional truths to your goal. Then it teaches one node at a time, and will not move on until each one locks.
+            </p>
 
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void start(topic);
-            }}
-            className="mt-12 flex items-center gap-4 h-[66px] pl-5 pr-2.5 rounded-[18px] border border-ink-100/16 bg-ink-900/85 shadow-[0_40px_80px_-50px_rgba(232,176,75,0.35)] focus-within:border-gold-500/50 transition-colors"
-          >
-            <span className="font-mono text-lg text-gold-500">›</span>
-            <input
-              autoFocus
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="What do you want to actually understand?"
-              className="flex-1 bg-transparent font-serif text-[1.35rem] md:text-2xl outline-none placeholder:text-ink-400 text-ink-50 min-w-0"
-            />
-            <button
-              type="submit"
-              disabled={!topic.trim() || starting}
-              className="inline-flex items-center gap-2.5 h-[46px] px-[18px] rounded-[13px] bg-gold-500 text-[#17130b] font-semibold text-sm hover:bg-gold-400 disabled:opacity-40 transition-colors"
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void start(topic);
+              }}
+              className="mt-12 flex items-baseline gap-4 border-b border-ink-100/40 focus-within:border-gold-500 pb-3 transition-colors"
             >
-              {starting ? 'Starting' : 'Start'} <ArrowRight size={14} strokeWidth={2.2} />
-            </button>
-          </form>
-          {err && <p className="mt-2 text-sm text-rust-400">{err}</p>}
-
-          <div className="mt-7 grid sm:grid-cols-2 gap-x-10 max-w-[640px]">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => void start(s)}
-                className="group flex items-center gap-3 py-2.5 border-b hairline text-left font-serif italic text-[1.15rem] text-ink-300 hover:text-ink-50 hover:border-gold-500/60 transition-colors"
-              >
-                <span className="flex-1">{s}</span>
-                <span className="font-mono not-italic text-[11px] text-ink-500 group-hover:text-gold-500">→</span>
+              <span className="font-mono text-xl text-gold-500">›</span>
+              <input
+                autoFocus
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="What do you want to actually understand?"
+                disabled={starting}
+                className="flex-1 min-w-0 bg-transparent font-serif text-[1.6rem] md:text-[1.9rem] leading-tight text-ink-50 outline-none placeholder:text-ink-50/90 disabled:opacity-50"
+              />
+              <button type="submit" disabled={!topic.trim() || starting} className="font-mono text-[11px] tracking-[0.12em] uppercase text-ink-400 hover:text-gold-500 disabled:hover:text-ink-400 transition-colors">
+                {starting ? 'starting' : 'enter ↵'}
               </button>
-            ))}
-          </div>
+            </form>
+            {err && <p className="mt-2 text-sm text-rust-400">{err}</p>}
 
-          <div className="mt-auto pt-16 flex flex-wrap gap-x-7 gap-y-1 font-mono text-[11px] text-ink-500">
-            <span>probe → plan → teach</span>
-            <span>local · sqlite · claude agent sdk</span>
-            <Link to="/atlas" className="hover:text-ink-200">atlas ↗</Link>
-            <a href="https://github.com/jicanta/derive" className="ml-auto text-gold-600 hover:text-gold-400">github.com/jicanta/derive</a>
-          </div>
-        </div>
-
-        {hasHistory && stats && (
-          <div className="flex flex-col lg:pt-[150px]">
-            <div className="grid grid-cols-3 border-y border-ink-100/14">
-              <div className="py-[18px] pr-4">
-                <div className="eyebrow">Nodes locked</div>
-                <div className="font-serif text-[52px] leading-none text-gold-500 mt-2.5">{stats.locked}</div>
-              </div>
-              <div className="py-[18px] px-5 border-l hairline">
-                <div className="eyebrow">Accuracy</div>
-                <div className="font-serif text-[52px] leading-none text-ink-50 mt-2.5">
-                  {acc === null ? '–' : acc}
-                  {acc !== null && <span className="text-[26px] text-ink-400">%</span>}
-                </div>
-              </div>
-              <button type="button" onClick={review} disabled={stats.due === 0} className="py-[18px] pl-5 border-l hairline text-left group disabled:cursor-default">
-                <div className={`eyebrow ${stats.due ? 'text-teal-400' : ''}`}>Due today</div>
-                <div className="flex items-baseline gap-2.5 mt-2.5">
-                  <div className={`font-serif text-[52px] leading-none ${stats.due ? 'text-teal-400' : 'text-ink-500'}`}>{stats.due}</div>
-                  {stats.due > 0 && <span className="font-mono text-[10px] tracking-[0.14em] uppercase text-teal-400 group-hover:underline">review ↗</span>}
-                </div>
-              </button>
+            <div className="mt-7">
+              <div className="eyebrow mb-1">Or start from one of these</div>
+              {TRY.map((t) => (
+                <button key={t} type="button" onClick={() => void start(t)} className="block w-full text-left py-2.5 border-t border-ink-100/10 font-serif text-[1.2rem] text-ink-300 hover:text-ink-50 transition-colors">
+                  {t}
+                </button>
+              ))}
             </div>
 
-            <div className="mt-11 flex items-baseline justify-between">
-              <span className="eyebrow">Your lessons</span>
-              <Link to="/atlas" className="eyebrow hover:text-ink-100">Atlas ↗</Link>
+            {stats && stats.lessons > 0 && (
+              <div className="mt-auto pt-10 flex flex-wrap gap-x-6 gap-y-1 font-mono text-[11px] text-ink-400">
+                <span>
+                  <span className="text-gold-500">{stats.locked}</span> nodes locked
+                </span>
+                {acc !== null && (
+                  <span>
+                    <span className="text-ink-100">{acc}%</span> first-try
+                  </span>
+                )}
+                {stats.due > 0 ? (
+                  <button type="button" onClick={review} className="text-teal-400 hover:underline">
+                    {stats.due} due today → review
+                  </button>
+                ) : (
+                  <span className="text-ink-500">nothing due today</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="lg:border-l border-ink-100/10 lg:pl-12 flex flex-col min-h-[520px]">
+            <div className="flex items-baseline justify-between gap-6">
+              <div className="min-w-0">
+                <div className="eyebrow">{recent ? 'Where you left off' : 'What a lesson builds'}</div>
+                <div className="font-serif text-[1.5rem] text-ink-50 mt-1.5 truncate">{recent ? recent.lesson.topic : 'How does TCP make an unreliable network reliable?'}</div>
+              </div>
+              <div className="font-mono text-[11px] text-ink-400 whitespace-nowrap">
+                <span className="text-gold-500">{heroLocked}</span> / {heroNodes.length} locked
+                {recent && (
+                  <>
+                    {' · '}
+                    <Link to={`/lesson/${recent.lesson.id}`} className="text-ink-100 hover:text-gold-500">
+                      continue →
+                    </Link>
+                  </>
+                )}
+              </div>
             </div>
-            <ul className="mt-2.5">
+            <div className="flex-1 min-h-[440px] mt-2 -ml-3">
+              <Graph nodes={heroNodes} />
+            </div>
+            <div className="flex gap-5 font-mono text-[10px] tracking-[0.06em] text-ink-500">
+              <span>■ locked</span>
+              <span className="text-teal-400">◌ teaching</span>
+              <span>□ pending</span>
+              {!recent && <span className="ml-auto">example · your own lessons appear here</span>}
+            </div>
+          </div>
+        </section>
+
+        {/* Index */}
+        {lessons.length > 0 && (
+          <section className="mt-10">
+            <div className="eyebrow mb-1.5">Your lessons</div>
+            <ul>
               {lessons.map((l, i) => (
-                <li key={l.id} className="group grid grid-cols-[34px_minmax(0,1fr)_auto_auto] items-center gap-4 h-[62px] border-b hairline">
+                <li key={l.id} className="group grid grid-cols-[34px_minmax(0,1fr)_auto] items-baseline gap-4 py-3.5 border-t border-ink-100/10">
                   <span className="font-mono text-[11px] text-ink-500">{String(i + 1).padStart(2, '0')}</span>
-                  <Link to={`/lesson/${l.id}`} className="min-w-0">
-                    <div className="font-serif text-[21px] text-ink-50 truncate group-hover:text-gold-400 transition-colors">{l.topic}</div>
-                    <div className="font-mono text-[10.5px] text-ink-500 mt-0.5">
+                  <Link to={`/lesson/${l.id}`} className="min-w-0 flex flex-wrap items-baseline gap-x-3">
+                    <span className="font-serif text-[1.3rem] text-ink-50 group-hover:text-gold-400 transition-colors">{l.topic}</span>
+                    <span className="font-mono text-[10.5px] text-ink-500">
                       {l.phase} · {timeAgo(l.updated_at)}
-                      {l.mode === 'external' && <span> · claude code</span>}
+                      {l.mode === 'external' && ' · claude code'}
                       {l.busy && <span className="text-teal-400"> · live</span>}
                       {l.shaky > 0 && <span className="text-rust-400"> · {l.shaky} shaky</span>}
-                    </div>
+                    </span>
                   </Link>
-                  <div className="hidden sm:flex gap-[3px]">
-                    {[...Array(Math.min(l.nodes, 12))].map((_, k) => (
-                      <span key={k} className={`h-3.5 w-[5px] rounded-[2px] ${k < l.locked ? 'bg-gold-500' : 'bg-ink-700'}`} />
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-3">
+                  <span className="flex items-baseline gap-4">
                     {l.nodes > 0 && (
-                      <span className="font-mono text-[11px] text-ink-400 w-10 text-right">
+                      <span className="font-mono text-[11px] text-ink-400">
                         <span className="text-gold-500">{l.locked}</span>/{l.nodes}
                       </span>
                     )}
@@ -173,30 +205,41 @@ export function HomePage() {
                       onClick={() => {
                         if (confirm(`Delete "${l.topic}"?`)) api.deleteLesson(l.id).then(refresh);
                       }}
-                      className="opacity-0 group-hover:opacity-100 text-ink-500 hover:text-rust-400 transition-all"
+                      className="opacity-0 group-hover:opacity-100 text-ink-500 hover:text-rust-400 transition-all self-center"
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={13} />
                     </button>
-                  </div>
+                  </span>
                 </li>
               ))}
             </ul>
-          </div>
+          </section>
+        )}
+
+        {lessons.length === 0 && (
+          <section className="mt-12 grid sm:grid-cols-3 gap-8 border-t border-ink-100/14 pt-6">
+            {[
+              ['01', 'Probe', 'Graded questions, escalating until one breaks. It needs a floor and a ceiling on every strand before it plans.'],
+              ['02', 'Plan', 'A dependency map: unconditional truths at the roots, your goal at the top. You approve it before anything is taught.'],
+              ['03', 'Teach', 'One node at a time. Motivate, establish, connect, check. Miss twice and it backs up to what the node rests on.'],
+            ].map(([n, t, d]) => (
+              <div key={n}>
+                <div className="flex items-baseline gap-3">
+                  <span className="font-serif text-[2rem] text-ink-600 leading-none">{n}</span>
+                  <span className="font-serif text-[1.35rem] text-ink-50">{t}</span>
+                </div>
+                <p className="mt-2 text-[14px] leading-relaxed text-ink-400">{d}</p>
+              </div>
+            ))}
+          </section>
         )}
       </div>
     </div>
   );
 }
 
-export function Logo({ size = 20 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden>
-      <path d="M50 34 L27 66 M50 34 L73 66" stroke="#efe9dc" strokeWidth="6" strokeLinecap="round" />
-      <circle cx="50" cy="24" r="11" fill="#e8b04b" />
-      <circle cx="27" cy="76" r="11" fill="#efe9dc" />
-      <circle cx="73" cy="76" r="11" fill="#efe9dc" />
-    </svg>
-  );
+function toGraph(rows: NodeRow[]): GraphNode[] {
+  return rows.map((r) => ({ id: r.node_id, label: r.label, kind: r.kind, summary: r.summary, depends_on: JSON.parse(r.depends_on || '[]'), status: r.status }));
 }
 
 function timeAgo(ts: number) {

@@ -106,7 +106,7 @@ export function AtlasPage() {
   const open = atlas?.misconceptions.filter((m) => !m.resolved).slice(0, 4) ?? [];
 
   return (
-    <div className="h-full flex flex-col bg-[radial-gradient(1100px_700px_at_40%_50%,rgba(232,176,75,0.05),transparent_65%)]">
+    <div className="h-full flex flex-col">
       <header className="flex items-center gap-5 px-5 md:px-6 h-[60px] border-b hairline shrink-0">
         <Link to="/" className="text-ink-400 hover:text-ink-50 transition-colors">
           <ArrowLeft size={18} strokeWidth={1.8} />
