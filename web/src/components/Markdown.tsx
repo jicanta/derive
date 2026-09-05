@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useRef, useState } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
@@ -65,7 +65,17 @@ function Mermaid({ code, done }: { code: string; done: boolean }) {
   return <div ref={ref} className="mermaid-box rounded-xl border border-ink-700 bg-ink-900 p-3 flex justify-center" />;
 }
 
+/**
+ * remark-math treats a single-line `$$...$$` as inline math. Models write
+ * display math that way constantly, so promote any line that is entirely a
+ * `$$...$$` expression into a real display block.
+ */
+function promoteDisplayMath(md: string) {
+  return md.replace(/^[ \t]*\$\$([^\n]+?)\$\$[ \t]*$/gm, (_m, inner: string) => `$$\n${inner.trim()}\n$$`);
+}
+
 export const Markdown = memo(function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
+  const source = useMemo(() => promoteDisplayMath(text), [text]);
   return (
     <div className="prose">
       <ReactMarkdown
@@ -91,7 +101,7 @@ export const Markdown = memo(function Markdown({ text, streaming = false }: { te
           },
         }}
       >
-        {text}
+        {source}
       </ReactMarkdown>
     </div>
   );
