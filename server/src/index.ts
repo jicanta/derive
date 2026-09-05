@@ -33,8 +33,16 @@ import { answerPrompt, cancelPending, hasPending, pendingId } from './prompts.js
 const app = new Hono();
 app.use('/api/*', cors());
 
-/** External (Claude Code) lessons are "busy" whenever a prompt is waiting. */
-const busy = (id: string) => isBusy(id) || (getLesson(id)?.mode === 'external' && hasPending(id));
+/** External (Claude Code) lessons are "busy" from turn_start until the Stop hook posts turn_end. */
+const busy = (id: string) => {
+  if (isBusy(id)) return true;
+  const lesson = getLesson(id);
+  if (lesson?.mode !== 'external') return false;
+  if (hasPending(id)) return true;
+  const events = listEvents(id);
+  const last = [...events].reverse().find((e) => e.type === 'turn_start' || e.type === 'turn_end');
+  return last?.type === 'turn_start';
+};
 
 const lessonView = (id: string) => {
   const lesson = getLesson(id);

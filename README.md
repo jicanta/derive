@@ -65,7 +65,7 @@ Optional configuration lives in environment variables; see [`.env.example`](.env
 
 The `plugin/` directory is a Claude Code plugin. It ships:
 
-- **`/learn <topic>`** and **`/review`** commands
+- **`/derive:learn <topic>`** and **`/derive:review`** commands
 - the **`teach` skill**: the full method (below), written for Claude Code
 - an **MCP server** exposing the tutor's tools: `quiz`, `ask`, `set_plan`, `node_status`, `explain_back`, `remember`, `learner_profile`
 - **hooks** that mirror every terminal turn into the lesson log, so the browser companion shows the prose, the cards and the graph as one record
@@ -74,7 +74,7 @@ The `plugin/` directory is a Claude Code plugin. It ships:
 pnpm build                      # builds the MCP server the plugin points at
 pnpm start                      # keep the Derive server running
 claude --plugin-dir ./plugin    # in any project
-> /learn why does gradient descent work
+> /derive:learn why does gradient descent work
 ```
 
 <p align="center">
