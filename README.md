@@ -31,7 +31,7 @@ Derive is built around that one idea. Every lesson is a **dependency graph**: a 
 It runs two ways, and they share one record:
 
 - **The app.** A local web app with its own tutor, built on the Claude Agent SDK. Type a topic, get taught.
-- **Inside Claude Code.** A plugin that adds `/learn` and the teaching method to your terminal. Claude Code teaches; the browser renders the quizzes, the plan and the graph live, the way the original [learn](https://github.com/amosblomqvist/learn) tool mirrored a pi session into Obsidian.
+- **Inside Claude Code.** A plugin that adds `/derive:learn` and the teaching method to your terminal. Claude Code teaches; the browser renders the quizzes, the plan and the graph live, the way the original [learn](https://github.com/amosblomqvist/learn) tool mirrored a pi session into Obsidian.
 
 Both run on your Claude subscription. No API key, no per-token bill, everything in a SQLite file on your machine.
 
