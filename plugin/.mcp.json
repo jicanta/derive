@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "derive": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/../server/dist/mcp.js"],
+      "env": { "DERIVE_URL": "http://localhost:4310" }
+    }
+  }
+}

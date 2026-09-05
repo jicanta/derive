@@ -1,0 +1,10 @@
+{
+  "name": "derive",
+  "version": "0.2.0",
+  "description": "Learn anything from first principles inside Claude Code. /learn <topic> runs a probe -> plan -> teach lesson in your terminal while the Derive companion renders quizzes, the plan and the live dependency graph in the browser.",
+  "author": { "name": "Ignacio Cantarella", "url": "https://github.com/jicanta" },
+  "homepage": "https://github.com/jicanta/derive",
+  "repository": "https://github.com/jicanta/derive",
+  "license": "MIT",
+  "keywords": ["learning", "tutor", "first-principles", "spaced-repetition", "education"]
+}

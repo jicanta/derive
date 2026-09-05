@@ -1,4 +1,4 @@
-import { ArrowRight, RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowRight, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
@@ -6,8 +6,8 @@ import type { LessonSummary, Stats } from '../lib/types';
 
 const SUGGESTIONS = [
   'Why does gradient descent work?',
-  'How does TCP make an unreliable network reliable?',
   'What is a monad, really?',
+  'How does TCP make an unreliable network reliable?',
   'Why does public-key cryptography work?',
   'How do transformers attend?',
   'Why is the sky blue?',
@@ -50,150 +50,151 @@ export function HomePage() {
   };
 
   const acc = stats && stats.quizzes ? Math.round((100 * stats.correct) / stats.quizzes) : null;
+  const hasHistory = !!stats && (stats.lessons > 0 || stats.due > 0);
 
   return (
-    <div className="min-h-full overflow-y-auto scroll-thin">
-      <div className="mx-auto max-w-[880px] px-5 py-14 md:py-20">
-        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-ink-400 mb-6">
-          <Logo /> Derive
-        </div>
-        <h1 className="font-serif text-[2.6rem] md:text-[3.6rem] leading-[1.05] text-ink-50 tracking-[-0.01em] max-w-[16ch]">
-          Understand it from the ground up, <em className="text-gold-400">not memorize it.</em>
-        </h1>
-        <p className="mt-5 text-ink-300 max-w-[58ch] text-[1.05rem] leading-relaxed">
-          Derive finds the edge of what you already know, draws the dependency map from unconditional truths to your goal, then teaches one
-          node at a time and won't move on until each one locks.
-        </p>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void start(topic);
-          }}
-          className="mt-9 flex items-center gap-2 rounded-2xl border border-ink-700 bg-ink-900 p-2 pl-5 focus-within:border-gold-600/60 transition-colors"
-        >
-          <input
-            autoFocus
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="What do you want to actually understand?"
-            className="flex-1 bg-transparent py-2.5 text-lg outline-none placeholder:text-ink-500"
-          />
-          <button
-            type="submit"
-            disabled={!topic.trim() || starting}
-            className="inline-flex items-center gap-2 rounded-xl bg-gold-500 text-ink-950 px-4 py-2.5 font-medium hover:bg-gold-400 disabled:opacity-40 transition-colors"
-          >
-            {starting ? 'Starting' : 'Start'} <ArrowRight size={16} />
-          </button>
-        </form>
-        {err && <p className="mt-2 text-sm text-rust-400">{err}</p>}
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          {SUGGESTIONS.map((s) => (
-            <button key={s} type="button" onClick={() => void start(s)} className="rounded-full border border-ink-800 px-3 py-1 text-sm text-ink-300 hover:border-ink-500 hover:text-ink-100 transition-colors">
-              {s}
-            </button>
-          ))}
-        </div>
-
-        {stats && (stats.lessons > 0 || stats.due > 0) && (
-          <div className="mt-14 grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <Stat label="Nodes locked" value={stats.locked} accent />
-            <Stat label="Lessons" value={stats.lessons} />
-            <Stat label="Quiz accuracy" value={acc === null ? '–' : `${acc}%`} />
-            <button
-              type="button"
-              onClick={review}
-              disabled={stats.due === 0}
-              className="rounded-2xl border border-ink-800 bg-ink-900/60 p-4 text-left hover:border-teal-500/60 disabled:opacity-50 disabled:hover:border-ink-800 transition-colors group"
-            >
-              <div className="text-[11px] uppercase tracking-[0.16em] text-ink-400 flex items-center gap-1.5">
-                <RotateCcw size={12} /> Due for review
-              </div>
-              <div className="mt-1 font-serif text-3xl text-teal-400">{stats.due}</div>
-              <div className="text-xs text-ink-500 group-hover:text-ink-300">{stats.due ? 'Start a review session' : 'Nothing due today'}</div>
-            </button>
+    <div className="min-h-full overflow-y-auto scroll-thin bg-[radial-gradient(900px_520px_at_12%_10%,rgba(232,176,75,0.09),transparent_62%)]">
+      <div className={`mx-auto px-6 md:px-[72px] pt-14 md:pt-16 pb-16 grid gap-x-20 gap-y-14 ${hasHistory ? 'max-w-[1440px] lg:grid-cols-[minmax(0,1fr)_520px]' : 'max-w-[980px]'}`}>
+        <div className="flex flex-col min-h-[calc(100vh-8rem)]">
+          <div className="flex items-center gap-3">
+            <Logo />
+            <span className="eyebrow text-ink-300">Derive</span>
+            <span className="eyebrow ml-auto hidden sm:inline">Runs on your Claude subscription</span>
           </div>
-        )}
 
-        {lessons.length > 0 && (
-          <div className="mt-12">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-ink-400 mb-3">Your lessons</div>
-            <ul className="divide-y divide-ink-800 border-y border-ink-800">
-              {lessons.map((l) => (
-                <li key={l.id} className="group flex items-center gap-4 py-3">
-                  <Link to={`/lesson/${l.id}`} className="flex-1 min-w-0">
-                    <div className="font-serif text-xl text-ink-100 truncate group-hover:text-gold-400 transition-colors">{l.topic}</div>
-                    <div className="text-xs text-ink-500 mt-0.5 flex items-center gap-2">
-                      <span className="capitalize">{l.phase}</span>
-                      {l.nodes > 0 && (
-                        <>
-                          <span>·</span>
-                          <span>
-                            <span className="text-gold-400">{l.locked}</span>/{l.nodes} locked
-                          </span>
-                        </>
-                      )}
-                      <span>·</span>
-                      <span>{timeAgo(l.updated_at)}</span>
-                      {l.busy && <span className="text-teal-400">· live</span>}
+          <h1 className="font-serif text-[3.2rem] md:text-[5.25rem] leading-[0.98] tracking-[-0.02em] text-ink-50 mt-16 md:mt-24 max-w-[16ch] text-balance">
+            Understand it from the ground up, <em className="text-gold-500">not memorize it.</em>
+          </h1>
+          <p className="mt-7 max-w-[56ch] text-[17px] md:text-lg leading-relaxed text-ink-300">
+            Derive finds the edge of what you already know, draws the dependency map from unconditional truths to your goal, and teaches one node at a time. It does not move on until each one locks.
+          </p>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void start(topic);
+            }}
+            className="mt-12 flex items-center gap-4 h-[66px] pl-5 pr-2.5 rounded-[18px] border border-ink-100/16 bg-ink-900/85 shadow-[0_40px_80px_-50px_rgba(232,176,75,0.35)] focus-within:border-gold-500/50 transition-colors"
+          >
+            <span className="font-mono text-lg text-gold-500">›</span>
+            <input
+              autoFocus
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="What do you want to actually understand?"
+              className="flex-1 bg-transparent font-serif text-[1.35rem] md:text-2xl outline-none placeholder:text-ink-400 text-ink-50 min-w-0"
+            />
+            <button
+              type="submit"
+              disabled={!topic.trim() || starting}
+              className="inline-flex items-center gap-2.5 h-[46px] px-[18px] rounded-[13px] bg-gold-500 text-[#17130b] font-semibold text-sm hover:bg-gold-400 disabled:opacity-40 transition-colors"
+            >
+              {starting ? 'Starting' : 'Start'} <ArrowRight size={14} strokeWidth={2.2} />
+            </button>
+          </form>
+          {err && <p className="mt-2 text-sm text-rust-400">{err}</p>}
+
+          <div className="mt-7 grid sm:grid-cols-2 gap-x-10 max-w-[640px]">
+            {SUGGESTIONS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => void start(s)}
+                className="group flex items-center gap-3 py-2.5 border-b hairline text-left font-serif italic text-[1.15rem] text-ink-300 hover:text-ink-50 hover:border-gold-500/60 transition-colors"
+              >
+                <span className="flex-1">{s}</span>
+                <span className="font-mono not-italic text-[11px] text-ink-500 group-hover:text-gold-500">→</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-auto pt-16 flex flex-wrap gap-x-7 gap-y-1 font-mono text-[11px] text-ink-500">
+            <span>probe → plan → teach</span>
+            <span>local · sqlite · claude agent sdk</span>
+            <Link to="/atlas" className="hover:text-ink-200">atlas ↗</Link>
+            <a href="https://github.com/jicanta/derive" className="ml-auto text-gold-600 hover:text-gold-400">github.com/jicanta/derive</a>
+          </div>
+        </div>
+
+        {hasHistory && stats && (
+          <div className="flex flex-col lg:pt-[150px]">
+            <div className="grid grid-cols-3 border-y border-ink-100/14">
+              <div className="py-[18px] pr-4">
+                <div className="eyebrow">Nodes locked</div>
+                <div className="font-serif text-[52px] leading-none text-gold-500 mt-2.5">{stats.locked}</div>
+              </div>
+              <div className="py-[18px] px-5 border-l hairline">
+                <div className="eyebrow">Accuracy</div>
+                <div className="font-serif text-[52px] leading-none text-ink-50 mt-2.5">
+                  {acc === null ? '–' : acc}
+                  {acc !== null && <span className="text-[26px] text-ink-400">%</span>}
+                </div>
+              </div>
+              <button type="button" onClick={review} disabled={stats.due === 0} className="py-[18px] pl-5 border-l hairline text-left group disabled:cursor-default">
+                <div className={`eyebrow ${stats.due ? 'text-teal-400' : ''}`}>Due today</div>
+                <div className="flex items-baseline gap-2.5 mt-2.5">
+                  <div className={`font-serif text-[52px] leading-none ${stats.due ? 'text-teal-400' : 'text-ink-500'}`}>{stats.due}</div>
+                  {stats.due > 0 && <span className="font-mono text-[10px] tracking-[0.14em] uppercase text-teal-400 group-hover:underline">review ↗</span>}
+                </div>
+              </button>
+            </div>
+
+            <div className="mt-11 flex items-baseline justify-between">
+              <span className="eyebrow">Your lessons</span>
+              <Link to="/atlas" className="eyebrow hover:text-ink-100">Atlas ↗</Link>
+            </div>
+            <ul className="mt-2.5">
+              {lessons.map((l, i) => (
+                <li key={l.id} className="group grid grid-cols-[34px_minmax(0,1fr)_auto_auto] items-center gap-4 h-[62px] border-b hairline">
+                  <span className="font-mono text-[11px] text-ink-500">{String(i + 1).padStart(2, '0')}</span>
+                  <Link to={`/lesson/${l.id}`} className="min-w-0">
+                    <div className="font-serif text-[21px] text-ink-50 truncate group-hover:text-gold-400 transition-colors">{l.topic}</div>
+                    <div className="font-mono text-[10.5px] text-ink-500 mt-0.5">
+                      {l.phase} · {timeAgo(l.updated_at)}
+                      {l.mode === 'external' && <span> · claude code</span>}
+                      {l.busy && <span className="text-teal-400"> · live</span>}
+                      {l.shaky > 0 && <span className="text-rust-400"> · {l.shaky} shaky</span>}
                     </div>
                   </Link>
-                  {l.nodes > 0 && <MiniBar total={l.nodes} locked={l.locked} />}
-                  <button
-                    type="button"
-                    title="Delete lesson"
-                    onClick={() => {
-                      if (confirm(`Delete "${l.topic}"?`)) api.deleteLesson(l.id).then(refresh);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-ink-500 hover:text-rust-400 transition-all"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  <div className="hidden sm:flex gap-[3px]">
+                    {[...Array(Math.min(l.nodes, 12))].map((_, k) => (
+                      <span key={k} className={`h-3.5 w-[5px] rounded-[2px] ${k < l.locked ? 'bg-gold-500' : 'bg-ink-700'}`} />
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {l.nodes > 0 && (
+                      <span className="font-mono text-[11px] text-ink-400 w-10 text-right">
+                        <span className="text-gold-500">{l.locked}</span>/{l.nodes}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      title="Delete lesson"
+                      onClick={() => {
+                        if (confirm(`Delete "${l.topic}"?`)) api.deleteLesson(l.id).then(refresh);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-ink-500 hover:text-rust-400 transition-all"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
           </div>
         )}
-
-        <footer className="mt-20 text-xs text-ink-500 flex flex-wrap gap-x-6 gap-y-1">
-          <span>Runs locally on your Claude subscription via the Claude Agent SDK.</span>
-          <a href="https://github.com/jicanta/derive" className="hover:text-ink-300">
-            Source
-          </a>
-        </footer>
       </div>
     </div>
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: number | string; accent?: boolean }) {
+export function Logo({ size = 20 }: { size?: number }) {
   return (
-    <div className="rounded-2xl border border-ink-800 bg-ink-900/60 p-4">
-      <div className="text-[11px] uppercase tracking-[0.16em] text-ink-400">{label}</div>
-      <div className={`mt-1 font-serif text-3xl ${accent ? 'text-gold-400' : 'text-ink-100'}`}>{value}</div>
-    </div>
-  );
-}
-
-function MiniBar({ total, locked }: { total: number; locked: number }) {
-  return (
-    <div className="hidden sm:flex gap-0.5">
-      {[...Array(total)].map((_, i) => (
-        <span key={i} className={`h-4 w-1.5 rounded-sm ${i < locked ? 'bg-gold-500' : 'bg-ink-700'}`} />
-      ))}
-    </div>
-  );
-}
-
-function Logo() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 100 100" aria-hidden>
-      <circle cx="50" cy="22" r="12" fill="#f0c674" />
-      <circle cx="25" cy="78" r="12" fill="#ece7dd" />
-      <circle cx="75" cy="78" r="12" fill="#ece7dd" />
-      <path d="M50 34 L25 66 M50 34 L75 66" stroke="#ece7dd" strokeWidth="6" strokeLinecap="round" />
+    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden>
+      <path d="M50 34 L27 66 M50 34 L73 66" stroke="#efe9dc" strokeWidth="6" strokeLinecap="round" />
+      <circle cx="50" cy="24" r="11" fill="#e8b04b" />
+      <circle cx="27" cy="76" r="11" fill="#efe9dc" />
+      <circle cx="73" cy="76" r="11" fill="#efe9dc" />
     </svg>
   );
 }
@@ -205,6 +206,5 @@ function timeAgo(ts: number) {
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }

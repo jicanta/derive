@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { api } from './api';
 import type {
   AskPayload,
+  ExplainPayload,
   GraphNode,
   Lesson,
   NodeRow,
@@ -23,6 +24,7 @@ export type LessonState = {
   connected: boolean;
   error: string | null;
   lastCost: number | null;
+  verified: number;
 };
 
 type Action =
@@ -41,6 +43,7 @@ const initial: LessonState = {
   connected: false,
   error: null,
   lastCost: null,
+  verified: 0,
 };
 
 function rowsToNodes(rows: NodeRow[]): GraphNode[] {
@@ -60,7 +63,7 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
     case 'ready':
       return { ...s, busy: !!ev.payload?.busy, connected: true };
     case 'turn_start':
-      return { ...s, busy: true, status: 'Thinking', error: null };
+      return { ...s, busy: true, status: s.lesson?.mode === 'external' ? 'Teaching in your terminal' : 'Thinking', error: null };
     case 'turn_end': {
       const ok = ev.payload?.ok;
       return {
@@ -68,19 +71,16 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
         busy: false,
         status: null,
         lastCost: typeof ev.payload?.cost_usd === 'number' ? ev.payload.cost_usd : s.lastCost,
+        verified: s.verified + (typeof ev.payload?.verified === 'number' ? ev.payload.verified : 0),
         items: ok ? items : [...items, { kind: 'error', seq: ev.seq, text: String(ev.payload?.error ?? 'Turn failed') }],
       };
     }
     case 'status':
       return { ...s, status: String(ev.payload?.text ?? '') };
     case 'user':
-      return { ...s, items: [...items, { kind: 'user', seq: ev.seq, text: ev.payload.text }] };
+      return { ...s, items: [...items, { kind: 'user', seq: ev.seq, text: ev.payload.text, source: ev.payload.source }] };
     case 'block_start':
-      return {
-        ...s,
-        status: null,
-        items: [...items, { kind: 'assistant', seq: ev.seq, id: ev.payload.id, text: '', streaming: true }],
-      };
+      return { ...s, status: null, items: [...items, { kind: 'assistant', seq: ev.seq, id: ev.payload.id, text: '', streaming: true }] };
     case 'delta': {
       const idx = items.findIndex((i) => i.kind === 'assistant' && i.id === ev.payload.id);
       if (idx < 0) return { ...s, items: [...items, { kind: 'assistant', seq: ev.seq, id: ev.payload.id, text: ev.payload.text, streaming: true }] };
@@ -91,31 +91,31 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
     }
     case 'assistant': {
       const idx = items.findIndex((i) => i.kind === 'assistant' && i.id === ev.payload.id);
-      const final: TimelineItem = { kind: 'assistant', seq: ev.seq, id: ev.payload.id, text: ev.payload.text, streaming: false };
-      if (idx < 0) return { ...s, items: [...items, final] };
+      const final: TimelineItem = { kind: 'assistant', seq: ev.seq, id: ev.payload.id, text: ev.payload.text, streaming: false, source: ev.payload.source };
+      if (idx < 0) return { ...s, status: null, items: [...items, final] };
       const next = items.slice();
       next[idx] = final;
       return { ...s, items: next };
     }
     case 'quiz':
-      return { ...s, status: null, items: [...items, { kind: 'quiz', seq: ev.seq, quiz: ev.payload as QuizPayload }] };
+      return { ...s, status: null, busy: true, items: [...items, { kind: 'quiz', seq: ev.seq, quiz: ev.payload as QuizPayload }] };
     case 'quiz_result': {
       const r = ev.payload as QuizResultPayload;
       return { ...s, items: items.map((i) => (i.kind === 'quiz' && i.quiz.id === r.id ? { ...i, result: r } : i)) };
     }
     case 'ask':
-      return { ...s, status: null, items: [...items, { kind: 'ask', seq: ev.seq, ask: ev.payload as AskPayload }] };
+      return { ...s, status: null, busy: true, items: [...items, { kind: 'ask', seq: ev.seq, ask: ev.payload as AskPayload }] };
     case 'ask_result':
       return { ...s, items: items.map((i) => (i.kind === 'ask' && i.ask.id === ev.payload.id ? { ...i, answer: ev.payload.text } : i)) };
+    case 'explain':
+      return { ...s, status: null, busy: true, items: [...items, { kind: 'explain', seq: ev.seq, explain: ev.payload as ExplainPayload }] };
+    case 'explain_result':
+      return { ...s, items: items.map((i) => (i.kind === 'explain' && i.explain.id === ev.payload.id ? { ...i, answer: ev.payload.text } : i)) };
     case 'plan': {
       const p = ev.payload as PlanPayload;
       const prev = new Map(s.nodes.map((n) => [n.id, n]));
-      const nodes: GraphNode[] = p.nodes.map((n) => ({
-        ...n,
-        depends_on: n.depends_on ?? [],
-        status: prev.get(n.id)?.status ?? 'pending',
-      }));
-      return { ...s, status: null, nodes, items: [...items, { kind: 'plan', seq: ev.seq, plan: p }] };
+      const nodes: GraphNode[] = p.nodes.map((n) => ({ ...n, depends_on: n.depends_on ?? [], status: prev.get(n.id)?.status ?? 'pending' }));
+      return { ...s, status: null, busy: true, nodes, items: [...items, { kind: 'plan', seq: ev.seq, plan: p }] };
     }
     case 'plan_result':
       return {
@@ -129,33 +129,58 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
     case 'node_status': {
       const status = ev.payload.status as NodeStatus;
       const nodes = s.nodes.map((n) => (n.id === ev.payload.id ? { ...n, status } : n));
-      const label = nodes.find((n) => n.id === ev.payload.id)?.label ?? ev.payload.id;
-      const next: TimelineItem[] = status === 'teaching' ? items : [...items, { kind: 'node', seq: ev.seq, id: ev.payload.id, status, label }];
-      return { ...s, nodes, items: next };
+      const idx = nodes.findIndex((n) => n.id === ev.payload.id);
+      const label = nodes[idx]?.label ?? ev.payload.id;
+      const item: TimelineItem =
+        status === 'teaching'
+          ? { kind: 'node_start', seq: ev.seq, id: ev.payload.id, label, index: idx + 1, total: nodes.length }
+          : { kind: 'node', seq: ev.seq, id: ev.payload.id, status, label };
+      return { ...s, nodes, items: [...items, item] };
     }
+    case 'memory':
+      return { ...s, items: [...items, { kind: 'memory', seq: ev.seq, fact: ev.payload.fact }] };
     default:
       return s;
   }
+}
+
+/** Apply an event and stamp every newly appended item with its time, so the
+ *  timeline can be ordered by when things happened rather than when they
+ *  arrived (mirrored terminal prose can arrive after the quiz it preceded). */
+function apply(s: LessonState, ev: StoredEvent): LessonState {
+  const next = applyEvent(s, ev);
+  if (next.items.length > s.items.length) {
+    const at: number = typeof ev.payload?.at === 'number' ? ev.payload.at : ev.ts;
+    const items = next.items.slice();
+    for (let i = s.items.length; i < items.length; i++) items[i] = { ...items[i], at };
+    return { ...next, items };
+  }
+  return next;
 }
 
 function reducer(s: LessonState, a: Action): LessonState {
   switch (a.type) {
     case 'init': {
       let st: LessonState = { ...initial, lesson: a.lesson, nodes: rowsToNodes(a.nodes), phase: a.lesson.phase, busy: a.busy };
-      for (const ev of a.events) st = applyEvent(st, ev);
-      // History replay: nothing is streaming any more.
+      for (const ev of a.events) st = apply(st, ev);
       st.items = st.items.map((i) => (i.kind === 'assistant' ? { ...i, streaming: false } : i));
-      st.status = a.busy ? 'Thinking' : null;
+      st.busy = a.busy;
+      st.status = a.busy ? (a.lesson.mode === 'external' ? 'Teaching in your terminal' : 'Thinking') : null;
       return st;
     }
     case 'event':
-      return applyEvent(s, a.ev);
+      return apply(s, a.ev);
     case 'connected':
       return { ...s, connected: a.value };
     case 'error':
       return { ...s, error: a.text };
   }
 }
+
+const EVENT_TYPES = [
+  'ready', 'turn_start', 'turn_end', 'status', 'user', 'block_start', 'delta', 'assistant', 'quiz', 'quiz_result', 'ask', 'ask_result',
+  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'node_status', 'memory',
+];
 
 export function useLesson(id: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initial);
@@ -165,7 +190,6 @@ export function useLesson(id: string | undefined) {
     if (!id) return;
     let es: EventSource | null = null;
     let cancelled = false;
-
     api
       .lesson(id)
       .then((d) => {
@@ -175,12 +199,7 @@ export function useLesson(id: string | undefined) {
         es = new EventSource(`/api/lessons/${id}/stream?after=${lastSeq.current}`);
         es.onopen = () => dispatch({ type: 'connected', value: true });
         es.onerror = () => dispatch({ type: 'connected', value: false });
-        es.onmessage = () => undefined;
-        const types = [
-          'ready', 'turn_start', 'turn_end', 'status', 'user', 'block_start', 'delta', 'assistant', 'quiz', 'quiz_result',
-          'ask', 'ask_result', 'plan', 'plan_result', 'phase', 'node_status',
-        ];
-        for (const t of types) {
+        for (const t of EVENT_TYPES) {
           es.addEventListener(t, (m) => {
             const ev = JSON.parse((m as MessageEvent).data) as StoredEvent;
             if (ev.seq > 0) {
@@ -192,7 +211,6 @@ export function useLesson(id: string | undefined) {
         }
       })
       .catch((e) => dispatch({ type: 'error', text: e.message }));
-
     return () => {
       cancelled = true;
       es?.close();
@@ -200,10 +218,7 @@ export function useLesson(id: string | undefined) {
   }, [id]);
 
   const send = useCallback((text: string) => (id ? api.message(id, text) : Promise.reject()), [id]);
-  const answer = useCallback(
-    (promptId: string, a: Record<string, unknown>) => (id ? api.answer(id, promptId, a) : Promise.reject()),
-    [id],
-  );
+  const answer = useCallback((promptId: string, a: Record<string, unknown>) => (id ? api.answer(id, promptId, a) : Promise.reject()), [id]);
   const stop = useCallback(() => (id ? api.interrupt(id) : Promise.reject()), [id]);
 
   return { state, send, answer, stop };

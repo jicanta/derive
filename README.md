@@ -12,8 +12,9 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
+  <a href="#inside-claude-code">Inside Claude Code</a> ·
   <a href="#how-a-lesson-works">How a lesson works</a> ·
-  <a href="#why-this-works">Why this works</a> ·
+  <a href="#what-makes-it-smart">What makes it smart</a> ·
   <a href="#architecture">Architecture</a>
 </p>
 
@@ -21,51 +22,72 @@
 
 Most "AI tutors" are a chat box with a system prompt. They explain things well and you forget them in a week, because explanation is not the bottleneck. **Connection is.** A fact you can derive from things you already believe is a fact you keep. A fact you were merely told is a fact you lose.
 
-Derive is built around that single idea. Every lesson is a **dependency graph**: a few unconditional truths at the roots, derived steps hanging off them, your goal at the top. The tutor cannot teach a node until its dependencies are locked, and cannot lock a node until you have passed a fresh question on it. You watch the graph light up as your understanding is actually built.
+Derive is built around that one idea. Every lesson is a **dependency graph**: a few unconditional truths at the roots, derived steps hanging off them, your goal at the top. The tutor cannot teach a node until its dependencies are locked, and cannot lock a node until you have passed a fresh question on it. You watch the graph light up as your understanding is actually built.
 
 <p align="center">
-  <img src="docs/screenshot-lesson.png" alt="A Derive lesson: quiz cards on the left, the live dependency map on the right" width="900" />
+  <img src="docs/screenshot-lesson.png" alt="A Derive lesson: the transcript with a quiz card, and the live dependency map lighting up on the right" width="960" />
 </p>
 
-## What makes it different
+It runs two ways, and they share one record:
 
-- **Probe before teach.** The first minutes are diagnostic. The tutor binary-searches the edge of your knowledge with graded questions until it has both a floor and a ceiling on every strand the lesson rests on. All-correct means the questions were too easy; it escalates.
-- **A plan you approve.** Before any teaching, you get the dependency map. Wrong roots or wrong scope are cheap to fix here and expensive mid-lesson. Send it back with one line of feedback and it is redrawn.
-- **Honest grading.** Quizzes are a real tool, not a chat convention. The app grades your answer itself and reveals the explanation only afterwards. The model never sees your pick before the card is graded, and never grades it.
-- **Motivated, not decreed.** Every step answers "how could I have discovered this myself?" in the 3Blue1Brown tradition. Socratic when you can plausibly reason your way there, expository when you cannot.
-- **Verified facts.** The tutor is instructed to web-search anything it is even slightly unsure of before teaching it, and to say so if a check changes what it was about to say.
-- **Spaced repetition on nodes, not flashcards.** Locked nodes come back for review on an expanding schedule with a *new* question each time. Miss it and the node is marked shaky and re-derived from its dependencies.
-- **Renders properly.** LaTeX via KaTeX, diagrams via Mermaid, streaming markdown. Export any lesson as an Obsidian-ready note with callouts, or write it straight into your vault.
-- **Runs on your Claude subscription.** Built on the Claude Agent SDK, so it uses your existing Claude Code login. No API key, no per-token bill, everything stays on your machine in a SQLite file.
+- **The app.** A local web app with its own tutor, built on the Claude Agent SDK. Type a topic, get taught.
+- **Inside Claude Code.** A plugin that adds `/learn` and the teaching method to your terminal. Claude Code teaches; the browser renders the quizzes, the plan and the graph live, the way the original [learn](https://github.com/amosblomqvist/learn) tool mirrored a pi session into Obsidian.
+
+Both run on your Claude subscription. No API key, no per-token bill, everything in a SQLite file on your machine.
 
 ## Quick start
 
-Requirements: Node 22+, [pnpm](https://pnpm.io), and a logged-in [Claude Code](https://claude.com/claude-code) install (`claude` on your PATH, or `ANTHROPIC_API_KEY` set).
+Requirements: Node 22+, [pnpm](https://pnpm.io), and a logged-in [Claude Code](https://claude.com/claude-code).
 
 ```bash
 git clone https://github.com/jicanta/derive
 cd derive
 pnpm install
-pnpm dev
+pnpm dev            # web on http://localhost:5173, API on :4310
 ```
 
-Open http://localhost:5173 and type what you want to understand.
-
-For a single-process production build:
+Production build, one process:
 
 ```bash
-pnpm build
-pnpm start          # serves the UI and API on http://localhost:4310
+pnpm build && pnpm start     # http://localhost:4310
 ```
 
-Configuration is optional and lives in environment variables; see [`.env.example`](.env.example). The useful ones:
+Optional configuration lives in environment variables; see [`.env.example`](.env.example).
 
 | Variable | Default | What it does |
 |---|---|---|
 | `DERIVE_MODEL` | your Claude Code default | Model override, e.g. `claude-opus-5` |
-| `DERIVE_EFFORT` | `high` | Reasoning effort: `low` to `max` |
-| `DERIVE_VAULT_DIR` | unset | Obsidian folder; enables "To vault" export |
+| `DERIVE_EFFORT` | `high` | Reasoning effort, `low` to `max` |
+| `DERIVE_VAULT_DIR` | unset | Obsidian folder; enables one-click export into your vault |
 | `DERIVE_DATA_DIR` | `~/.derive` | Where the SQLite database lives |
+
+## Inside Claude Code
+
+The `plugin/` directory is a Claude Code plugin. It ships:
+
+- **`/learn <topic>`** and **`/review`** commands
+- the **`teach` skill**: the full method (below), written for Claude Code
+- an **MCP server** exposing the tutor's tools: `quiz`, `ask`, `set_plan`, `node_status`, `explain_back`, `remember`, `learner_profile`
+- **hooks** that mirror every terminal turn into the lesson log, so the browser companion shows the prose, the cards and the graph as one record
+
+```bash
+pnpm build                      # builds the MCP server the plugin points at
+pnpm start                      # keep the Derive server running
+claude --plugin-dir ./plugin    # in any project
+> /learn why does gradient descent work
+```
+
+<p align="center">
+  <img src="docs/screenshot-companion.png" alt="Companion mode: Claude Code in the terminal, Derive rendering the quiz and graph in the browser" width="960" />
+</p>
+
+Claude Code runs the lesson in your terminal. When it asks a graded question, the tool call blocks, the card appears in the browser, you answer there, and the answer flows back into the terminal conversation. The graph on the right lights up as nodes lock. Everything you learn this way lands in the same Atlas and the same review queue as app lessons.
+
+To wire only the MCP server without the plugin:
+
+```bash
+claude mcp add derive -- node /absolute/path/to/derive/server/dist/mcp.js
+```
 
 ## How a lesson works
 
@@ -81,10 +103,21 @@ flowchart LR
   E -->|goal locked| G[the click]
 ```
 
-1. **Probe.** The tutor asks what you actually want (an open question) and then quizzes you, adapting each question to the last answer, until it can say concretely what you have and where it ends.
-2. **Plan.** It writes a short paragraph on the approach and submits the dependency map. You approve it or send it back.
-3. **Teach.** For every node: motivate it, establish it (from its dependencies), connect it explicitly, then quiz-check it. The graph on the right shows the node you are on, what is locked, and what is shaky.
-4. **Review.** Locked nodes reappear on the home screen when due. A review session asks one fresh question per node.
+1. **Probe.** The tutor asks what you actually want (an open question), then quizzes you, adapting each question to the last answer, until it can say concretely what you have and where it ends. All-correct means the questions were too easy; it escalates.
+2. **Plan.** It writes a short paragraph on the approach and submits the dependency map. You approve it or send it back with one line of feedback.
+3. **Teach.** For every node: motivate it, establish it from its dependencies, connect it explicitly, quiz-check it. Miss twice and the node goes shaky and the tutor backs up to what it depends on.
+4. **Review.** Locked nodes come back when due, with a new question each time.
+
+## What makes it smart
+
+- **Honest grading.** Quizzes are a real tool, not a chat convention. The server grades your pick and reveals the explanation only afterwards. The model never grades its own questions and never sees your answer before the card is scored.
+- **A learner it remembers.** Every lesson starts with what Derive already knows about you: nodes locked in earlier topics, nodes that went shaky, misconceptions caught (the exact wrong claim you picked), and notes the tutor chose to keep. It builds on your floors and probes your ceilings first.
+- **Misconception tracking.** A wrong answer is stored as the claim you chose versus the claim that was right. It stays open until you lock the node it belongs to, and it shows up in the Atlas.
+- **Teach-back.** Once per lesson the tutor asks you to explain the key derived node in your own words, writing its rubric before it reads your answer.
+- **Cross-lesson Atlas.** All your nodes across all lessons on one canvas. The same truth appearing in two topics is drawn as a shared root. Due and shaky nodes are highlighted; review starts from there.
+- **Spaced repetition on nodes, not flashcards.** An expanding interval per node, bumped only by a fresh question. Miss it and the node is marked shaky and re-derived from its dependencies.
+- **Verified facts.** The tutor is instructed to web-search anything it is even slightly unsure of before teaching it, and to say so if a check changed what it was about to say.
+- **Renders properly.** KaTeX math, Mermaid diagrams, and inline SVG for geometry, all streaming. Export any lesson as an Obsidian note with callouts, or write it straight into your vault.
 
 ## Why this works
 
@@ -95,27 +128,29 @@ The brain will not fully commit to a fact it is not sure is safe to lock in. If 
 - **Unconditional truths first.** Facts with no caveats commit instantly and give solid ground to build on.
 - **Make it feel discovered, not decreed.** A fact with a visible reason it *had* to be this way stops feeling arbitrary, and arbitrary-feeling facts are the ones that rot.
 
-The teaching method comes from [amosblomqvist/learn](https://github.com/amosblomqvist/learn) and the talk [How I Use AI to Learn Things](https://www.youtube.com/watch?v=kzcI5F4tGiU). Derive turns that terminal workflow into a product: real quiz cards, a live graph, persistence, and review.
+The method comes from [amosblomqvist/learn](https://github.com/amosblomqvist/learn) and the talk [How I Use AI to Learn Things](https://www.youtube.com/watch?v=kzcI5F4tGiU). Derive turns that terminal workflow into a product and keeps the terminal.
 
 ## Architecture
 
 ```
 derive/
-├── server/   Node 22 + Hono + node:sqlite + Claude Agent SDK
-└── web/      Vite + React 19 + Tailwind 4 + React Flow + KaTeX + Mermaid
+├── server/   Node 22 · Hono · node:sqlite · Claude Agent SDK · MCP stdio server
+├── web/      Vite · React 19 · Tailwind 4 · React Flow · KaTeX · Mermaid
+├── plugin/   Claude Code plugin: commands, teach skill, hooks, .mcp.json
+└── design/   Claude Design canvas the UI was built from
 ```
 
-- **The tutor is an agent with five custom tools**, exposed to Claude through an in-process MCP server: `quiz`, `ask`, `set_plan`, `node_status`, `set_phase`. Plus `WebSearch` and `WebFetch` for verification. Nothing else: no filesystem, no shell.
-- **Tools block on you.** When the model calls `quiz`, the server emits a card to the browser and the tool call *waits* until you answer. The server grades the answer, records it, and only then returns the result to the model. The same pattern drives `ask` and plan approval.
-- **Event-sourced lessons.** Every turn is a stream of typed events (`assistant`, `quiz`, `quiz_result`, `plan`, `node_status`, ...) appended to SQLite and fanned out over Server-Sent Events. The UI is a reducer over that stream, so reloads, reconnects and the Obsidian export all replay the same log.
+- **One set of tutor actions, two drivers.** `server/src/actions.ts` implements `quiz`, `ask`, `set_plan`, `node_status`, `explain_back` and `remember`. The in-process agent calls them through an SDK MCP server; a Claude Code session calls them through the HTTP API via `server/src/mcp.ts`.
+- **Tools block on you.** A `quiz` call emits a card to the browser and waits until you answer. The server grades it, records it, and only then returns to the model.
+- **Event-sourced lessons.** Every turn is a stream of typed events appended to SQLite and fanned out over Server-Sent Events. The UI is a reducer over that stream, so reloads, reconnects, the Obsidian export and the terminal mirror all replay the same log.
 - **Conversation continuity** uses Agent SDK session resume: one SDK session per lesson, resumed on every turn.
-- **Spaced repetition** is a small expanding-interval schedule on `nodes.review_at`, bumped each time a node is locked from a fresh question.
+- **The mirror hook** (`plugin/hooks/mirror.mjs`) reads the Claude Code transcript on each turn and posts new prose to the active lesson, tracking what it has already sent per session.
 
 ## Roadmap
 
-- Voice mode for Socratic back-and-forth
-- Cross-lesson graph: nodes shared between topics, so a truth locked once is reused everywhere
+- Answer quizzes from the terminal as well as the browser
 - Import a PDF or a repo as the source material for a lesson
+- Voice mode for the Socratic back-and-forth
 - Multi-learner profiles
 
 ## License

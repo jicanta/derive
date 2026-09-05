@@ -40,6 +40,24 @@ db.exec(`
     reps INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (lesson_id, node_id)
   );
+  CREATE TABLE IF NOT EXISTS memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fact TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'learner',
+    lesson_id TEXT,
+    ts INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS misconceptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lesson_id TEXT NOT NULL,
+    node_id TEXT,
+    question TEXT NOT NULL,
+    picked TEXT NOT NULL,
+    correct TEXT NOT NULL,
+    explanation TEXT NOT NULL,
+    resolved INTEGER NOT NULL DEFAULT 0,
+    ts INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS quiz_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lesson_id TEXT NOT NULL,
@@ -49,12 +67,20 @@ db.exec(`
   );
 `);
 
+try {
+  db.exec("ALTER TABLE lessons ADD COLUMN mode TEXT NOT NULL DEFAULT 'agent'");
+} catch {
+  /* column exists */
+}
+
 export type Lesson = {
   id: string;
   topic: string;
   goal: string | null;
   session_id: string | null;
   phase: string;
+  /** 'agent': the built-in tutor runs it. 'external': a Claude Code session drives it through the API. */
+  mode: 'agent' | 'external';
   created_at: number;
   updated_at: number;
 };
@@ -77,8 +103,25 @@ export type StoredEvent = { seq: number; type: string; payload: unknown; ts: num
 
 const q = {
   insertLesson: db.prepare(
-    'INSERT INTO lessons (id, topic, created_at, updated_at) VALUES (?, ?, ?, ?)',
+    'INSERT INTO lessons (id, topic, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
   ),
+  lastExternal: db.prepare("SELECT * FROM lessons WHERE mode = 'external' ORDER BY created_at DESC LIMIT 1"),
+  insertMemory: db.prepare('INSERT INTO memory (fact, kind, lesson_id, ts) VALUES (?, ?, ?, ?)'),
+  listMemory: db.prepare('SELECT * FROM memory ORDER BY ts DESC LIMIT 60'),
+  insertMisconception: db.prepare(
+    'INSERT INTO misconceptions (lesson_id, node_id, question, picked, correct, explanation, ts) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ),
+  resolveMisconceptions: db.prepare('UPDATE misconceptions SET resolved = 1 WHERE lesson_id = ? AND node_id = ?'),
+  listMisconceptions: db.prepare(`
+    SELECT m.*, l.topic FROM misconceptions m JOIN lessons l ON l.id = m.lesson_id
+    ORDER BY m.resolved ASC, m.ts DESC LIMIT 40
+  `),
+  allNodes: db.prepare(`
+    SELECT n.*, l.topic, l.goal FROM nodes n JOIN lessons l ON l.id = n.lesson_id
+    ORDER BY l.created_at, n.rowid
+  `),
+  deleteMemoryByLesson: db.prepare('DELETE FROM memory WHERE lesson_id = ?'),
+  deleteMisByLesson: db.prepare('DELETE FROM misconceptions WHERE lesson_id = ?'),
   getLesson: db.prepare('SELECT * FROM lessons WHERE id = ?'),
   listLessons: db.prepare('SELECT * FROM lessons ORDER BY updated_at DESC'),
   touchLesson: db.prepare('UPDATE lessons SET updated_at = ? WHERE id = ?'),
@@ -123,10 +166,14 @@ const q = {
   `),
 };
 
-export function createLesson(id: string, topic: string): Lesson {
+export function createLesson(id: string, topic: string, mode: 'agent' | 'external' = 'agent'): Lesson {
   const now = Date.now();
-  q.insertLesson.run(id, topic, now, now);
+  q.insertLesson.run(id, topic, mode, now, now);
   return getLesson(id)!;
+}
+
+export function lastExternalLesson(): Lesson | undefined {
+  return q.lastExternal.get() as Lesson | undefined;
 }
 
 export function getLesson(id: string): Lesson | undefined {
@@ -138,6 +185,8 @@ export function listLessons(): Lesson[] {
 }
 
 export function deleteLesson(id: string) {
+  q.deleteMemoryByLesson.run(id);
+  q.deleteMisByLesson.run(id);
   q.deleteQuiz.run(id);
   q.deleteNodes.run(id);
   q.deleteEvents.run(id);
@@ -225,4 +274,89 @@ export function dueNodes(now = Date.now()) {
 
 export function stats() {
   return q.stats.get() as { lessons: number; locked: number; quizzes: number; correct: number };
+}
+
+export type MemoryRow = { id: number; fact: string; kind: string; lesson_id: string | null; ts: number };
+export type MisconceptionRow = {
+  id: number;
+  lesson_id: string;
+  node_id: string | null;
+  question: string;
+  picked: string;
+  correct: string;
+  explanation: string;
+  resolved: number;
+  ts: number;
+  topic: string;
+};
+
+export function addMemory(fact: string, kind: string, lessonId: string | null) {
+  q.insertMemory.run(fact, kind, lessonId, Date.now());
+}
+
+export function listMemory(): MemoryRow[] {
+  return q.listMemory.all() as MemoryRow[];
+}
+
+export function addMisconception(m: {
+  lessonId: string;
+  nodeId: string | null;
+  question: string;
+  picked: string;
+  correct: string;
+  explanation: string;
+}) {
+  q.insertMisconception.run(m.lessonId, m.nodeId, m.question, m.picked, m.correct, m.explanation, Date.now());
+}
+
+export function resolveMisconceptions(lessonId: string, nodeId: string) {
+  q.resolveMisconceptions.run(lessonId, nodeId);
+}
+
+export function listMisconceptions(): MisconceptionRow[] {
+  return q.listMisconceptions.all() as MisconceptionRow[];
+}
+
+export function allNodes(): (NodeRow & { topic: string; goal: string | null })[] {
+  return q.allNodes.all() as (NodeRow & { topic: string; goal: string | null })[];
+}
+
+/**
+ * A compact picture of the learner for the tutor's system prompt: what is
+ * locked (by topic), what is shaky or due, misconceptions caught, and facts
+ * the tutor chose to remember. Kept short on purpose.
+ */
+export function learnerProfile(currentLessonId?: string): string {
+  const nodes = allNodes().filter((n) => n.lesson_id !== currentLessonId);
+  const byTopic = new Map<string, { locked: string[]; shaky: string[] }>();
+  for (const n of nodes) {
+    if (!byTopic.has(n.topic)) byTopic.set(n.topic, { locked: [], shaky: [] });
+    const t = byTopic.get(n.topic)!;
+    if (n.status === 'locked') t.locked.push(n.label);
+    if (n.status === 'shaky') t.shaky.push(n.label);
+  }
+  const lines: string[] = [];
+  if (byTopic.size) {
+    lines.push('Locked in earlier lessons (you may build on these, but confirm they still hold if the lesson depends on them):');
+    for (const [topic, t] of byTopic) {
+      if (t.locked.length) lines.push(`- ${topic}: ${t.locked.join('; ')}`);
+      if (t.shaky.length) lines.push(`- ${topic} (SHAKY, re-derive before relying on): ${t.shaky.join('; ')}`);
+    }
+  }
+  const mis = listMisconceptions().filter((m) => !m.resolved && m.lesson_id !== currentLessonId).slice(0, 8);
+  if (mis.length) {
+    lines.push('Misconceptions caught before (unresolved; watch for them resurfacing):');
+    for (const m of mis) lines.push(`- In "${m.topic}": picked "${m.picked}" over "${m.correct}".`);
+  }
+  const mem = listMemory().slice(0, 20);
+  if (mem.length) {
+    lines.push('Notes you kept about this learner:');
+    for (const m of mem) lines.push(`- ${m.fact}`);
+  }
+  if (!lines.length) return '';
+  return `
+
+# What you already know about this learner
+${lines.join('\n')}
+`;
 }

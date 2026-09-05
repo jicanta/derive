@@ -1,0 +1,15 @@
+{
+  "artboards": [
+    { "file": "Home.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Home" },
+    { "file": "Main.dc.html", "x": 1540, "y": 0, "w": 1440, "h": 900, "title": "Lesson" },
+    { "file": "Atlas.dc.html", "x": 0, "y": 1040, "w": 1440, "h": 900, "title": "Atlas" },
+    { "file": "Companion.dc.html", "x": 1540, "y": 1040, "w": 1440, "h": 900, "title": "Companion (Claude Code)" },
+    { "file": "DirectionPaper.dc.html", "x": 0, "y": 2100, "w": 720, "h": 450, "title": "Direction B · Paper (alternate)" },
+    { "file": "DirectionTerminal.dc.html", "x": 820, "y": 2100, "w": 720, "h": 450, "title": "Direction C · Phosphor (alternate)" }
+  ],
+  "annotations": [
+    { "id": "direction-note", "x": 0, "y": -150, "w": 620, "text": "Direction A · Darkroom editorial (built). Warm ink blacks, paper text, one gold accent for 'locked' and teal for 'teaching'. Instrument Serif for display, Instrument Sans for UI, JetBrains Mono for labels. The lit graph is the product's signature: understanding you can watch being built.\n\nB and C below are low-fi alternates if you want a different stance." },
+    { "id": "companion-note", "x": 1540, "y": 2000, "w": 480, "text": "Companion mode is the Claude Code integration: a plugin with the teach skill, /learn, the derive MCP tools, and a Stop hook that mirrors terminal turns into the same lesson log the browser renders." }
+  ],
+  "launch": { "view": "canvas" }
+}

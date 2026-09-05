@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+  <style>
+    body { margin: 0; background: #f3eee3; color: #1c1915; font-family: 'Instrument Sans', system-ui, sans-serif; }
+    a { color: #8a5a12; } a:hover { color: #5e3d0a; }
+    .serif { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; }
+    .mono { font-family: 'JetBrains Mono', Menlo, monospace; }
+    .box { border: 1.5px solid #1c1915; border-radius: 10px; }
+    .sk { background: repeating-linear-gradient(0deg, transparent 0 9px, rgba(28,25,21,0.18) 9px 10px); }
+  </style>
+</helmet>
+<div style="position: relative; width: 720px; height: 450px; overflow: hidden; background: #f3eee3; padding: 22px 26px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px;">
+  <div style="display: flex; align-items: baseline; gap: 12px;">
+    <span class="mono" style="font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: #8a5a12;">Direction B · Paper</span>
+    <span class="serif" style="font-size: 20px; font-style: italic; color: #1c1915;">Light, printed-textbook feel. Ink on cream, one ochre accent.</span>
+  </div>
+  <div style="flex: 1; display: grid; grid-template-columns: 150px minmax(0, 1fr) 220px; gap: 14px;">
+    <div class="box" style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+      <span class="mono" style="font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase;">Outline</span>
+      <div style="height: 10px; width: 80%; background: #1c1915; opacity: 0.85;"></div>
+      <div style="height: 10px; width: 70%; background: #8a5a12;"></div>
+      <div style="height: 10px; width: 75%; border: 1px solid #1c1915;"></div>
+      <div style="height: 10px; width: 60%; border: 1px solid #1c1915;"></div>
+      <div style="height: 10px; width: 72%; border: 1px solid #1c1915;"></div>
+    </div>
+    <div class="box" style="padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+      <div class="serif" style="font-size: 22px; line-height: 1.1;">02 · The error is second order</div>
+      <div class="sk" style="height: 50px;"></div>
+      <div class="serif" style="font-style: italic; text-align: center; font-size: 18px;">f(x + d) − f(x) = ∫ ∇f(x + td)ᵀ d dt</div>
+      <div class="sk" style="height: 30px;"></div>
+      <div class="box" style="border-color: #8a5a12; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+        <span class="mono" style="font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: #8a5a12;">Quiz</span>
+        <div style="height: 8px; width: 90%; background: #1c1915; opacity: 0.7;"></div>
+        <div style="height: 20px; border: 1px solid #1c1915; border-radius: 6px;"></div>
+        <div style="height: 20px; border: 1.5px solid #8a5a12; border-radius: 6px; background: rgba(138,90,18,0.08);"></div>
+        <div style="height: 20px; border: 1px solid #1c1915; border-radius: 6px;"></div>
+      </div>
+    </div>
+    <div class="box" style="position: relative; padding: 12px;">
+      <span class="mono" style="font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase;">Map</span>
+      <svg width="196" height="300" viewBox="0 0 196 300" style="position: absolute; left: 12px; top: 30px;">
+        <g fill="none" stroke="#1c1915" stroke-width="1.2">
+          <path d="M98 250 L98 210"/><path d="M60 170 L98 210 L136 170"/><path d="M60 130 L60 170"/><path d="M136 130 L136 170"/><path d="M60 90 L98 60 L136 90"/><path d="M60 90 L60 130"/><path d="M136 90 L136 130"/>
+        </g>
+        <circle cx="98" cy="60" r="16" fill="none" stroke="#1c1915" stroke-width="1.5"/>
+        <rect x="40" y="76" width="40" height="26" rx="4" fill="none" stroke="#1c1915"/>
+        <rect x="116" y="76" width="40" height="26" rx="4" fill="none" stroke="#1c1915"/>
+        <rect x="40" y="118" width="40" height="26" rx="4" fill="none" stroke="#1c1915"/>
+        <rect x="116" y="118" width="40" height="26" rx="4" fill="none" stroke="#1c1915"/>
+        <rect x="78" y="196" width="40" height="26" rx="4" fill="none" stroke="#8a5a12" stroke-width="2"/>
+        <rect x="78" y="238" width="40" height="26" rx="4" fill="#8a5a12"/>
+      </svg>
+    </div>
+  </div>
+  <div class="mono" style="font-size: 10px; color: #5c5548;">Tradeoff: easier on the eyes for long reading; loses the "lit node" glow that makes progress feel physical.</div>
+</div>
+</x-dc>
+</body>
+</html>

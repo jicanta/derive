@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0e0c0a; color: #efe9dc; font-family: 'Instrument Sans', 'Helvetica Neue', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #e8b04b; text-decoration: none; } a:hover { color: #f1c46b; }
+    .serif { font-family: 'Instrument Serif', Georgia, 'Times New Roman', serif; font-weight: 400; }
+    .mono { font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace; }
+    .eyebrow { font-family: 'JetBrains Mono', Menlo, monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: #8d8477; }
+    .grain { position: absolute; inset: 0; pointer-events: none; opacity: 0.045; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+    .t { font-family: 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; line-height: 1.7; color: #cfc7b8; white-space: pre-wrap; margin: 0; }
+    .dim { color: #6a6257; }
+    .opt { display: flex; gap: 12px; align-items: flex-start; padding: 11px 14px; border: 1px solid rgba(239,233,220,0.1); border-radius: 12px; background: rgba(21,19,15,0.6); font-size: 13.5px; line-height: 1.45; }
+    .node { position: absolute; width: 132px; height: 40px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; line-height: 1.2; font-weight: 500; border-radius: 8px; border: 1px solid rgba(239,233,220,0.14); background: #15130f; color: #a89f92; padding: 0 8px; box-sizing: border-box; }
+    .node.locked { background: #e8b04b; border-color: #f1c46b; color: #17130b; box-shadow: 0 0 22px -6px rgba(232,176,75,0.55); }
+    .node.teaching { border-color: #7fc4c9; color: #efe9dc; }
+    .e { fill: none; stroke: rgba(239,233,220,0.14); stroke-width: 1.4; }
+    .e.gold { stroke: rgba(232,176,75,0.7); }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 1440px; height: 900px; overflow: hidden; background: radial-gradient(1000px 500px at 50% 110%, rgba(232,176,75,0.08), transparent 60%), #0e0c0a; padding: 44px 56px; box-sizing: border-box; display: flex; flex-direction: column; gap: 26px;">
+  <div class="grain"></div>
+
+  <div style="position: relative; display: flex; align-items: flex-end; justify-content: space-between;">
+    <div>
+      <div class="eyebrow">Companion mode</div>
+      <h2 class="serif" style="margin: 8px 0 0; font-size: 40px; line-height: 1.05; color: #f6f1e6; letter-spacing: -0.015em;">Teach in Claude Code. <em style="color: #8d8477;">See it built in the browser.</em></h2>
+    </div>
+    <div class="mono" style="font-size: 11.5px; color: #8d8477; text-align: right; line-height: 1.7;">claude plugin add derive<br><span class="dim">then</span> /learn "why does gradient descent work"</div>
+  </div>
+
+  <div style="position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 640px minmax(0, 1fr); gap: 28px;">
+
+    <!-- Terminal -->
+    <div style="border: 1px solid rgba(239,233,220,0.12); border-radius: 16px; background: #0a0908; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 50px 100px -60px rgba(0,0,0,1);">
+      <div style="display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-bottom: 1px solid rgba(239,233,220,0.08);">
+        <span style="width: 10px; height: 10px; border-radius: 999px; background: #2a2620;"></span>
+        <span style="width: 10px; height: 10px; border-radius: 999px; background: #2a2620;"></span>
+        <span style="width: 10px; height: 10px; border-radius: 999px; background: #2a2620;"></span>
+        <span class="mono" style="margin-left: 10px; font-size: 11px; color: #6a6257;">claude — ~/learning</span>
+      </div>
+      <div style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px;">
+<p class="t"><span style="color: #e8b04b;">›</span> /learn why does gradient descent work</p>
+<p class="t"><span class="dim">⏺</span> <span style="color: #7fc4c9;">derive</span> · lesson opened in browser <span class="dim">→ localhost:4310/lesson/381…</span></p>
+<p class="t"><span class="dim">⏺</span> Loading the <span style="color: #e8b04b;">teach</span> skill. Finding your edge first.</p>
+<p class="t"><span class="dim">⏺</span> <span style="color: #7fc4c9;">derive:quiz</span>(For a smooth f, what does ∇f(x) tell you near x?)
+  <span class="dim">⎿</span> <span style="color: #9fbc86;">correct</span> · A · best linear approximation</p>
+<p class="t"><span class="dim">⏺</span> <span style="color: #7fc4c9;">derive:quiz</span>(Take f(x) = ½ a x², update x ← x − η f′(x). Which η converge?)
+  <span class="dim">⎿</span> <span style="color: #9fbc86;">correct</span> · A · 0 &lt; η &lt; 2/a</p>
+<p class="t"><span class="dim">⏺</span> Good. That's the non-obvious threshold. Pushing higher.</p>
+<p class="t"><span class="dim">⏺</span> <span style="color: #7fc4c9;">derive:quiz</span>(f is L-smooth. What does this buy you?)
+  <span class="dim">⎿</span> <span style="color: #e8b04b;">waiting for your answer in the browser…</span></p>
+        <div style="margin-top: 8px; border-top: 1px solid rgba(239,233,220,0.08); padding-top: 12px; display: flex; align-items: center; gap: 12px;" class="mono">
+          <span style="font-size: 12px; color: #e8b04b;">›</span>
+          <span style="font-size: 12px; color: #4a453d;">or answer here: a / b / c / idk</span>
+          <span style="margin-left: auto; font-size: 10px; color: #4a453d;">⏵ teach · probe 3/6</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Browser companion -->
+    <div style="border: 1px solid rgba(239,233,220,0.12); border-radius: 16px; background: #0e0c0a; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 50px 100px -60px rgba(0,0,0,1);">
+      <div style="display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 14px; border-bottom: 1px solid rgba(239,233,220,0.08);">
+        <svg width="14" height="14" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 34 L27 66 M50 34 L73 66" stroke="#efe9dc" stroke-width="6" stroke-linecap="round"/><circle cx="50" cy="24" r="11" fill="#e8b04b"/><circle cx="27" cy="76" r="11" fill="#efe9dc"/><circle cx="73" cy="76" r="11" fill="#efe9dc"/></svg>
+        <span class="mono" style="font-size: 11px; color: #6a6257;">localhost:4310/lesson/381… · companion</span>
+        <span style="margin-left: auto; display: flex; align-items: center; gap: 6px;" class="mono"><span style="width: 6px; height: 6px; border-radius: 999px; background: #9fbc86;"></span><span style="font-size: 10px; color: #6a6257;">mirroring claude code</span></span>
+      </div>
+
+      <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 260px;">
+        <div style="padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; border-right: 1px solid rgba(239,233,220,0.08);">
+          <div style="font-size: 14.5px; line-height: 1.6; color: #b8b0a2;">Good. That's the non-obvious threshold. Pushing higher.</div>
+          <div style="border: 1px solid rgba(232,176,75,0.28); border-radius: 16px; background: rgba(18,16,12,0.85); padding: 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 6px; height: 6px; border-radius: 999px; background: #e8b04b;"></span><span class="eyebrow">Quiz · from your terminal</span></div>
+            <div style="font-size: 15px; line-height: 1.5; color: #efe9dc;">A function <span class="serif" style="font-style: italic; font-size: 17px;">f</span> is <span class="serif" style="font-style: italic; font-size: 17px;">L</span>-smooth: <span class="serif" style="font-style: italic; font-size: 17px;">‖∇f(x) − ∇f(y)‖ ≤ L‖x − y‖</span>. What does this buy you?</div>
+            <div style="display: flex; flex-direction: column; gap: 7px;">
+              <div class="opt"><span class="mono" style="font-size: 10px; color: #6a6257; margin-top: 3px;">A</span><span>An upper bound on <span class="serif" style="font-style: italic;">f</span> by a quadratic that touches the linear model</span></div>
+              <div class="opt"><span class="mono" style="font-size: 10px; color: #6a6257; margin-top: 3px;">B</span><span>A guarantee that <span class="serif" style="font-style: italic;">f</span> has a unique minimum</span></div>
+              <div class="opt"><span class="mono" style="font-size: 10px; color: #6a6257; margin-top: 3px;">C</span><span>A lower bound on how fast <span class="serif" style="font-style: italic;">f</span> grows away from its minimum</span></div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <div style="height: 32px; padding: 0 14px; border-radius: 999px; background: #e8b04b; color: #17130b; font-size: 13px; font-weight: 500; display: flex; align-items: center; opacity: 0.5;">Answer</div>
+              <div style="height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(239,233,220,0.18); color: #cfc7b8; font-size: 13px; display: flex; align-items: center;">I don't know</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position: relative; background-image: radial-gradient(rgba(239,233,220,0.08) 1px, transparent 1px); background-size: 20px 20px;">
+          <div class="eyebrow" style="position: absolute; left: 16px; top: 14px;">Probe · edge so far</div>
+          <svg width="260" height="420" viewBox="0 0 260 420" style="position: absolute; left: 0; top: 40px;">
+            <path class="e gold" d="M64 300 L64 260 Q64 240 84 240 L110 240 Q130 240 130 220 L130 200"/>
+            <path class="e gold" d="M196 300 L196 260 Q196 240 176 240 L150 240 Q130 240 130 220"/>
+            <path class="e" d="M130 160 L130 110"/>
+          </svg>
+          <div class="node teaching" style="left: 64px; top: 110px;">L-smoothness</div>
+          <div class="node" style="left: 64px; top: 200px; border-color: rgba(239,233,220,0.08); color: #4a453d;">?</div>
+          <div class="node locked" style="left: 0px; top: 300px;">Local linear model</div>
+          <div class="node locked" style="left: 130px; top: 300px;">Threshold 2/a</div>
+          <div class="mono" style="position: absolute; left: 16px; bottom: 16px; font-size: 10px; color: #6a6257; line-height: 1.7;">floor: 2 found<br>ceiling: searching</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="position: relative; display: flex; gap: 40px;" class="mono">
+    <span style="font-size: 11px; color: #6a6257;"><span style="color: #8d8477;">01</span> plugin adds the teach skill, /learn, and the derive MCP tools</span>
+    <span style="font-size: 11px; color: #6a6257;"><span style="color: #8d8477;">02</span> a Stop hook mirrors every terminal turn into the lesson log</span>
+    <span style="font-size: 11px; color: #6a6257;"><span style="color: #8d8477;">03</span> answer in either place; the graph and the log stay one record</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

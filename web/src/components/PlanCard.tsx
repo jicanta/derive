@@ -34,37 +34,28 @@ export function PlanCard({
   const goal = plan.nodes.find((n) => n.kind === 'goal');
 
   return (
-    <div className="animate-fade-up rounded-2xl border border-gold-600/40 bg-ink-900/80 backdrop-blur p-5 md:p-6">
-      <div className="flex items-center gap-2 mb-3 text-[11px] uppercase tracking-[0.18em] text-ink-400">
+    <div className="animate-fade-up rounded-[18px] border border-gold-500/30 bg-ink-900/85 backdrop-blur px-6 py-5 md:px-7 md:py-6 shadow-[0_30px_60px_-40px_rgba(0,0,0,0.9)]">
+      <div className="flex items-center gap-2.5 mb-4">
         <span className="h-1.5 w-1.5 rounded-full bg-gold-500" />
-        The plan
-        {decided && <span className="ml-auto normal-case tracking-normal text-xs text-ink-300">{approved ? 'Approved' : 'Sent back'}</span>}
+        <span className="eyebrow">The plan</span>
+        {decided && <span className="ml-auto font-mono text-[10px] tracking-[0.16em] uppercase text-ink-300">{approved ? 'Approved' : 'Sent back'}</span>}
       </div>
-      <h3 className="font-serif text-2xl text-ink-50 leading-tight mb-4">{plan.goal}</h3>
+      <h3 className="font-serif text-[1.7rem] leading-[1.15] text-ink-50 mb-5 text-balance">{plan.goal}</h3>
 
-      <div className="grid gap-3 sm:grid-cols-3 text-sm">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Column title="Ground truths" items={truths.map((n) => n.label)} dot="bg-gold-500" />
         <Column title="Derived steps" items={derived.map((n) => n.label)} dot="bg-ink-300" />
         <Column title="Goal" items={goal ? [goal.label] : []} dot="bg-teal-400" />
       </div>
-      <p className="mt-3 text-xs text-ink-400">The full dependency map is drawn on the right. It fills in as each node locks.</p>
+      <p className="mt-3 font-mono text-[11px] text-ink-500">The full dependency map is drawn on the right. It fills in as each node locks.</p>
 
-      {!decided && disabled && <p className="mt-4 text-xs text-ink-500">This plan is no longer awaiting approval. Type below to continue.</p>}
+      {!decided && disabled && <p className="mt-4 font-mono text-[11px] text-ink-500">This plan is no longer awaiting approval.</p>}
       {!decided && !disabled && (
-        <div className="mt-4 flex flex-wrap gap-2 items-center">
-          <button
-            type="button"
-            disabled={sending || disabled}
-            onClick={() => respond(true)}
-            className="rounded-full bg-gold-500 text-ink-950 px-4 py-1.5 text-sm font-medium hover:bg-gold-400 disabled:opacity-40 transition-colors"
-          >
+        <div className="mt-4 flex flex-wrap gap-2.5 items-center">
+          <button type="button" disabled={sending} onClick={() => respond(true)} className="h-9 rounded-full bg-gold-500 text-ink-950 px-4 text-sm font-medium hover:bg-gold-400 disabled:opacity-40 transition-colors">
             Looks right, teach me
           </button>
-          <button
-            type="button"
-            onClick={() => setEditing((v) => !v)}
-            className="rounded-full border border-ink-600 px-4 py-1.5 text-sm text-ink-300 hover:border-ink-400 hover:text-ink-100 transition-colors"
-          >
+          <button type="button" onClick={() => setEditing((v) => !v)} className="h-9 rounded-full border border-ink-600 px-4 text-sm text-ink-200 hover:border-ink-400 hover:text-ink-50 transition-colors">
             Change something
           </button>
           {editing && (
@@ -79,8 +70,8 @@ export function PlanCard({
                 autoFocus
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="What should change? (e.g. I already know X, skip it; go deeper on Y)"
-                className="flex-1 rounded-xl bg-ink-850 border border-ink-700 px-4 py-2.5 text-sm outline-none focus:border-gold-600/60 placeholder:text-ink-500"
+                placeholder="What should change? e.g. I already know X, skip it; go deeper on Y"
+                className="flex-1 rounded-xl bg-ink-850 border hairline px-4 py-2.5 text-[15px] outline-none focus:border-gold-500/60 placeholder:text-ink-500"
               />
               <button type="submit" disabled={!text.trim() || sending} className="rounded-xl bg-ink-100 text-ink-950 px-4 text-sm font-medium disabled:opacity-40">
                 Send back
@@ -89,23 +80,23 @@ export function PlanCard({
           )}
         </div>
       )}
-      {decided && feedback && <p className="mt-3 text-sm text-ink-300 italic font-serif text-lg">"{feedback}"</p>}
+      {decided && feedback && <p className="mt-3 font-serif italic text-[1.15rem] text-ink-200">"{feedback}"</p>}
     </div>
   );
 }
 
 function Column({ title, items, dot }: { title: string; items: string[]; dot: string }) {
   return (
-    <div className="rounded-xl bg-ink-850/70 border border-ink-800 p-3">
-      <div className="text-[11px] uppercase tracking-[0.16em] text-ink-400 mb-2">{title}</div>
+    <div className="rounded-xl bg-ink-850/70 border hairline p-3.5">
+      <div className="eyebrow mb-2.5">{title}</div>
       <ul className="space-y-1.5">
         {items.map((it, i) => (
-          <li key={i} className="flex items-start gap-2 text-ink-100">
+          <li key={i} className="flex items-start gap-2.5 text-[14px] text-ink-100">
             <span className={`mt-[7px] h-1.5 w-1.5 rounded-full shrink-0 ${dot}`} />
             <span>{it}</span>
           </li>
         ))}
-        {items.length === 0 && <li className="text-ink-500">none</li>}
+        {items.length === 0 && <li className="text-ink-500 text-sm">none</li>}
       </ul>
     </div>
   );

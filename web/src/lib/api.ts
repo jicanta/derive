@@ -1,4 +1,4 @@
-import type { DueNode, Lesson, LessonSummary, NodeRow, Stats, StoredEvent } from './types';
+import type { Atlas, DueNode, Lesson, LessonSummary, NodeRow, Stats, StoredEvent } from './types';
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -25,7 +25,7 @@ export const api = {
     ),
   createLesson: (topic: string) => post('/api/lessons', { topic }).then((r) => j<Lesson>(r)),
   deleteLesson: (id: string) => fetch(`/api/lessons/${id}`, { method: 'DELETE' }).then((r) => j<{ ok: true }>(r)),
-  message: (id: string, text: string) => post(`/api/lessons/${id}/message`, { text }).then((r) => j<{ ok: true }>(r)),
+  message: (id: string, text: string) => post(`/api/lessons/${id}/message`, { text }).then((r) => j<{ ok: true; note?: string }>(r)),
   answer: (id: string, prompt_id: string, answer: Record<string, unknown>) =>
     post(`/api/lessons/${id}/answer`, { prompt_id, ...answer }).then((r) => j<{ ok: true }>(r)),
   interrupt: (id: string) => post(`/api/lessons/${id}/interrupt`).then((r) => j<{ ok: true }>(r)),
@@ -33,4 +33,5 @@ export const api = {
   exportToVault: (id: string) => post(`/api/lessons/${id}/export`).then((r) => j<{ ok: true; path: string }>(r)),
   due: () => fetch('/api/review').then((r) => j<DueNode[]>(r)),
   startReview: () => post('/api/review').then((r) => j<Lesson>(r)),
+  atlas: () => fetch('/api/atlas').then((r) => j<Atlas>(r)),
 };

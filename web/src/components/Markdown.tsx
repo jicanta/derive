@@ -12,21 +12,21 @@ function loadMermaid() {
         startOnLoad: false,
         theme: 'base',
         securityLevel: 'loose',
-        fontFamily: 'Inter Tight, system-ui, sans-serif',
+        fontFamily: 'Instrument Sans, system-ui, sans-serif',
         themeVariables: {
-          background: '#131210',
-          primaryColor: '#211f1b',
-          primaryTextColor: '#ece7dd',
-          primaryBorderColor: '#6b655b',
-          lineColor: '#948c7f',
-          secondaryColor: '#2d2a25',
-          tertiaryColor: '#191815',
+          background: '#131110',
+          primaryColor: '#1c1915',
+          primaryTextColor: '#efe9dc',
+          primaryBorderColor: '#6a6257',
+          lineColor: '#8d8477',
+          secondaryColor: '#2a2620',
+          tertiaryColor: '#15130f',
           fontSize: '14px',
-          nodeBorder: '#6b655b',
-          clusterBkg: '#191815',
-          clusterBorder: '#3d3932',
-          edgeLabelBackground: '#191815',
-          titleColor: '#ece7dd',
+          nodeBorder: '#6a6257',
+          clusterBkg: '#15130f',
+          clusterBorder: '#3d3730',
+          edgeLabelBackground: '#15130f',
+          titleColor: '#efe9dc',
         },
       });
       return m.default;
@@ -62,7 +62,22 @@ function Mermaid({ code, done }: { code: string; done: boolean }) {
       </pre>
     );
   }
-  return <div ref={ref} className="mermaid-box rounded-xl border border-ink-700 bg-ink-900 p-3 flex justify-center" />;
+  return <div ref={ref} className="mermaid-box rounded-xl border hairline bg-ink-900 p-3 flex justify-center" />;
+}
+
+/** Inline SVG the tutor drew (geometry, number lines, vectors). Scripts and handlers are stripped. */
+function InlineSvg({ code }: { code: string }) {
+  const safe = useMemo(
+    () =>
+      code
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/\son\w+="[^"]*"/gi, '')
+        .replace(/\son\w+='[^']*'/gi, '')
+        .replace(/href="javascript:[^"]*"/gi, ''),
+    [code],
+  );
+  if (!/^\s*<svg[\s>]/i.test(safe)) return <pre><code>{code}</code></pre>;
+  return <div className="svg-box rounded-xl border hairline bg-ink-900 p-3 flex justify-center" dangerouslySetInnerHTML={{ __html: safe }} />;
 }
 
 /**
@@ -86,6 +101,7 @@ export const Markdown = memo(function Markdown({ text, streaming = false }: { te
             const match = /language-(\w+)/.exec(className ?? '');
             const raw = String(children).replace(/\n$/, '');
             if (match?.[1] === 'mermaid') return <Mermaid code={raw} done={!streaming} />;
+            if (match?.[1] === 'svg' && !streaming) return <InlineSvg code={raw} />;
             return (
               <code className={className} {...props}>
                 {children}
@@ -93,10 +109,9 @@ export const Markdown = memo(function Markdown({ text, streaming = false }: { te
             );
           },
           pre({ children }) {
-            // Let the mermaid component escape the <pre> wrapper.
             const child = Array.isArray(children) ? children[0] : children;
             const cls = (child as { props?: { className?: string } })?.props?.className ?? '';
-            if (cls.includes('language-mermaid')) return <>{children}</>;
+            if (cls.includes('language-mermaid') || (cls.includes('language-svg') && !streaming)) return <>{children}</>;
             return <pre>{children}</pre>;
           },
         }}
