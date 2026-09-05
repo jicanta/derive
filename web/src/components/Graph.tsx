@@ -90,7 +90,6 @@ function Inner({ nodes }: { nodes: GraphNode[] }) {
       edges={edges}
       nodeTypes={nodeTypes}
       fitView
-      proOptions={{ hideAttribution: true }}
       zoomOnScroll={false}
       panOnScroll
       nodesConnectable={false}

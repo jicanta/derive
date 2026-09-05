@@ -126,7 +126,8 @@ body {
 
 /* React Flow overrides */
 .react-flow { background: transparent; }
-.react-flow__attribution { display: none; }
+.react-flow__attribution { background: transparent; color: var(--color-ink-500); font-size: 10px; }
+.react-flow__attribution a { color: inherit; }
 .react-flow__edge-path { stroke: var(--color-ink-600); stroke-width: 1.5; }
 .react-flow__edge.locked .react-flow__edge-path { stroke: var(--color-gold-600); }
 .react-flow__edge.teaching .react-flow__edge-path { stroke: var(--color-teal-500); stroke-dasharray: 6 4; animation: dash 1.2s linear infinite; }
