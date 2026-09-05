@@ -38,6 +38,8 @@ export function AskCard({
       </div>
       {answered ? (
         <p className="text-ink-200 border-l-2 border-teal-500/60 pl-3 italic font-serif text-lg">{answer}</p>
+      ) : disabled ? (
+        <p className="text-xs text-ink-500">This question is no longer active. Type in the box below to continue.</p>
       ) : (
         <div className="grid gap-2">
           {ask.options.map((o, i) => (

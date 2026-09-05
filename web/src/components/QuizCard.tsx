@@ -90,7 +90,8 @@ export function QuizCard({
         })}
       </div>
 
-      {!answered && (
+      {!answered && disabled && <p className="mt-4 text-xs text-ink-500">This question is no longer active. Type in the box below to continue.</p>}
+      {!answered && !disabled && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             type="button"

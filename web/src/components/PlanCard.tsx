@@ -49,7 +49,8 @@ export function PlanCard({
       </div>
       <p className="mt-3 text-xs text-ink-400">The full dependency map is drawn on the right. It fills in as each node locks.</p>
 
-      {!decided && (
+      {!decided && disabled && <p className="mt-4 text-xs text-ink-500">This plan is no longer awaiting approval. Type below to continue.</p>}
+      {!decided && !disabled && (
         <div className="mt-4 flex flex-wrap gap-2 items-center">
           <button
             type="button"

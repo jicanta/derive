@@ -28,13 +28,17 @@ export function LessonPage() {
     if (stick && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [state.items, state.status, stick]);
 
-  const waiting = useMemo(() => {
+  // The one prompt the tutor is currently blocked on, if any. Older
+  // unanswered cards (e.g. from a turn that was interrupted) stay inert.
+  const activePromptId = useMemo(() => {
+    if (!state.busy) return null;
     const last = [...state.items].reverse().find((i) => i.kind === 'quiz' || i.kind === 'ask' || i.kind === 'plan');
-    if (!last) return false;
-    if (last.kind === 'quiz') return !last.result;
-    if (last.kind === 'ask') return last.answer === undefined;
-    return last.approved === undefined;
-  }, [state.items]);
+    if (!last) return null;
+    if (last.kind === 'quiz') return last.result ? null : last.quiz.id;
+    if (last.kind === 'ask') return last.answer === undefined ? last.ask.id : null;
+    return last.approved === undefined ? last.plan.id : null;
+  }, [state.items, state.busy]);
+  const waiting = activePromptId !== null;
 
   const locked = state.nodes.filter((n) => n.status === 'locked').length;
 
@@ -122,12 +126,12 @@ export function LessonPage() {
                       </div>
                     );
                   case 'quiz':
-                    return <QuizCard key={it.quiz.id} quiz={it.quiz} result={it.result} onAnswer={(a) => answer(it.quiz.id, a)} disabled={!state.busy} />;
+                    return <QuizCard key={it.quiz.id} quiz={it.quiz} result={it.result} onAnswer={(a) => answer(it.quiz.id, a)} disabled={it.quiz.id !== activePromptId} />;
                   case 'ask':
-                    return <AskCard key={it.ask.id} ask={it.ask} answer={it.answer} onAnswer={(t) => answer(it.ask.id, { text: t })} disabled={!state.busy} />;
+                    return <AskCard key={it.ask.id} ask={it.ask} answer={it.answer} onAnswer={(t) => answer(it.ask.id, { text: t })} disabled={it.ask.id !== activePromptId} />;
                   case 'plan':
                     return (
-                      <PlanCard key={it.plan.id} plan={it.plan} approved={it.approved} feedback={it.feedback} onRespond={(a) => answer(it.plan.id, a)} disabled={!state.busy} />
+                      <PlanCard key={it.plan.id} plan={it.plan} approved={it.approved} feedback={it.feedback} onRespond={(a) => answer(it.plan.id, a)} disabled={it.plan.id !== activePromptId} />
                     );
                   case 'phase':
                     return (
