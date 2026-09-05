@@ -1,0 +1,18 @@
+{
+  "name": "derive",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Learn anything from first principles. An AI tutor that builds your dependency graph of understanding, node by node.",
+  "type": "module",
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter server dev\" \"pnpm --filter web dev\"",
+    "build": "pnpm --filter web build && pnpm --filter server build",
+    "start": "pnpm --filter server start",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "packageManager": "pnpm@10.33.2"
+}
