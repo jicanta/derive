@@ -93,14 +93,11 @@ claude mcp add derive -- node /absolute/path/to/derive/server/dist/mcp.js
 
 ```mermaid
 flowchart LR
-  A[Probe] -->|floor + ceiling on every strand| B[Plan]
-  B -->|you approve the DAG| C[Teach]
-  C --> D{node quiz}
-  D -->|pass| E[lock node]
-  D -->|miss| F[teach into the misconception]
-  F --> D
-  E -->|next node in dependency order| C
-  E -->|goal locked| G[the click]
+  A[Probe] --> B[Plan] --> C[Teach] --> D{Quiz}
+  D -->|pass| E[Lock]
+  D -->|miss| C
+  E -->|next node| C
+  E -->|goal locked| G[The click]
 ```
 
 1. **Probe.** The tutor asks what you actually want (an open question), then quizzes you, adapting each question to the last answer, until it can say concretely what you have and where it ends. All-correct means the questions were too easy; it escalates.
