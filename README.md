@@ -52,6 +52,13 @@ Production build, one process:
 pnpm build && pnpm start     # http://localhost:4310
 ```
 
+Want to see the Atlas, the review queue and the learner memory before you have earned them? Seed a small history into a scratch data directory:
+
+```bash
+DERIVE_DATA_DIR=~/derive-demo pnpm demo:seed
+DERIVE_DATA_DIR=~/derive-demo pnpm start
+```
+
 Optional configuration lives in environment variables; see [`.env.example`](.env.example).
 
 | Variable | Default | What it does |
@@ -115,6 +122,7 @@ flowchart LR
 - **Spaced repetition on nodes, not flashcards.** An expanding interval per node, bumped only by a fresh question. Miss it and the node is marked shaky and re-derived from its dependencies.
 - **Verified facts.** The tutor is instructed to web-search anything it is even slightly unsure of before teaching it, and to say so if a check changed what it was about to say.
 - **Renders properly.** KaTeX math, Mermaid diagrams, and inline SVG for geometry, all streaming. Export any lesson as an Obsidian note with callouts, or write it straight into your vault.
+- **Keyboard first.** `1` `2` `3` pick an option, `Enter` answers or approves the plan, `?` is "I don't know". A lesson never needs the mouse.
 
 ## Why this works
 

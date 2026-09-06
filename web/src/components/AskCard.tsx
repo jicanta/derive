@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AskPayload } from '../lib/types';
 import { Markdown } from './Markdown';
 
@@ -27,6 +27,23 @@ export function AskCard({
     }
   };
 
+  useEffect(() => {
+    if (answered || disabled || sending || !ask.options.length) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const i = /^[1-4]$/.test(e.key) ? Number(e.key) - 1 : -1;
+      if (i >= 0 && i < ask.options.length) {
+        e.preventDefault();
+        void send(ask.options[i]);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answered, disabled, sending, ask.options]);
+
   return (
     <div className="animate-fade-up rounded-[18px] border border-teal-400/25 bg-ink-900/85 backdrop-blur px-6 py-5 md:px-7 md:py-6">
       <div className="flex items-center gap-2.5 mb-4">
@@ -48,9 +65,12 @@ export function AskCard({
               type="button"
               disabled={sending}
               onClick={() => send(o)}
-              className="text-left rounded-xl border hairline hover:border-teal-400/60 hover:bg-ink-850 bg-ink-850/50 px-4 py-3 transition-colors [&_.prose]:text-[0.98rem] [&_.prose]:text-ink-100"
+              className="text-left rounded-xl border hairline hover:border-teal-400/60 hover:bg-ink-850 bg-ink-850/50 px-4 py-3 transition-colors flex gap-3.5 items-start [&_.prose]:text-[0.98rem] [&_.prose]:text-ink-100"
             >
-              <Markdown text={o} />
+              <span className="font-mono text-[11px] mt-[7px] w-3 shrink-0 text-ink-500">{i + 1}</span>
+              <span className="flex-1">
+                <Markdown text={o} />
+              </span>
             </button>
           ))}
           <form

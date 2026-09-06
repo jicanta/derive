@@ -51,6 +51,12 @@ export function ExplainCard({
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={5}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void send();
+              }
+            }}
             placeholder="In your own words. No looking back up. Two to five sentences is plenty."
             className="w-full resize-y rounded-xl bg-ink-850 border hairline px-4 py-3 text-[15px] leading-relaxed outline-none focus:border-ink-400 placeholder:text-ink-500 font-serif text-[1.15rem]"
           />
@@ -58,7 +64,16 @@ export function ExplainCard({
             <button type="button" disabled={words < 8 || sending} onClick={send} className="h-9 rounded-full bg-ink-100 text-ink-950 px-4 text-sm font-medium hover:bg-white disabled:opacity-40 transition-colors">
               {sending ? 'Sending' : 'Submit explanation'}
             </button>
-            <span className="font-mono text-[11px] text-ink-500">{words} words{words < 8 ? ' · say a little more' : ''}</span>
+            <span className="font-mono text-[11px] text-ink-500">
+              {words} words{words < 8 ? ' · say a little more' : ''}
+              {words >= 8 && (
+                <>
+                  {' · '}
+                  <kbd className="kbd">⌘</kbd>
+                  <kbd className="kbd">↵</kbd>
+                </>
+              )}
+            </span>
           </div>
         </div>
       )}

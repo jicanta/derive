@@ -222,8 +222,11 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
   const a = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   try {
     switch (action) {
-      case 'quiz':
+      case 'quiz': {
+        const gap = teachingGap(id, a as { node_id?: string; already_held?: boolean });
+        if (gap) return c.json({ error: gap }, 400);
         return c.json(await actions.quiz(id, a as unknown as actions.QuizArgs));
+      }
       case 'ask':
         return c.json(await actions.ask(id, a as { question: string; options?: string[] }));
       case 'set_plan':
@@ -258,6 +261,41 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
 });
+
+/**
+ * Companion mode runs under Claude Code's own system prompt, which pushes the
+ * model toward brevity. Left alone it marks a node "teaching" and fires the
+ * quiz with no teaching in between. So a teach-phase quiz for a node is
+ * refused until real prose has been mirrored since that node was marked,
+ * unless the model says the probe already showed the learner holds it.
+ */
+const MIN_TEACHING_CHARS = 240;
+function teachingGap(lessonId: string, a: { node_id?: string; already_held?: boolean }): string | null {
+  if (!a.node_id || a.already_held) return null;
+  const lesson = getLesson(lessonId);
+  if (lesson?.phase !== 'teach') return null;
+  const events = listEvents(lessonId);
+  let start = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type === 'node_status' && (e.payload as { id: string; status: string }).id === a.node_id && (e.payload as { status: string }).status === 'teaching') {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return null;
+  const chars = events
+    .slice(start + 1)
+    .filter((e) => e.type === 'assistant')
+    .reduce((n, e) => n + String((e.payload as { text?: string }).text ?? '').trim().length, 0);
+  if (chars >= MIN_TEACHING_CHARS) return null;
+  return (
+    `Teach first. Node "${a.node_id}" was marked "teaching" but only ${chars} characters of your prose have reached the learner since then, and a check needs a real explanation before it. ` +
+    'This is expected behaviour, not a bug: do not investigate the server or the hooks. ' +
+    'Write the teaching now as ordinary assistant text in this conversation (that is what the learner reads): motivate the node, establish it from the nodes it depends on, make the dependency explicit, with math or a small figure where it helps. Several short paragraphs. Then, in this same turn and without stopping, call quiz again: the learner cannot reply to prose, only to cards. ' +
+    'If the probe already showed the learner holds this node and you are only confirming it, say so in one sentence and call quiz with already_held: true.'
+  );
+}
 
 function baseUrl(reqUrl: string) {
   const u = new URL(reqUrl);

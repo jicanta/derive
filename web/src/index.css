@@ -76,6 +76,20 @@ body::before {
   text-transform: uppercase;
   color: var(--color-ink-400);
 }
+.kbd {
+  display: inline-block;
+  min-width: 1.35em;
+  padding: 0 0.3em;
+  margin-right: 0.2em;
+  border: 1px solid color-mix(in oklab, var(--color-ink-100) 18%, transparent);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--color-ink-300);
+}
 .hairline { border-color: color-mix(in oklab, var(--color-ink-100) 8%, transparent); }
 .glow-gold { box-shadow: 0 0 34px -6px color-mix(in oklab, var(--color-gold-500) 55%, transparent); }
 

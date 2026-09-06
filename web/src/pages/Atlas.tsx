@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DeriveNode, layoutGraph } from '../components/Graph';
+import { Markdown } from '../components/Markdown';
 import { api } from '../lib/api';
 import type { Atlas, GraphNode } from '../lib/types';
 
@@ -70,7 +71,7 @@ function Canvas({ atlas }: { atlas: Atlas }) {
     return () => clearTimeout(t);
   }, [nodes.length, fitView]);
   return (
-    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.2} maxZoom={1.4} nodesConnectable={false} elementsSelectable={false} panOnScroll zoomOnScroll={false}>
+    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.2} maxZoom={1.4} nodesConnectable={false} elementsSelectable={false} panOnScroll zoomOnScroll={false} proOptions={{ hideAttribution: true }}>
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#2a2620" />
     </ReactFlow>
   );
@@ -175,10 +176,12 @@ export function AtlasPage() {
               <ul className="mt-2.5 flex flex-col gap-3">
                 {open.map((m) => (
                   <li key={m.id} className="text-[13.5px] leading-relaxed text-ink-200">
-                    <span className="font-serif italic text-rust-400 text-[15px]">"{m.picked}"</span>
+                    <span className="font-serif italic text-rust-400 text-[15px] [&_.prose]:inline [&_.prose]:text-[15px] [&_.prose]:text-rust-400 [&_.prose_p]:inline">
+                      "<Markdown text={m.picked} />"
+                    </span>
                     <br />
-                    <span className="text-ink-400">
-                      in {m.topic}. Correct: {m.correct}.
+                    <span className="text-ink-400 [&_.prose]:inline [&_.prose]:text-[13.5px] [&_.prose]:text-ink-300 [&_.prose_p]:inline">
+                      in {m.topic}. Correct: <Markdown text={m.correct} />.
                     </span>
                   </li>
                 ))}

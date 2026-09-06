@@ -135,7 +135,26 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
         status === 'teaching'
           ? { kind: 'node_start', seq: ev.seq, id: ev.payload.id, label, index: idx + 1, total: nodes.length }
           : { kind: 'node', seq: ev.seq, id: ev.payload.id, status, label };
-      return { ...s, nodes, items: [...items, item] };
+      const out = [...items, item];
+      // The goal locked: the whole graph is built. Add the receipt.
+      if (status === 'locked' && nodes[idx]?.kind === 'goal' && !items.some((i) => i.kind === 'complete')) {
+        const quizzes = items.filter((i) => i.kind === 'quiz' && i.result);
+        const correct = quizzes.filter((i) => i.kind === 'quiz' && i.result?.result === 'correct').length;
+        const first = items.find((i) => typeof i.at === 'number')?.at ?? ev.ts;
+        out.push({
+          kind: 'complete',
+          seq: ev.seq,
+          goal: s.lesson?.goal ?? label,
+          locked: nodes.filter((n) => n.status === 'locked').length,
+          total: nodes.length,
+          quizzes: quizzes.length,
+          correct,
+          caught: quizzes.length - correct,
+          minutes: Math.max(1, Math.round((ev.ts - first) / 60_000)),
+          reviewDays: 1,
+        });
+      }
+      return { ...s, nodes, items: out };
     }
     case 'memory':
       return { ...s, items: [...items, { kind: 'memory', seq: ev.seq, fact: ev.payload.fact }] };

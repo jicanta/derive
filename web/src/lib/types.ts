@@ -87,6 +87,7 @@ export type TimelineItemBase =
   | { kind: 'node_start'; seq: number; id: string; label: string; index: number; total: number }
   | { kind: 'node'; seq: number; id: string; status: NodeStatus; label: string }
   | { kind: 'memory'; seq: number; fact: string }
+  | { kind: 'complete'; seq: number; goal: string; locked: number; total: number; quizzes: number; correct: number; caught: number; minutes: number; reviewDays: number }
   | { kind: 'error'; seq: number; text: string };
 
 export type Stats = { lessons: number; locked: number; quizzes: number; correct: number; due: number; vault: boolean };

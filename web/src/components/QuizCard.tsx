@@ -1,5 +1,5 @@
 import { Check, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { QuizPayload, QuizResultPayload } from '../lib/types';
 import { Markdown } from './Markdown';
 
@@ -39,6 +39,32 @@ export function QuizCard({
       setSending(false);
     }
   };
+
+  // Keyboard: 1-3 / A-C pick, Enter answers, ? or 0 is "I don't know".
+  const active = !answered && !disabled && !sending;
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      const idx = /^[1-3]$/.test(k) ? Number(k) - 1 : /^[a-c]$/.test(k) ? k.charCodeAt(0) - 97 : -1;
+      if (idx >= 0 && idx < quiz.options.length) {
+        e.preventDefault();
+        toggle(idx);
+      } else if (e.key === 'Enter' && picked.length > 0) {
+        e.preventDefault();
+        void submit(false);
+      } else if (k === '?' || k === '0') {
+        e.preventDefault();
+        void submit(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, picked, quiz.options.length, quiz.multi]);
 
   const tone =
     result?.result === 'correct'
@@ -117,9 +143,14 @@ export function QuizCard({
           >
             I don't know
           </button>
-          <button type="button" onClick={() => setShowNote((v) => !v)} className="ml-auto font-mono text-[11px] text-ink-500 hover:text-ink-200">
-            {showNote ? 'hide note' : 'add a note'}
-          </button>
+          <span className="ml-auto flex items-center gap-4 font-mono text-[11px] text-ink-500">
+            <span className="hidden sm:inline" title="Keyboard: 1, 2, 3 to pick · Enter to answer · ? for I don't know">
+              <kbd className="kbd">1</kbd><kbd className="kbd">2</kbd><kbd className="kbd">3</kbd> pick · <kbd className="kbd">↵</kbd> answer
+            </span>
+            <button type="button" onClick={() => setShowNote((v) => !v)} className="hover:text-ink-200">
+              {showNote ? 'hide note' : 'add a note'}
+            </button>
+          </span>
           {showNote && (
             <textarea
               value={note}

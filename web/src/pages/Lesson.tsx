@@ -177,6 +177,32 @@ export function LessonPage() {
                         {it.status === 'locked' ? 'locked' : 'shaky'} · {it.label}
                       </div>
                     );
+                  case 'complete':
+                    return (
+                      <div key={`complete-${it.seq}`} className="animate-fade-up rounded-[18px] border border-gold-500/40 bg-gold-500/[0.04] px-6 py-6 md:px-7 md:py-7 mt-2">
+                        <div className="eyebrow text-gold-500 mb-3">The click</div>
+                        <p className="font-serif text-[1.9rem] leading-[1.12] tracking-[-0.01em] text-ink-50 text-balance">
+                          {it.locked} of {it.total} nodes locked. Every one derived from the ones below it.
+                        </p>
+                        <p className="mt-3 font-serif italic text-[1.15rem] leading-snug text-ink-300 text-pretty">{it.goal}</p>
+                        <dl className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-y-4 gap-x-6">
+                          {[
+                            [String(it.quizzes), 'questions answered'],
+                            [`${it.quizzes ? Math.round((100 * it.correct) / it.quizzes) : 0}%`, 'first try'],
+                            [String(it.caught), it.caught === 1 ? 'misconception caught' : 'misconceptions caught'],
+                            [`${it.minutes} min`, 'from probe to click'],
+                          ].map(([n, l]) => (
+                            <div key={l}>
+                              <dt className="font-serif text-[1.7rem] leading-none text-gold-500">{n}</dt>
+                              <dd className="mt-1 font-mono text-[10.5px] tracking-[0.06em] text-ink-500">{l}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                        <p className="mt-5 pt-4 border-t border-gold-500/20 font-mono text-[11px] text-ink-400">
+                          first review {it.reviewDays === 1 ? 'tomorrow' : `in ${it.reviewDays} days`}, with new questions · every node now lives in your <Link to="/atlas" className="text-ink-100 hover:text-gold-500">atlas</Link>
+                        </p>
+                      </div>
+                    );
                   case 'memory':
                     return (
                       <div key={it.seq} className="animate-fade-up font-mono text-[11px] text-ink-500">

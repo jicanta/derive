@@ -86,7 +86,7 @@ function Inner({ nodes }: { nodes: GraphNode[] }) {
     return () => clearTimeout(t);
   }, [rf.length, fitView]);
   return (
-    <ReactFlow nodes={rf} edges={edges} nodeTypes={nodeTypes} fitView zoomOnScroll={false} panOnScroll nodesConnectable={false} elementsSelectable={false} minZoom={0.4} maxZoom={1.4}>
+    <ReactFlow nodes={rf} edges={edges} nodeTypes={nodeTypes} fitView zoomOnScroll={false} panOnScroll nodesConnectable={false} elementsSelectable={false} minZoom={0.4} maxZoom={1.4} proOptions={{ hideAttribution: true }}>
       <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#2a2620" />
     </ReactFlow>
   );

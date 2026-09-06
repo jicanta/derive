@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PlanPayload } from '../lib/types';
 
 export function PlanCard({
@@ -29,6 +29,21 @@ export function PlanCard({
     }
   };
 
+  useEffect(() => {
+    if (decided || disabled || editing) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
+      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        void respond(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decided, disabled, editing, sending]);
+
   const truths = plan.nodes.filter((n) => n.kind === 'truth');
   const derived = plan.nodes.filter((n) => n.kind === 'derived');
   const goal = plan.nodes.find((n) => n.kind === 'goal');
@@ -53,7 +68,7 @@ export function PlanCard({
       {!decided && !disabled && (
         <div className="mt-4 flex flex-wrap gap-2.5 items-center">
           <button type="button" disabled={sending} onClick={() => respond(true)} className="h-9 rounded-full bg-gold-500 text-ink-950 px-4 text-sm font-medium hover:bg-gold-400 disabled:opacity-40 transition-colors">
-            Looks right, teach me
+            Looks right, teach me <kbd className="kbd ml-1.5 !text-ink-950/70 !border-ink-950/30">↵</kbd>
           </button>
           <button type="button" onClick={() => setEditing((v) => !v)} className="h-9 rounded-full border border-ink-600 px-4 text-sm text-ink-200 hover:border-ink-400 hover:text-ink-50 transition-colors">
             Change something

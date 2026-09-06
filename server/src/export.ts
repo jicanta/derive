@@ -43,9 +43,11 @@ export function renderMarkdown(lesson: Lesson): string {
   const nodes = listNodes(lesson.id);
   const results = new Map<string, QuizRes>();
   const askResults = new Map<string, string>();
+  const explainResults = new Map<string, string>();
   for (const e of events) {
     if (e.type === 'quiz_result') results.set((e.payload as QuizRes).id, e.payload as QuizRes);
     if (e.type === 'ask_result') askResults.set((e.payload as { id: string }).id, (e.payload as { text: string }).text);
+    if (e.type === 'explain_result') explainResults.set((e.payload as { id: string }).id, (e.payload as { text: string }).text);
   }
 
   const out: string[] = [];
@@ -94,6 +96,15 @@ export function renderMarkdown(lesson: Lesson): string {
         out.push(`> [!info] ${p.question.replace(/\n/g, ' ')}\n> ${a ? `**You:** ${a}` : '_unanswered_'}\n`);
         break;
       }
+      case 'explain': {
+        const p = e.payload as { id: string; prompt: string };
+        const a = explainResults.get(p.id);
+        out.push(`> [!example] Teach it back: ${p.prompt.replace(/\n/g, ' ')}\n> ${a ? `**You:** ${a.replace(/\n/g, '\n> ')}` : '_unanswered_'}\n`);
+        break;
+      }
+      case 'memory':
+        out.push(`> [!note] The tutor noted: ${(e.payload as { fact: string }).fact}\n`);
+        break;
       case 'phase':
         out.push(`\n### Phase: ${(e.payload as { phase: string }).phase}\n`);
         break;

@@ -81,13 +81,14 @@ server.registerTool(
   'quiz',
   {
     description:
-      'Ask the learner ONE graded multiple-choice question with a known correct answer. Rendered and graded in the browser companion; returns what they picked and whether it was correct. Blocks until they answer. Never leak the answer in the question or options. Options are 2 or 3 bare claims; the app adds "I don\'t know".',
+      'Ask the learner ONE graded multiple-choice question with a known correct answer. Rendered and graded in the browser companion; returns what they picked and whether it was correct. Blocks until they answer. Never leak the answer in the question or options. Options are 2 or 3 bare claims; the app adds "I don\'t know". In the teach phase, a quiz for a node is refused until you have actually written the teaching for that node in the terminal (several paragraphs: motivate, establish, connect), so teach first, then check.',
     inputSchema: {
       question: z.string(),
       options: z.array(z.string()).min(2).max(3),
       correct: z.array(z.number().int().min(0)).min(1),
       explanation: z.string(),
       node_id: z.string().optional(),
+      already_held: z.boolean().optional().describe('Set true only when the probe already showed the learner holds this node and you are confirming rather than teaching it. Say so to the learner in one sentence.'),
     },
   },
   async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/quiz`, a)),
