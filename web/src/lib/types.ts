@@ -79,7 +79,8 @@ export type QuizResultPayload = {
   selected: number[];
   correct: number[];
   explanation: string;
-  result: 'correct' | 'incorrect' | 'dont_know';
+  /** 'skipped': the learner typed in the chat instead of answering; nothing was graded or revealed. */
+  result: 'correct' | 'incorrect' | 'dont_know' | 'skipped';
   note: string | null;
 };
 export type AskPayload = { id: string; question: string; options: string[] };

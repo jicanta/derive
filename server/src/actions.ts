@@ -51,8 +51,18 @@ export async function quiz(lessonId: string, a: QuizArgs) {
     multi,
     node_id: a.node_id ?? null,
   });
-  const ans = (await wait) as { selected?: number[]; idk?: boolean; note?: string; interrupted?: boolean };
+  const ans = (await wait) as { selected?: number[]; idk?: boolean; note?: string; interrupted?: boolean; steer?: string };
   if (ans.interrupted) return { result: 'interrupted', note: 'The learner stopped the turn.' };
+  if (ans.steer) {
+    // The learner typed in the chat instead of picking an option. Close the
+    // card without grading or revealing anything, and hand the message over.
+    emit(lessonId, 'quiz_result', { id, selected: [], correct: [], explanation: '', result: 'skipped', note: ans.steer });
+    return withNotice(lessonId, {
+      result: 'no_answer',
+      learner_message: ans.steer,
+      instruction: 'The learner wrote a message instead of answering; the card is closed. Respond to the message. If the check still matters, ask it again afterwards with a fresh quiz.',
+    });
+  }
   const selected = ans.idk ? [] : (ans.selected ?? []);
   const isCorrect = !ans.idk && sameSet(selected, a.correct);
   const result = ans.idk ? 'dont_know' : isCorrect ? 'correct' : 'incorrect';
@@ -78,20 +88,24 @@ export async function quiz(lessonId: string, a: QuizArgs) {
 
 export async function ask(lessonId: string, a: { question: string; options?: string[] }) {
   const { id, wait } = openPrompt(lessonId, 'ask', { question: a.question, options: a.options ?? [] });
-  const ans = (await wait) as { text?: string; interrupted?: boolean };
+  const ans = (await wait) as { text?: string; interrupted?: boolean; steer?: string };
   if (ans.interrupted) return { result: 'interrupted' };
-  emit(lessonId, 'ask_result', { id, text: ans.text ?? '' });
-  return withNotice(lessonId, { answer: ans.text ?? '' });
+  const answer = ans.steer ?? ans.text ?? '';
+  emit(lessonId, 'ask_result', { id, text: answer });
+  return withNotice(lessonId, { answer });
 }
 
 export async function setPlan(lessonId: string, a: { goal: string; nodes: GraphNodeInput[] }) {
   replaceGraph(lessonId, a.nodes);
   setGoal(lessonId, a.goal);
   const { id, wait } = openPrompt(lessonId, 'plan', { goal: a.goal, nodes: a.nodes });
-  const ans = (await wait) as { approved?: boolean; feedback?: string; interrupted?: boolean };
+  const ans = (await wait) as { approved?: boolean; feedback?: string; interrupted?: boolean; steer?: string };
   if (ans.interrupted) return { result: 'interrupted' };
-  emit(lessonId, 'plan_result', { id, approved: !!ans.approved, feedback: ans.feedback ?? null });
-  return withNotice(lessonId, { approved: !!ans.approved, feedback: ans.feedback ?? null });
+  // A typed message while the plan awaits approval is feedback on it.
+  const approved = ans.steer ? false : !!ans.approved;
+  const feedback = ans.steer ?? ans.feedback ?? null;
+  emit(lessonId, 'plan_result', { id, approved, feedback });
+  return withNotice(lessonId, { approved, feedback });
 }
 
 export function nodeStatus(lessonId: string, a: { id: string; status: 'teaching' | 'locked' | 'shaky' }) {
@@ -113,10 +127,11 @@ export function phase(lessonId: string, a: { phase: 'probe' | 'plan' | 'teach' }
  */
 export async function explainBack(lessonId: string, a: { prompt: string; node_id?: string | null; rubric: string }) {
   const { id, wait } = openPrompt(lessonId, 'explain', { prompt: a.prompt, node_id: a.node_id ?? null });
-  const ans = (await wait) as { text?: string; interrupted?: boolean };
+  const ans = (await wait) as { text?: string; interrupted?: boolean; steer?: string };
   if (ans.interrupted) return { result: 'interrupted' };
-  emit(lessonId, 'explain_result', { id, text: ans.text ?? '' });
-  return withNotice(lessonId, { explanation: ans.text ?? '', rubric: a.rubric, instruction: 'Grade against the rubric. Name what is right first, then the one gap that matters most. Then call node_status.' });
+  const explanation = ans.steer ?? ans.text ?? '';
+  emit(lessonId, 'explain_result', { id, text: explanation });
+  return withNotice(lessonId, { explanation, rubric: a.rubric, instruction: 'Grade against the rubric. Name what is right first, then the one gap that matters most. Then call node_status.' });
 }
 
 export function remember(lessonId: string, a: { fact: string; kind?: 'learner' | 'preference' | 'strength' | 'gap' }) {

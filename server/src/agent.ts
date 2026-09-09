@@ -4,7 +4,7 @@ import { z } from 'zod';
 import * as actions from './actions.js';
 import { DATA_DIR, EFFORT, MODEL } from './config.js';
 import { getLesson, learnerProfile, setSessionId, type GraphNodeInput } from './db.js';
-import { emit, emitEphemeral } from './events.js';
+import { checkpoint, emit, emitEphemeral, emitUpdate } from './events.js';
 import { materialsSection } from './materials.js';
 import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
@@ -15,6 +15,8 @@ export { answerPrompt, hasPending } from './prompts.js';
 // ---------- active turns ----------
 
 const active = new Map<string, Query>();
+/** Lessons whose current turn the learner stopped; their result is not an error. */
+const stopping = new Set<string>();
 
 export function isBusy(lessonId: string) {
   return active.has(lessonId);
@@ -22,7 +24,10 @@ export function isBusy(lessonId: string) {
 
 export async function interrupt(lessonId: string) {
   const q = active.get(lessonId);
-  if (q) await q.interrupt().catch(() => undefined);
+  if (q) {
+    stopping.add(lessonId);
+    await q.interrupt().catch(() => undefined);
+  }
   cancelPending(lessonId);
 }
 
@@ -197,12 +202,25 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   });
   active.set(lessonId, q);
 
+  // A text block is persisted the moment it starts and rewritten in place as
+  // it grows (checkpointed every ~1.5 s, finalised at block end), so the
+  // learner never sees prose that later vanishes: Stop, a dropped connection
+  // or a server restart all keep what was written.
   let blockId: string | null = null;
+  let blockSeq: number | null = null;
   let blockText = '';
+  let lastCheckpoint = 0;
   let verified = 0;
+  let ended = false;
+  const endTurn = (payload: Record<string, unknown>) => {
+    if (ended) return;
+    ended = true;
+    emit(lessonId, 'turn_end', payload);
+  };
   const flushBlock = () => {
-    if (blockId && blockText.trim()) emit(lessonId, 'assistant', { id: blockId, text: blockText });
+    if (blockId && blockSeq !== null) emitUpdate(lessonId, blockSeq, 'assistant', { id: blockId, text: blockText });
     blockId = null;
+    blockSeq = null;
     blockText = '';
   };
 
@@ -220,7 +238,8 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
             if (cb.type === 'text') {
               flushBlock();
               blockId = randomUUID();
-              emitEphemeral(lessonId, 'block_start', { id: blockId });
+              blockSeq = emit(lessonId, 'assistant', { id: blockId, text: '', partial: true }).seq;
+              lastCheckpoint = Date.now();
             } else if (cb.type === 'tool_use') {
               flushBlock();
               if (cb.name === 'WebSearch' || cb.name === 'WebFetch') verified += 1;
@@ -232,6 +251,10 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
             if (ev.delta.type === 'text_delta' && blockId) {
               blockText += ev.delta.text;
               emitEphemeral(lessonId, 'delta', { id: blockId, text: ev.delta.text });
+              if (blockSeq !== null && Date.now() - lastCheckpoint > 1500) {
+                checkpoint(lessonId, blockSeq, { id: blockId, text: blockText, partial: true });
+                lastCheckpoint = Date.now();
+              }
             }
           } else if (ev.type === 'content_block_stop') {
             flushBlock();
@@ -240,11 +263,13 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
         }
         case 'result': {
           flushBlock();
-          if (msg.subtype === 'success') {
-            emit(lessonId, 'turn_end', { ok: true, cost_usd: msg.total_cost_usd ?? null, duration_ms: msg.duration_ms, verified });
+          if (stopping.has(lessonId)) {
+            endTurn({ ok: true, interrupted: true });
+          } else if (msg.subtype === 'success') {
+            endTurn({ ok: true, cost_usd: msg.total_cost_usd ?? null, duration_ms: msg.duration_ms, verified });
           } else {
             const errs = (msg as { errors?: string[] }).errors;
-            emit(lessonId, 'turn_end', { ok: false, error: Array.isArray(errs) && errs.length ? errs.join('; ') : msg.subtype });
+            endTurn({ ok: false, error: Array.isArray(errs) && errs.length ? errs.join('; ') : msg.subtype });
           }
           break;
         }
@@ -254,9 +279,14 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
     }
   } catch (err) {
     flushBlock();
-    emit(lessonId, 'turn_end', { ok: false, error: err instanceof Error ? err.message : String(err) });
+    endTurn({ ok: false, error: err instanceof Error ? err.message : String(err) });
   } finally {
+    // The stream can end without a result (Stop, the CLI exiting). The
+    // learner still needs the prose kept and the turn marked finished.
+    flushBlock();
+    endTurn({ ok: true, interrupted: true });
     active.delete(lessonId);
+    stopping.delete(lessonId);
     cancelPending(lessonId);
   }
 }

@@ -1,4 +1,4 @@
-import { appendEvent, type StoredEvent } from './db.js';
+import { appendEvent, updateEvent, type StoredEvent } from './db.js';
 import { mirrorToVault } from './export.js';
 
 type Listener = (ev: StoredEvent) => void;
@@ -10,6 +10,24 @@ export function emit(lessonId: string, type: string, payload: unknown): StoredEv
   for (const l of listeners.get(lessonId) ?? []) l(ev);
   mirrorToVault(lessonId);
   return ev;
+}
+
+/**
+ * Rewrite an already persisted event and fan the new payload out under the
+ * same seq. Used for assistant text: the block is stored the moment it
+ * starts and grows in place, so a stopped turn or a restart keeps the prose.
+ */
+export function emitUpdate(lessonId: string, seq: number, type: string, payload: unknown): StoredEvent {
+  updateEvent(lessonId, seq, payload);
+  const ev: StoredEvent = { seq, type, payload, ts: Date.now() };
+  for (const l of listeners.get(lessonId) ?? []) l(ev);
+  mirrorToVault(lessonId);
+  return ev;
+}
+
+/** Persist without fanning out (checkpoints of a streaming block). */
+export function checkpoint(lessonId: string, seq: number, payload: unknown) {
+  updateEvent(lessonId, seq, payload);
 }
 
 /** Fan out without persisting (used for high-frequency text deltas). */

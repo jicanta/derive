@@ -23,6 +23,7 @@ export function QuizCard({
   const [showNote, setShowNote] = useState(false);
   const [sending, setSending] = useState(false);
   const answered = !!result;
+  const skipped = result?.result === 'skipped';
 
   const toggle = (i: number) => {
     if (answered || sending) return;
@@ -87,7 +88,7 @@ export function QuizCard({
             }`}
           >
             {result.result === 'correct' ? <Check size={12} /> : result.result === 'incorrect' ? <X size={12} /> : null}
-            {result.result === 'correct' ? 'Correct' : result.result === 'incorrect' ? 'Not quite' : "Didn't know"}
+            {result.result === 'correct' ? 'Correct' : result.result === 'incorrect' ? 'Not quite' : skipped ? 'Answered in chat' : "Didn't know"}
           </span>
         )}
       </div>
@@ -100,7 +101,8 @@ export function QuizCard({
           const isCorrect = result?.correct.includes(i) ?? false;
           let cls = 'hairline hover:border-ink-500 hover:bg-ink-850';
           if (!answered && isPicked) cls = 'border-gold-500 bg-gold-500/8';
-          if (answered) {
+          if (skipped) cls = 'border-ink-800 opacity-55';
+          else if (answered) {
             if (isCorrect) cls = 'border-moss-400/70 bg-moss-400/8';
             else if (isPicked) cls = 'border-rust-400/70 bg-rust-400/8';
             else cls = 'border-ink-800 opacity-55';
@@ -163,16 +165,18 @@ export function QuizCard({
         </div>
       )}
 
-      {result && (
+      {result && (result.note || result.explanation) && (
         <div className="mt-5 pt-4 border-t hairline">
           {result.note && (
             <p className="font-mono text-[11px] text-ink-500 mb-2">
-              your note · <span className="text-ink-300 font-sans text-sm">{result.note}</span>
+              {skipped ? 'you wrote instead' : 'your note'} · <span className="text-ink-300 font-sans text-sm">{result.note}</span>
             </p>
           )}
-          <div className="[&_.prose]:text-[0.96rem] [&_.prose]:text-ink-200">
-            <Markdown text={result.explanation} />
-          </div>
+          {result.explanation && (
+            <div className="[&_.prose]:text-[0.96rem] [&_.prose]:text-ink-200">
+              <Markdown text={result.explanation} />
+            </div>
+          )}
         </div>
       )}
     </div>

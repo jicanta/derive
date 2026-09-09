@@ -158,6 +158,7 @@ const q = {
     'INSERT INTO events (lesson_id, seq, type, payload, ts) VALUES (?, ?, ?, ?, ?)',
   ),
   listEvents: db.prepare('SELECT seq, type, payload, ts FROM events WHERE lesson_id = ? ORDER BY seq'),
+  updateEvent: db.prepare('UPDATE events SET payload = ? WHERE lesson_id = ? AND seq = ?'),
   upsertNode: db.prepare(`
     INSERT INTO nodes (lesson_id, node_id, label, kind, summary, depends_on)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -233,6 +234,12 @@ export function appendEvent(lessonId: string, type: string, payload: unknown): S
   q.insertEvent.run(lessonId, n, type, JSON.stringify(payload ?? null), ts);
   q.touchLesson.run(ts, lessonId);
   return { seq: n, type, payload, ts };
+}
+
+/** Rewrite a stored event's payload (used to grow a streaming assistant block in place). */
+export function updateEvent(lessonId: string, seq: number, payload: unknown) {
+  q.updateEvent.run(JSON.stringify(payload ?? null), lessonId, seq);
+  q.touchLesson.run(Date.now(), lessonId);
 }
 
 export function listEvents(lessonId: string): StoredEvent[] {

@@ -23,7 +23,9 @@ export function Composer({
   const [text, setText] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
-  const canSend = !!text.trim() && !sending && (external || !busy);
+  // Typing is always allowed. Mid-turn, the message answers the pending card
+  // or is queued for the tutor's next step; the server sorts that out.
+  const canSend = !!text.trim() && !sending;
 
   const submit = async () => {
     if (!canSend) return;
@@ -42,9 +44,9 @@ export function Composer({
   const placeholder = external
     ? 'This lesson runs in your terminal. Notes typed here are kept in the log.'
     : waiting
-      ? 'Answer the card above, or type here to steer'
+      ? 'Answer the card above, or write here instead: a question, a doubt, "skip this"'
       : busy
-        ? 'The tutor is working'
+        ? 'The tutor is writing. A message here reaches it at its next step'
         : 'Ask, push back, or say what to do next';
 
   return (
@@ -91,16 +93,15 @@ export function Composer({
         }}
         rows={1}
         placeholder={placeholder}
-        disabled={!external && busy && !waiting}
-        className="flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-ink-500 max-h-40 disabled:opacity-60"
+        className="flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-ink-500 max-h-40"
         onInput={(e) => {
           const el = e.currentTarget;
           el.style.height = 'auto';
           el.style.height = Math.min(el.scrollHeight, 160) + 'px';
         }}
       />
-      {busy && !external ? (
-        <button type="button" onClick={() => void onStop()} title="Stop" className="h-9 w-9 rounded-xl bg-ink-800 border border-ink-600 grid place-items-center hover:bg-ink-700">
+      {busy && !external && !text.trim() ? (
+        <button type="button" onClick={() => void onStop()} title="Stop the tutor's turn" className="h-9 w-9 rounded-xl bg-ink-800 border border-ink-600 grid place-items-center hover:bg-ink-700">
           <Square size={13} />
         </button>
       ) : (

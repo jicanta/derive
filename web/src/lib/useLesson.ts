@@ -93,12 +93,20 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
       return { ...s, items: next };
     }
     case 'assistant': {
+      // Persisted the moment the block starts (partial, empty) and rewritten
+      // under the same seq as it grows and when it ends.
       const idx = items.findIndex((i) => i.kind === 'assistant' && i.id === ev.payload.id);
-      const final: TimelineItem = { kind: 'assistant', seq: ev.seq, id: ev.payload.id, text: ev.payload.text, streaming: false, source: ev.payload.source };
-      if (idx < 0) return { ...s, status: null, items: [...items, final] };
+      const partial = !!ev.payload.partial;
+      const text: string = ev.payload.text ?? '';
+      if (!partial && !text.trim()) return idx < 0 ? s : { ...s, items: items.filter((_, i) => i !== idx) };
+      const cur = idx >= 0 ? (items[idx] as Extract<TimelineItem, { kind: 'assistant' }>) : null;
+      // Deltas may have run ahead of a checkpoint: never shrink streamed text.
+      const merged = partial && cur && cur.text.length > text.length ? cur.text : text;
+      const item: TimelineItem = { kind: 'assistant', seq: ev.seq, id: ev.payload.id, text: merged, streaming: partial, source: ev.payload.source };
+      if (idx < 0) return { ...s, status: null, items: [...items, item] };
       const next = items.slice();
-      next[idx] = final;
-      return { ...s, items: next };
+      next[idx] = item;
+      return { ...s, status: partial ? null : s.status, items: next };
     }
     case 'quiz':
       return { ...s, status: null, busy: true, items: [...items, { kind: 'quiz', seq: ev.seq, quiz: ev.payload as QuizPayload }] };
@@ -238,8 +246,9 @@ export function useLesson(id: string | undefined) {
           es.addEventListener(t, (m) => {
             const ev = JSON.parse((m as MessageEvent).data) as StoredEvent;
             if (ev.seq > 0) {
-              if (ev.seq <= lastSeq.current) return;
-              lastSeq.current = ev.seq;
+              // Assistant blocks are rewritten under their original seq; let those through.
+              if (ev.seq <= lastSeq.current && ev.type !== 'assistant') return;
+              lastSeq.current = Math.max(lastSeq.current, ev.seq);
             }
             dispatch({ type: 'event', ev });
           });

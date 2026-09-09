@@ -38,6 +38,16 @@ import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt } from './prompt.js';
 import { answerPrompt, cancelPending, hasPending, pendingId } from './prompts.js';
 
+/**
+ * A restart kills in-flight turns without a turn_end. Close them on boot so
+ * the page is not stuck on "busy" and a stale card is shown as such.
+ */
+for (const l of listLessons()) {
+  const events = listEvents(l.id);
+  const last = [...events].reverse().find((e) => e.type === 'turn_start' || e.type === 'turn_end');
+  if (l.mode === 'agent' && last?.type === 'turn_start') emit(l.id, 'turn_end', { ok: true, interrupted: true, reason: 'server restarted' });
+}
+
 const app = new Hono();
 app.use('/api/*', cors());
 
@@ -139,7 +149,16 @@ app.post('/api/lessons/:id/message', async (c) => {
     emit(id, 'user', { text, source: 'browser' });
     return c.json({ ok: true, note: 'This lesson is driven from Claude Code; your note was logged.' });
   }
-  if (isBusy(id)) return c.json({ error: 'busy' }, 409);
+  if (isBusy(id)) {
+    // Mid-turn. With a card pending, the message answers that card (the tool
+    // returns it to the tutor in the same turn). Otherwise it is queued for
+    // the tutor's next tool result or turn. Either way it is in the log now.
+    emit(id, 'user', { text });
+    const pid = pendingId(id);
+    if (pid && answerPrompt(id, pid, { steer: text })) return c.json({ ok: true });
+    addNotice(id, `The learner wrote while you were working: "${text}". Address it at your next chance.`);
+    return c.json({ ok: true, note: 'queued for the tutor' });
+  }
   void runTurn(id, text, { echoUser: text }).catch((e) => console.error('[turn]', e));
   return c.json({ ok: true });
 });

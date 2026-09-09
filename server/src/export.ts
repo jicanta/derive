@@ -12,7 +12,9 @@ function quizBlock(qz: QuizEv, res: QuizRes | undefined) {
   const lines: string[] = [];
   const header = !res
     ? '> [!question] Quiz — unanswered'
-    : res.result === 'correct'
+    : res.result === 'skipped'
+      ? '> [!question] Quiz — answered in the chat instead'
+      : res.result === 'correct'
       ? '> [!success] Quiz — correct ✓'
       : res.result === 'incorrect'
         ? '> [!failure] Quiz — incorrect ✗'
@@ -26,7 +28,9 @@ function quizBlock(qz: QuizEv, res: QuizRes | undefined) {
     const mark = isCorrect ? '✓' : picked && res?.result === 'incorrect' ? '✗' : ' ';
     lines.push(`> ${mark} ${LETTERS[i]}. ${opt}`);
   });
-  if (res) {
+  if (res && res.result === 'skipped') {
+    if (res.note) lines.push('>', `> You wrote: ${res.note}`);
+  } else if (res) {
     const your = res.result === 'dont_know' ? "I don't know" : res.selected.map((i) => LETTERS[i]).join(', ');
     const corr = res.correct.map((i) => LETTERS[i]).join(', ');
     lines.push('>');
@@ -109,9 +113,11 @@ export function renderMarkdown(lesson: Lesson): string {
       case 'user':
         out.push(`> [!quote] YOU\n> ${String((e.payload as { text: string }).text).replace(/\n/g, '\n> ')}\n`);
         break;
-      case 'assistant':
-        out.push(`${inlineSvgFences((e.payload as { text: string }).text)}\n`);
+      case 'assistant': {
+        const t = (e.payload as { text: string }).text;
+        if (t.trim()) out.push(`${inlineSvgFences(t)}\n`);
         break;
+      }
       case 'quiz':
         out.push(quizBlock(e.payload as QuizEv, results.get((e.payload as QuizEv).id)) + '\n');
         break;
