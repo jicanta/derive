@@ -1,4 +1,5 @@
 import { appendEvent, type StoredEvent } from './db.js';
+import { mirrorToVault } from './export.js';
 
 type Listener = (ev: StoredEvent) => void;
 const listeners = new Map<string, Set<Listener>>();
@@ -7,6 +8,7 @@ const listeners = new Map<string, Set<Listener>>();
 export function emit(lessonId: string, type: string, payload: unknown): StoredEvent {
   const ev = appendEvent(lessonId, type, payload);
   for (const l of listeners.get(lessonId) ?? []) l(ev);
+  mirrorToVault(lessonId);
   return ev;
 }
 

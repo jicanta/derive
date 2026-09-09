@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { VAULT_DIR } from './config.js';
-import { listEvents, listMaterials, listNodes, type Lesson, type StoredEvent } from './db.js';
+import { getLesson, listEvents, listMaterials, listNodes, type Lesson, type StoredEvent } from './db.js';
 
 const LETTERS = 'ABCDEFG';
 
@@ -153,6 +153,31 @@ export function exportToVault(lesson: Lesson): string | null {
   const path = join(VAULT_DIR, `${safe}.md`);
   writeFileSync(path, renderMarkdown(lesson));
   return path;
+}
+
+/**
+ * Live mirror: with a vault configured, every persisted event rewrites the
+ * lesson's note, so Obsidian shows the lesson as it happens (the md-log idea
+ * from the original learn tool). Debounced, since a turn emits bursts.
+ */
+const mirrorTimers = new Map<string, NodeJS.Timeout>();
+
+export function mirrorToVault(lessonId: string, delayMs = 600) {
+  if (!VAULT_DIR) return;
+  clearTimeout(mirrorTimers.get(lessonId));
+  mirrorTimers.set(
+    lessonId,
+    setTimeout(() => {
+      mirrorTimers.delete(lessonId);
+      const lesson = getLesson(lessonId);
+      if (!lesson) return;
+      try {
+        exportToVault(lesson);
+      } catch (e) {
+        console.error('[vault]', e instanceof Error ? e.message : e);
+      }
+    }, delayMs),
+  );
 }
 
 export type { StoredEvent };

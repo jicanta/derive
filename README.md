@@ -64,7 +64,7 @@ Optional configuration lives in environment variables; copy [`.env.example`](.en
 |---|---|---|
 | `DERIVE_MODEL` | your Claude Code default | Model override, e.g. `claude-opus-5` |
 | `DERIVE_EFFORT` | `high` | Reasoning effort, `low` to `max` |
-| `DERIVE_VAULT_DIR` | unset | Obsidian folder; enables one-click export into your vault |
+| `DERIVE_VAULT_DIR` | unset | Obsidian folder; every lesson is mirrored there live as it happens |
 | `DERIVE_DATA_DIR` | `~/.derive` | Where the SQLite database lives |
 
 ## Inside Claude Code
@@ -124,7 +124,7 @@ flowchart LR
 - **Spaced repetition on nodes, not flashcards.** An expanding interval per node, bumped only by a fresh question. Miss it and the node is marked shaky and re-derived from its dependencies.
 - **Verified facts.** The tutor is instructed to web-search anything it is even slightly unsure of before teaching it, and to say so if a check changed what it was about to say.
 - **Your course, not the topic in general.** Attach slides, a PDF or notes and the plan is scoped to what that course covers, in its notation, with every node citing the slides or pages it rests on. The tutor reads the material page by page as it plans and teaches, and pushes back when the slides skip a step.
-- **Renders properly.** KaTeX math, Mermaid diagrams, and inline SVG for geometry, all streaming. Export any lesson as an Obsidian note with callouts, or write it straight into your vault.
+- **Renders properly.** KaTeX math, Mermaid diagrams, and inline SVG for geometry, all streaming. Export any lesson as an Obsidian note with callouts, or point `DERIVE_VAULT_DIR` at your vault and every lesson is written there live, paragraph by paragraph, while it happens.
 - **Keyboard first.** `1` `2` `3` pick an option, `Enter` answers or approves the plan, `?` is "I don't know". A lesson never needs the mouse.
 
 ## Why this works
