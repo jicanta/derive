@@ -38,6 +38,26 @@ function quizBlock(qz: QuizEv, res: QuizRes | undefined) {
   return lines.join('\n');
 }
 
+/**
+ * The tutor draws figures as ```svg fences, which the app renders inline.
+ * Obsidian shows a fence as code, so for the note the fence becomes inline
+ * HTML: the SVG inside a dark box, since the tutor draws light strokes on a
+ * dark background. Script and event handlers are stripped, as in the app.
+ */
+function inlineSvgFences(md: string): string {
+  return md.replace(/```svg[^\n]*\n([\s\S]*?)```/g, (block, body: string) => {
+    const safe = body
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/\son\w+="[^"]*"/gi, '')
+      .replace(/\son\w+='[^']*'/gi, '')
+      .replace(/href="javascript:[^"]*"/gi, '')
+      .trim();
+    if (!/^<svg[\s>]/i.test(safe)) return block;
+    // Blank lines around it make it an HTML block; no indentation inside, or Markdown treats it as code.
+    return `\n<div style="background:#131110;border-radius:12px;padding:12px;display:flex;justify-content:center">\n${safe.replace(/\n[ \t]+/g, '\n')}\n</div>\n`;
+  });
+}
+
 export function renderMarkdown(lesson: Lesson): string {
   const events = listEvents(lesson.id);
   const nodes = listNodes(lesson.id);
@@ -90,7 +110,7 @@ export function renderMarkdown(lesson: Lesson): string {
         out.push(`> [!quote] YOU\n> ${String((e.payload as { text: string }).text).replace(/\n/g, '\n> ')}\n`);
         break;
       case 'assistant':
-        out.push(`${(e.payload as { text: string }).text}\n`);
+        out.push(`${inlineSvgFences((e.payload as { text: string }).text)}\n`);
         break;
       case 'quiz':
         out.push(quizBlock(e.payload as QuizEv, results.get((e.payload as QuizEv).id)) + '\n');
