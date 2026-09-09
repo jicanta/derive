@@ -58,7 +58,7 @@ Preparing for a specific course? Attach its slides, a PDF or your notes (`.pdf`,
 
 Files are reduced to text on your machine at upload; nothing leaves it except what the tutor reads. Short material goes into the tutor's context whole. Longer material gets an outline, and the tutor reads pages or slides on demand (`read_material`, `search_material`) before planning and before teaching each node. You can attach more mid-lesson with the paperclip in the composer.
 
-Optional configuration lives in environment variables; see [`.env.example`](.env.example).
+Optional configuration lives in environment variables; copy [`.env.example`](.env.example) to `.env` in the repo root and `pnpm start` / `pnpm dev` read it.
 
 | Variable | Default | What it does |
 |---|---|---|
