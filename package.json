@@ -12,8 +12,7 @@
     "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter server dev\" \"pnpm --filter web dev\"",
     "build": "pnpm --filter web build && pnpm --filter server build",
     "start": "pnpm --filter server start",
-    "typecheck": "pnpm -r typecheck",
-    "demo:seed": "pnpm --filter server build && pnpm --filter server seed"
+    "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

@@ -52,13 +52,6 @@ Production build, one process:
 pnpm build && pnpm start     # http://localhost:4310
 ```
 
-Want to see the Atlas, the review queue and the learner memory before you have earned them? Seed a small history into a scratch data directory:
-
-```bash
-DERIVE_DATA_DIR=~/derive-demo pnpm demo:seed
-DERIVE_DATA_DIR=~/derive-demo pnpm start
-```
-
 ### Start from your course material
 
 Preparing for a specific course? Attach its slides, a PDF or your notes (`.pdf`, `.pptx`, `.docx`, `.md`, `.txt`) under the topic box, or drop them on it. The lesson then prepares you for *that* course: the plan covers what the material covers, in its notation, the questions use its examples, and every node names the slides or pages it comes from. The method does not change. The tutor still derives every node from unconditional truths instead of walking you through the slides, and it says so when the material skips a step or gets something wrong.
