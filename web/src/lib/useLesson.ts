@@ -242,9 +242,30 @@ export function useLesson(id: string | undefined) {
         es = new EventSource(`/api/lessons/${id}/stream?after=${lastSeq.current}`);
         es.onopen = () => dispatch({ type: 'connected', value: true });
         es.onerror = () => dispatch({ type: 'connected', value: false });
+        // Text arrives token by token. Re-rendering the markdown on every
+        // token is what makes a long lesson feel sticky, so deltas for the
+        // same block are merged and flushed a few times a second. Any other
+        // event flushes them first, so ordering is preserved.
+        let buffered: { id: string; text: string; ts: number } | null = null;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const flush = () => {
+          if (timer) clearTimeout(timer);
+          timer = null;
+          if (!buffered) return;
+          const b = buffered;
+          buffered = null;
+          dispatch({ type: 'event', ev: { seq: -1, type: 'delta', payload: { id: b.id, text: b.text }, ts: b.ts } });
+        };
         for (const t of EVENT_TYPES) {
           es.addEventListener(t, (m) => {
             const ev = JSON.parse((m as MessageEvent).data) as StoredEvent;
+            if (ev.type === 'delta') {
+              if (buffered && buffered.id !== ev.payload.id) flush();
+              buffered = buffered ? { ...buffered, text: buffered.text + ev.payload.text } : { id: ev.payload.id, text: ev.payload.text, ts: ev.ts };
+              if (!timer) timer = setTimeout(flush, 60);
+              return;
+            }
+            flush();
             if (ev.seq > 0) {
               // Assistant blocks are rewritten under their original seq; let those through.
               if (ev.seq <= lastSeq.current && ev.type !== 'assistant') return;

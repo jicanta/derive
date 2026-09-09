@@ -16,14 +16,23 @@ export function MaterialList({
 }) {
   if (!materials.length && !uploading.length) return null;
   return (
-    <ul className={compact ? 'flex flex-col gap-1.5' : ''}>
+    <ul className={compact ? 'flex flex-col gap-2.5' : ''}>
       {materials.map((m) => (
-        <li key={m.id} className={`group flex items-baseline gap-3 min-w-0 ${compact ? '' : 'py-2.5 border-t border-ink-100/10'}`}>
-          <FileText size={compact ? 12 : 14} strokeWidth={1.8} className="text-ink-500 shrink-0 self-center" />
-          <span className={`min-w-0 truncate ${compact ? 'text-[13px] text-ink-200' : 'text-[15px] text-ink-100'}`} title={m.name}>
-            {m.name}
-          </span>
-          <span className="font-mono text-[10.5px] text-ink-500 whitespace-nowrap">{describeMaterial(m)}</span>
+        <li key={m.id} className={`group flex min-w-0 ${compact ? 'items-start gap-2.5' : 'items-baseline gap-3 py-2.5 border-t border-ink-100/10'}`}>
+          <FileText size={compact ? 12 : 14} strokeWidth={1.8} className={`text-ink-500 shrink-0 ${compact ? 'mt-[3px]' : 'self-center'}`} />
+          {compact ? (
+            <span className="min-w-0" title={m.name}>
+              <span className="block text-[12.5px] leading-[1.35] text-ink-200 text-pretty line-clamp-2">{m.name}</span>
+              <span className="block font-mono text-[10px] text-ink-500 mt-0.5">{describeMaterial(m)}</span>
+            </span>
+          ) : (
+            <>
+              <span className="min-w-0 truncate text-[15px] text-ink-100" title={m.name}>
+                {m.name}
+              </span>
+              <span className="font-mono text-[10.5px] text-ink-500 whitespace-nowrap">{describeMaterial(m)}</span>
+            </>
+          )}
           {onRemove && (
             <button
               type="button"

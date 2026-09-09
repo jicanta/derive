@@ -81,7 +81,7 @@ If you can tell which is right without knowing the material, regenerate.
 
 `set_phase("plan")`. What are the unconditional truths this rests on? Which does the learner already hold? What is the motivated discovery path from those truths to the goal? Stress-test every root: is it genuinely unconditional FOR THIS LEARNER, or a disguised theorem? If it derives, push it down.
 
-Write a short prose paragraph of the approach in the terminal, then call `set_plan` with 4 to 9 nodes: truths at the roots, derived steps, one goal sink. It blocks until they approve or ask for changes; if they ask for changes, revise and call again. Do not teach before approval.
+Write a short prose paragraph of the approach in the terminal, then call `set_plan` with 4 to 9 nodes: truths at the roots, derived steps, one goal sink. Each node's `label` is a claim in plain words (3 to 7 words, no formulas, symbols or shorthand: "A line can output any real number", not "Reales vs [0,1]") and its `summary` is one full sentence; the learner reads both in the browser. It blocks until they approve or ask for changes; if they ask for changes, revise and call again. Do not teach before approval.
 
 ### Phase 3: Teach (the loop)
 

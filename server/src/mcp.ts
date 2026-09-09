@@ -88,10 +88,10 @@ function openBrowser(url: string) {
 const server = new McpServer({ name: 'derive', version: '0.2.0' });
 
 const nodeSchema = z.object({
-  id: z.string(),
-  label: z.string(),
+  id: z.string().describe('Short stable id, e.g. "packets".'),
+  label: z.string().describe('The claim in plain words, 3 to 7 words, no formulas or shorthand. This is what the graph shows.'),
   kind: z.enum(['truth', 'derived', 'goal']),
-  summary: z.string().optional(),
+  summary: z.string().describe('One full sentence stating the claim. Shown to the learner next to the label.'),
   depends_on: z.array(z.string()).optional(),
 });
 

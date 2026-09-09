@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { orderIndex } from '../lib/order';
 import type { PlanPayload } from '../lib/types';
 
 export function PlanCard({
@@ -44,9 +45,11 @@ export function PlanCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decided, disabled, editing, sending]);
 
-  const truths = plan.nodes.filter((n) => n.kind === 'truth');
-  const derived = plan.nodes.filter((n) => n.kind === 'derived');
-  const goal = plan.nodes.find((n) => n.kind === 'goal');
+  const order = useMemo(() => orderIndex(plan.nodes.map((n) => ({ ...n, depends_on: n.depends_on ?? [], status: 'pending' as const }))), [plan.nodes]);
+  const withIndex = plan.nodes.map((n) => ({ ...n, index: order.get(n.id) ?? 0 })).sort((a, b) => a.index - b.index);
+  const truths = withIndex.filter((n) => n.kind === 'truth');
+  const derived = withIndex.filter((n) => n.kind === 'derived');
+  const goal = withIndex.find((n) => n.kind === 'goal');
 
   return (
     <div className="animate-fade-up rounded-[18px] border border-gold-500/30 bg-ink-900/85 backdrop-blur px-6 py-5 md:px-7 md:py-6 shadow-[0_30px_60px_-40px_rgba(0,0,0,0.9)]">
@@ -57,12 +60,11 @@ export function PlanCard({
       </div>
       <h3 className="font-serif text-[1.7rem] leading-[1.15] text-ink-50 mb-5 text-balance">{plan.goal}</h3>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Column title="Ground truths" items={truths.map((n) => n.label)} dot="bg-gold-500" />
-        <Column title="Derived steps" items={derived.map((n) => n.label)} dot="bg-ink-300" />
-        <Column title="Goal" items={goal ? [goal.label] : []} dot="bg-teal-400" />
+      <div className="grid gap-3 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <Column title="Ground truths" hint="accepted as-is, no caveats" items={truths} dot="bg-gold-500" />
+        <Column title="Derived steps" hint="each built from the ones below it" items={goal ? [...derived, goal] : derived} dot="bg-ink-300" />
       </div>
-      <p className="mt-3 font-mono text-[11px] text-ink-500">The full dependency map is drawn on the right. It fills in as each node locks.</p>
+      <p className="mt-3 font-mono text-[11px] text-ink-500">Numbered in the order they will be taught. The map on the right lights up as each one locks.</p>
 
       {!decided && disabled && <p className="mt-4 font-mono text-[11px] text-ink-500">This plan is no longer awaiting approval.</p>}
       {!decided && !disabled && (
@@ -100,15 +102,22 @@ export function PlanCard({
   );
 }
 
-function Column({ title, items, dot }: { title: string; items: string[]; dot: string }) {
+function Column({ title, hint, items, dot }: { title: string; hint: string; items: (PlanPayload['nodes'][number] & { index: number })[]; dot: string }) {
   return (
     <div className="rounded-xl bg-ink-850/70 border hairline p-3.5">
-      <div className="eyebrow mb-2.5">{title}</div>
-      <ul className="space-y-1.5">
-        {items.map((it, i) => (
-          <li key={i} className="flex items-start gap-2.5 text-[14px] text-ink-100">
-            <span className={`mt-[7px] h-1.5 w-1.5 rounded-full shrink-0 ${dot}`} />
-            <span>{it}</span>
+      <div className="flex items-baseline gap-2 mb-2.5">
+        <span className="eyebrow">{title}</span>
+        <span className="font-mono text-[10px] text-ink-600">{hint}</span>
+      </div>
+      <ul className="space-y-2.5">
+        {items.map((n) => (
+          <li key={n.id} className="flex items-start gap-2.5">
+            <span className="font-mono text-[10px] text-ink-500 w-4 shrink-0 pt-[4px]">{String(n.index).padStart(2, '0')}</span>
+            <span className={`mt-[7px] h-1.5 w-1.5 rounded-full shrink-0 ${n.kind === 'goal' ? 'bg-teal-400' : dot}`} />
+            <span className="min-w-0">
+              <span className={`block text-[14.5px] leading-snug ${n.kind === 'goal' ? 'font-serif italic text-[16px] text-ink-50' : 'text-ink-50'}`}>{n.label}</span>
+              {n.summary && <span className="block mt-0.5 text-[12.5px] leading-[1.45] text-ink-400 text-pretty">{n.summary}</span>}
+            </span>
           </li>
         ))}
         {items.length === 0 && <li className="text-ink-500 text-sm">none</li>}

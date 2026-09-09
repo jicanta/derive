@@ -6,7 +6,8 @@ import { Composer } from '../components/Composer';
 import { ExplainCard } from '../components/ExplainCard';
 import { Graph } from '../components/Graph';
 import { Markdown } from '../components/Markdown';
-import { OutlineRail, topoOrder } from '../components/OutlineRail';
+import { OutlineRail } from '../components/OutlineRail';
+import { topoOrder } from '../lib/order';
 import { PhaseBar } from '../components/PhaseBar';
 import { PlanCard } from '../components/PlanCard';
 import { QuizCard } from '../components/QuizCard';
@@ -165,13 +166,19 @@ export function LessonPage() {
                         <span className="h-px flex-1 bg-ink-800" />
                       </div>
                     );
-                  case 'node_start':
+                  case 'node_start': {
+                    const summary = state.nodes.find((n) => n.id === it.id)?.summary;
                     return (
-                      <div key={it.seq} className="animate-fade-up flex items-baseline gap-3.5 pt-4">
+                      <div key={it.seq} className="animate-fade-up flex items-start gap-3.5 pt-4">
                         <span className="font-serif text-[40px] leading-none text-ink-600">{String(indexOf(it.id) || it.index).padStart(2, '0')}</span>
-                        <span className="eyebrow text-teal-400">now · {it.label}</span>
+                        <span className="min-w-0 pt-1">
+                          <span className="eyebrow text-teal-400">now</span>
+                          <span className="block font-serif text-[1.35rem] leading-tight text-ink-50 mt-0.5">{it.label}</span>
+                          {summary && <span className="block mt-1 text-[13.5px] leading-[1.45] text-ink-400 text-pretty max-w-[56ch]">{summary}</span>}
+                        </span>
                       </div>
                     );
+                  }
                   case 'node':
                     return (
                       <div key={it.seq} className={`animate-fade-up inline-flex items-center gap-2.5 font-mono text-[11px] tracking-[0.08em] rounded-full px-3 h-7 border ${it.status === 'locked' ? 'border-gold-500/40 text-gold-500 bg-gold-500/5' : 'border-rust-400/40 text-rust-400'}`}>

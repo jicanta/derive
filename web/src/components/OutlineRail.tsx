@@ -1,5 +1,8 @@
+import { topoOrder } from '../lib/order';
 import type { GraphNode, Material } from '../lib/types';
 import { MaterialList } from './MaterialList';
+
+export { topoOrder };
 
 /** Left rail: the plan in dependency order with each node's state, and the course material it prepares for. */
 export function OutlineRail({ nodes, goal, materials = [], uploading = [] }: { nodes: GraphNode[]; goal: string | null; materials?: Material[]; uploading?: string[] }) {
@@ -8,17 +11,23 @@ export function OutlineRail({ nodes, goal, materials = [], uploading = [] }: { n
     <div className="h-full flex flex-col px-3.5 py-5">
       <div className="eyebrow px-2.5 pb-3">Dependency order</div>
       {ordered.length === 0 && <p className="px-2.5 text-sm text-ink-500 leading-relaxed">The plan appears here after the probe.</p>}
-      <ol className="flex flex-col gap-1">
+      <ol className="flex flex-col gap-0.5">
         {ordered.map((n, i) => (
           <li
             key={n.id}
-            className={`flex items-center gap-3 h-[34px] px-2.5 rounded-lg text-[13px] leading-tight ${
+            title={n.summary ?? undefined}
+            className={`flex items-start gap-3 py-[7px] px-2.5 rounded-lg text-[13px] leading-[1.3] ${
               n.status === 'teaching' ? 'bg-teal-400/8 text-ink-50' : n.status === 'locked' ? 'text-ink-100' : n.status === 'shaky' ? 'text-rust-400' : 'text-ink-400'
             }`}
           >
-            <span className="font-mono text-[10px] text-ink-500 w-4 shrink-0">{String(i + 1).padStart(2, '0')}</span>
-            <Dot status={n.status} />
-            <span className={`truncate ${n.kind === 'goal' ? 'font-serif italic text-[15px]' : ''}`}>{n.label}</span>
+            <span className="font-mono text-[10px] text-ink-500 w-4 shrink-0 pt-[3px]">{String(i + 1).padStart(2, '0')}</span>
+            <span className="pt-[5px]">
+              <Dot status={n.status} />
+            </span>
+            <span className="min-w-0">
+              <span className={`block text-pretty ${n.kind === 'goal' ? 'font-serif italic text-[15px]' : ''}`}>{n.label}</span>
+              {n.status === 'teaching' && n.summary && <span className="block mt-1 text-[12px] leading-[1.4] text-ink-400 text-pretty">{n.summary}</span>}
+            </span>
           </li>
         ))}
       </ol>
@@ -45,19 +54,3 @@ function Dot({ status }: { status: GraphNode['status'] }) {
   return <span className="h-1.5 w-1.5 rounded-full border border-ink-600 shrink-0 box-border" />;
 }
 
-/** Roots first, goal last; stable within a rank by plan order. */
-export function topoOrder(nodes: GraphNode[]): GraphNode[] {
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const depth = new Map<string, number>();
-  const visit = (id: string, seen = new Set<string>()): number => {
-    if (depth.has(id)) return depth.get(id)!;
-    if (seen.has(id)) return 0;
-    seen.add(id);
-    const n = byId.get(id);
-    const d = n && n.depends_on.length ? 1 + Math.max(...n.depends_on.filter((x) => byId.has(x)).map((x) => visit(x, seen)), -1) : 0;
-    depth.set(id, d);
-    return d;
-  };
-  nodes.forEach((n) => visit(n.id));
-  return [...nodes].sort((a, b) => (depth.get(a.id)! - depth.get(b.id)!) || nodes.indexOf(a) - nodes.indexOf(b));
-}

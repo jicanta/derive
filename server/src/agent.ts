@@ -41,9 +41,9 @@ function text(obj: unknown) {
 
 export const nodeSchema = z.object({
   id: z.string().describe('Short stable id, e.g. "packets".'),
-  label: z.string().describe('Short label, 2 to 6 words.'),
+  label: z.string().describe('The claim in plain words a learner reads at a glance, 3 to 7 words, e.g. "A line can output any real number". No formulas, symbols, abbreviations or private shorthand: this is what the graph shows.'),
   kind: z.enum(['truth', 'derived', 'goal']),
-  summary: z.string().optional().describe('One sentence: the claim this node stands for.'),
+  summary: z.string().describe('One full sentence stating the claim this node stands for. Shown to the learner next to the label; write it for them.'),
   depends_on: z.array(z.string()).optional().describe('Ids of the nodes this one is derived from. Empty for roots.'),
 });
 

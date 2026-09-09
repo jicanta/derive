@@ -170,6 +170,10 @@ body::before {
 .react-flow__edge.shared .react-flow__edge-path { stroke: color-mix(in oklab, var(--color-ink-50) 50%, transparent); stroke-dasharray: 3 5; }
 @keyframes dash { to { stroke-dashoffset: -22; } }
 .react-flow__handle { opacity: 0; }
+.react-flow__node:hover { z-index: 50 !important; }
+/* The summary popover on a graph node. Plain CSS on purpose: Tailwind's group-hover sits behind a hover media query. */
+.node-pop { opacity: 0; transform: translate(-50%, 4px); transition: opacity 0.15s ease, transform 0.15s ease; }
+.react-flow__node:hover .node-pop { opacity: 1; transform: translate(-50%, 0); }
 
 .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
 .scroll-thin::-webkit-scrollbar-thumb { background: var(--color-ink-700); border-radius: 8px; }
