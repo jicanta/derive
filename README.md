@@ -59,6 +59,12 @@ DERIVE_DATA_DIR=~/derive-demo pnpm demo:seed
 DERIVE_DATA_DIR=~/derive-demo pnpm start
 ```
 
+### Start from your course material
+
+Preparing for a specific course? Attach its slides, a PDF or your notes (`.pdf`, `.pptx`, `.docx`, `.md`, `.txt`) under the topic box, or drop them on it. The lesson then prepares you for *that* course: the plan covers what the material covers, in its notation, the questions use its examples, and every node names the slides or pages it comes from. The method does not change. The tutor still derives every node from unconditional truths instead of walking you through the slides, and it says so when the material skips a step or gets something wrong.
+
+Files are reduced to text on your machine at upload; nothing leaves it except what the tutor reads. Short material goes into the tutor's context whole. Longer material gets an outline, and the tutor reads pages or slides on demand (`read_material`, `search_material`) before planning and before teaching each node. You can attach more mid-lesson with the paperclip in the composer.
+
 Optional configuration lives in environment variables; see [`.env.example`](.env.example).
 
 | Variable | Default | What it does |
@@ -74,7 +80,7 @@ The `plugin/` directory is a Claude Code plugin. It ships:
 
 - **`/derive:learn <topic>`** and **`/derive:review`** commands
 - the **`teach` skill**: the full method (below), written for Claude Code
-- an **MCP server** exposing the tutor's tools: `quiz`, `ask`, `set_plan`, `node_status`, `explain_back`, `remember`, `learner_profile`
+- an **MCP server** exposing the tutor's tools: `quiz`, `ask`, `set_plan`, `node_status`, `explain_back`, `remember`, `learner_profile`, and `read_material` / `search_material` / `attach_material` for course material
 - **hooks** that mirror every terminal turn into the lesson log, so the browser companion shows the prose, the cards and the graph as one record
 
 ```bash
@@ -82,7 +88,10 @@ pnpm build                      # builds the MCP server the plugin points at
 pnpm start                      # keep the Derive server running
 claude --plugin-dir ./plugin    # in any project
 > /derive:learn why does gradient descent work
+> /derive:learn Fourier series, from ~/uni/signals/week3.pdf and week3-slides.pptx
 ```
+
+Name files or a folder in the argument and Claude Code uploads them to Derive as the lesson's course material.
 
 <p align="center">
   <img src="docs/screenshot-companion.png" alt="Companion mode: Claude Code in the terminal, Derive rendering the quiz and graph in the browser" width="960" />
@@ -121,6 +130,7 @@ flowchart LR
 - **Cross-lesson Atlas.** All your nodes across all lessons on one canvas. The same truth appearing in two topics is drawn as a shared root. Due and shaky nodes are highlighted; review starts from there.
 - **Spaced repetition on nodes, not flashcards.** An expanding interval per node, bumped only by a fresh question. Miss it and the node is marked shaky and re-derived from its dependencies.
 - **Verified facts.** The tutor is instructed to web-search anything it is even slightly unsure of before teaching it, and to say so if a check changed what it was about to say.
+- **Your course, not the topic in general.** Attach slides, a PDF or notes and the plan is scoped to what that course covers, in its notation, with every node citing the slides or pages it rests on. The tutor reads the material page by page as it plans and teaches, and pushes back when the slides skip a step.
 - **Renders properly.** KaTeX math, Mermaid diagrams, and inline SVG for geometry, all streaming. Export any lesson as an Obsidian note with callouts, or write it straight into your vault.
 - **Keyboard first.** `1` `2` `3` pick an option, `Enter` answers or approves the plan, `?` is "I don't know". A lesson never needs the mouse.
 
@@ -154,7 +164,8 @@ derive/
 └── design/   Claude Design canvas the UI was built from
 ```
 
-- **One set of tutor actions, two drivers.** `server/src/actions.ts` implements `quiz`, `ask`, `set_plan`, `node_status`, `explain_back` and `remember`. The in-process agent calls them through an SDK MCP server; a Claude Code session calls them through the HTTP API via `server/src/mcp.ts`.
+- **One set of tutor actions, two drivers.** `server/src/actions.ts` implements `quiz`, `ask`, `set_plan`, `node_status`, `explain_back`, `remember`, `read_material` and `search_material`. The in-process agent calls them through an SDK MCP server; a Claude Code session calls them through the HTTP API via `server/src/mcp.ts`.
+- **Course material is text, segmented.** `server/src/materials.ts` reduces a PDF (via `unpdf`), a PPTX or DOCX (unzipped, XML runs joined per slide or paragraph, speaker notes included) or Markdown to a list of segments in SQLite. The tutor's system prompt carries the full text when it is short and an outline otherwise; the two material tools address segments by page or slide number.
 - **Tools block on you.** A `quiz` call emits a card to the browser and waits until you answer. The server grades it, records it, and only then returns to the model.
 - **Event-sourced lessons.** Every turn is a stream of typed events appended to SQLite and fanned out over Server-Sent Events. The UI is a reducer over that stream, so reloads, reconnects, the Obsidian export and the terminal mirror all replay the same log.
 - **Conversation continuity** uses Agent SDK session resume: one SDK session per lesson, resumed on every turn.
@@ -163,7 +174,7 @@ derive/
 ## Roadmap
 
 - Answer quizzes from the terminal as well as the browser
-- Import a PDF or a repo as the source material for a lesson
+- Import a repo as the source material for a lesson (PDFs, slides and notes already work)
 - Voice mode for the Socratic back-and-forth
 - Multi-learner profiles
 

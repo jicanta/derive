@@ -5,6 +5,7 @@ import type {
   ExplainPayload,
   GraphNode,
   Lesson,
+  Material,
   NodeRow,
   NodeStatus,
   PlanPayload,
@@ -18,6 +19,7 @@ export type LessonState = {
   lesson: Lesson | null;
   items: TimelineItem[];
   nodes: GraphNode[];
+  materials: Material[];
   phase: string;
   busy: boolean;
   status: string | null;
@@ -28,7 +30,7 @@ export type LessonState = {
 };
 
 type Action =
-  | { type: 'init'; lesson: Lesson; nodes: NodeRow[]; events: StoredEvent[]; busy: boolean }
+  | { type: 'init'; lesson: Lesson; nodes: NodeRow[]; materials: Material[]; events: StoredEvent[]; busy: boolean }
   | { type: 'event'; ev: StoredEvent }
   | { type: 'connected'; value: boolean }
   | { type: 'error'; text: string };
@@ -37,6 +39,7 @@ const initial: LessonState = {
   lesson: null,
   items: [],
   nodes: [],
+  materials: [],
   phase: 'probe',
   busy: false,
   status: null,
@@ -158,6 +161,17 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
     }
     case 'memory':
       return { ...s, items: [...items, { kind: 'memory', seq: ev.seq, fact: ev.payload.fact }] };
+    case 'material': {
+      const m = ev.payload as Material;
+      const materials = s.materials.some((x) => x.id === m.id) ? s.materials : [...s.materials, m];
+      return { ...s, materials, items: [...items, { kind: 'material', seq: ev.seq, id: m.id, name: m.name, unit: m.unit, pages: m.pages }] };
+    }
+    case 'material_removed':
+      return {
+        ...s,
+        materials: s.materials.filter((m) => m.id !== ev.payload.id),
+        items: [...items, { kind: 'material', seq: ev.seq, id: ev.payload.id, name: ev.payload.name, unit: 'part', pages: 0, removed: true }],
+      };
     default:
       return s;
   }
@@ -182,6 +196,8 @@ function reducer(s: LessonState, a: Action): LessonState {
     case 'init': {
       let st: LessonState = { ...initial, lesson: a.lesson, nodes: rowsToNodes(a.nodes), phase: a.lesson.phase, busy: a.busy };
       for (const ev of a.events) st = apply(st, ev);
+      // The server's list is the truth; the replay only adds the timeline items.
+      st.materials = a.materials ?? st.materials;
       st.items = st.items.map((i) => (i.kind === 'assistant' ? { ...i, streaming: false } : i));
       st.busy = a.busy;
       st.status = a.busy ? (a.lesson.mode === 'external' ? 'Teaching in your terminal' : 'Thinking') : null;
@@ -198,7 +214,7 @@ function reducer(s: LessonState, a: Action): LessonState {
 
 const EVENT_TYPES = [
   'ready', 'turn_start', 'turn_end', 'status', 'user', 'block_start', 'delta', 'assistant', 'quiz', 'quiz_result', 'ask', 'ask_result',
-  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'node_status', 'memory',
+  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'node_status', 'memory', 'material', 'material_removed',
 ];
 
 export function useLesson(id: string | undefined) {
@@ -214,7 +230,7 @@ export function useLesson(id: string | undefined) {
       .then((d) => {
         if (cancelled) return;
         lastSeq.current = d.events.reduce((m, e) => Math.max(m, e.seq), 0);
-        dispatch({ type: 'init', lesson: d.lesson, nodes: d.nodes, events: d.events, busy: d.busy });
+        dispatch({ type: 'init', lesson: d.lesson, nodes: d.nodes, materials: d.materials ?? [], events: d.events, busy: d.busy });
         es = new EventSource(`/api/lessons/${id}/stream?after=${lastSeq.current}`);
         es.onopen = () => dispatch({ type: 'connected', value: true });
         es.onerror = () => dispatch({ type: 'connected', value: false });

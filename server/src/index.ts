@@ -12,22 +12,30 @@ import { interrupt, isBusy, runTurn } from './agent.js';
 import { PORT, VAULT_DIR } from './config.js';
 import {
   allNodes,
+  bindMaterials,
   createLesson,
   deleteLesson,
+  deleteMaterial,
   dueNodes,
   getLesson,
+  getMaterial,
   lastExternalLesson,
   listEvents,
   listLessons,
+  listMaterials,
   listMisconceptions,
   listNodes,
   replaceGraph,
   stats,
+  sweepOrphanMaterials,
   type GraphNodeInput,
+  type MaterialRow,
 } from './db.js';
 import { emit, subscribe } from './events.js';
 import { exportToVault, renderMarkdown } from './export.js';
-import { firstTurnPrompt, reviewTurnPrompt } from './prompt.js';
+import { ACCEPTED, describe, ingestMaterial, materialsSection, MAX_FILE_BYTES } from './materials.js';
+import { addNotice, takeNotices } from './notices.js';
+import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt } from './prompt.js';
 import { answerPrompt, cancelPending, hasPending, pendingId } from './prompts.js';
 
 const app = new Hono();
@@ -47,8 +55,10 @@ const busy = (id: string) => {
 const lessonView = (id: string) => {
   const lesson = getLesson(id);
   if (!lesson) return null;
-  return { lesson, nodes: listNodes(id), busy: busy(id), pending: hasPending(id) };
+  return { lesson, nodes: listNodes(id), materials: listMaterials(id), busy: busy(id), pending: hasPending(id) };
 };
+
+sweepOrphanMaterials();
 
 app.get('/api/health', (c) => c.json({ ok: true, version: '0.2.0' }));
 app.get('/api/stats', (c) => c.json({ ...stats(), due: dueNodes().length, vault: !!VAULT_DIR }));
@@ -69,12 +79,14 @@ app.get('/api/lessons', (c) =>
 );
 
 app.post('/api/lessons', async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { topic?: string };
+  const body = (await c.req.json().catch(() => ({}))) as { topic?: string; materials?: string[] };
   const topic = body.topic?.trim();
   if (!topic) return c.json({ error: 'topic required' }, 400);
   const lesson = createLesson(randomUUID(), topic);
-  void runTurn(lesson.id, firstTurnPrompt(topic)).catch((e) => console.error('[turn]', e));
-  return c.json(lesson, 201);
+  const materials = Array.isArray(body.materials) && body.materials.length ? bindMaterials(lesson.id, body.materials) : [];
+  for (const m of materials) emit(lesson.id, 'material', materialEvent(m));
+  void runTurn(lesson.id, firstTurnPrompt(topic, materials.map(describe))).catch((e) => console.error('[turn]', e));
+  return c.json({ ...lesson, materials }, 201);
 });
 
 app.get('/api/lessons/:id', (c) => {
@@ -161,6 +173,72 @@ app.post('/api/lessons/:id/export', (c) => {
   return c.json({ ok: true, path });
 });
 
+// ---------- course material ----------
+
+const materialEvent = (m: MaterialRow) => ({ id: m.id, name: m.name, kind: m.kind, unit: m.unit, pages: m.pages, chars: m.chars });
+
+/**
+ * Upload one or more files (multipart field `files`). Without `lesson_id`
+ * the material is parked until a lesson is created with its id; with one it
+ * is attached at once and the tutor is told at its next chance.
+ */
+app.post('/api/materials', async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.parseBody({ all: true });
+  } catch (e) {
+    return c.json({ error: `could not read the upload: ${e instanceof Error ? e.message : String(e)}` }, 400);
+  }
+  const raw = body.files ?? body.file;
+  const files = (Array.isArray(raw) ? raw : raw ? [raw] : []).filter((f): f is File => f instanceof File);
+  if (!files.length) return c.json({ error: `no files. Send multipart with a "files" field (${ACCEPTED.join(', ')}).` }, 400);
+  if (files.length > 12) return c.json({ error: 'at most 12 files per upload' }, 400);
+  const lessonId = typeof body.lesson_id === 'string' && body.lesson_id ? body.lesson_id : c.req.query('lesson_id') || null;
+  const lesson = lessonId ? getLesson(lessonId) : undefined;
+  if (lessonId && !lesson) return c.json({ error: 'lesson not found' }, 404);
+
+  const materials: MaterialRow[] = [];
+  const errors: { name: string; error: string }[] = [];
+  for (const f of files) {
+    if (f.size > MAX_FILE_BYTES) {
+      errors.push({ name: f.name, error: `larger than ${MAX_FILE_BYTES / 1024 / 1024} MB` });
+      continue;
+    }
+    try {
+      materials.push(await ingestMaterial(f.name, Buffer.from(await f.arrayBuffer()), lesson?.id ?? null));
+    } catch (e) {
+      errors.push({ name: f.name, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  if (lesson && materials.length) {
+    for (const m of materials) emit(lesson.id, 'material', materialEvent(m));
+    const prompt = materialAttachedPrompt(materials.map(describe).join('; '));
+    // Mid-lesson: tell the tutor now if it is idle, otherwise on the result of the card it is waiting on.
+    if (lesson.mode === 'agent' && !isBusy(lesson.id)) void runTurn(lesson.id, prompt).catch((e) => console.error('[turn]', e));
+    else addNotice(lesson.id, prompt);
+  }
+  if (!materials.length) return c.json({ error: errors.map((e) => `${e.name}: ${e.error}`).join('; '), errors }, 422);
+  return c.json({ materials, errors }, 201);
+});
+
+app.get('/api/materials/:id', (c) => {
+  const m = getMaterial(c.req.param('id'));
+  if (!m) return c.json({ error: 'not found' }, 404);
+  const { text, ...meta } = m;
+  return c.json(c.req.query('text') ? { ...meta, text } : meta);
+});
+
+app.delete('/api/materials/:id', (c) => {
+  const m = getMaterial(c.req.param('id'));
+  if (!m) return c.json({ error: 'not found' }, 404);
+  deleteMaterial(m.id);
+  if (m.lesson_id) {
+    emit(m.lesson_id, 'material_removed', { id: m.id, name: m.name });
+    addNotice(m.lesson_id, `The learner removed the material "${m.name}" from this lesson. Do not rely on it any more.`);
+  }
+  return c.json({ ok: true });
+});
+
 // ---------- review ----------
 
 app.get('/api/review', (c) => c.json(dueNodes()));
@@ -199,12 +277,21 @@ app.get('/api/profile', (c) => c.json(actions.profile()));
 // ---------- external lessons (Claude Code plugin) ----------
 
 app.post('/api/external/lessons', async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { topic?: string };
+  const body = (await c.req.json().catch(() => ({}))) as { topic?: string; materials?: string[] };
   const topic = body.topic?.trim();
   if (!topic) return c.json({ error: 'topic required' }, 400);
   const lesson = createLesson(randomUUID(), topic, 'external');
+  const materials = Array.isArray(body.materials) && body.materials.length ? bindMaterials(lesson.id, body.materials) : [];
+  for (const m of materials) emit(lesson.id, 'material', materialEvent(m));
   emit(lesson.id, 'turn_start', { source: 'claude-code' });
-  return c.json({ ...lesson, url: `${baseUrl(c.req.url)}/lesson/${lesson.id}` }, 201);
+  return c.json({ ...lesson, materials, url: `${baseUrl(c.req.url)}/lesson/${lesson.id}` }, 201);
+});
+
+/** The system-prompt section about a lesson's material, for a driver that builds its own context (the plugin). */
+app.get('/api/external/lessons/:id/materials', (c) => {
+  const id = c.req.param('id');
+  if (!getLesson(id)) return c.json({ error: 'not found' }, 404);
+  return c.json({ materials: listMaterials(id), brief: materialsSection(id) });
 });
 
 app.get('/api/external/active', (c) => {
@@ -212,6 +299,12 @@ app.get('/api/external/active', (c) => {
   if (!l) return c.json({ error: 'no external lesson' }, 404);
   return c.json({ ...l, url: `${baseUrl(c.req.url)}/lesson/${l.id}`, pending: pendingId(l.id) });
 });
+
+/** External lessons have no prompt of ours to prepend notices to, so they ride along on the next tool result. */
+const withNotices = <T>(lessonId: string, result: T): T => {
+  const n = takeNotices(lessonId);
+  return n.length && result && typeof result === 'object' ? { ...result, notice: n.join('\n') } : result;
+};
 
 /** Run a tutor action for an external lesson. Blocking actions long-poll until the learner answers. */
 app.post('/api/external/lessons/:id/:action', async (c) => {
@@ -225,20 +318,24 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
       case 'quiz': {
         const gap = teachingGap(id, a as { node_id?: string; already_held?: boolean });
         if (gap) return c.json({ error: gap }, 400);
-        return c.json(await actions.quiz(id, a as unknown as actions.QuizArgs));
+        return c.json(withNotices(id, await actions.quiz(id, a as unknown as actions.QuizArgs)));
       }
       case 'ask':
-        return c.json(await actions.ask(id, a as { question: string; options?: string[] }));
+        return c.json(withNotices(id, await actions.ask(id, a as { question: string; options?: string[] })));
       case 'set_plan':
-        return c.json(await actions.setPlan(id, a as { goal: string; nodes: GraphNodeInput[] }));
+        return c.json(withNotices(id, await actions.setPlan(id, a as { goal: string; nodes: GraphNodeInput[] })));
       case 'node_status':
-        return c.json(actions.nodeStatus(id, a as { id: string; status: 'teaching' | 'locked' | 'shaky' }));
+        return c.json(withNotices(id, actions.nodeStatus(id, a as { id: string; status: 'teaching' | 'locked' | 'shaky' })));
       case 'set_phase':
-        return c.json(actions.phase(id, a as { phase: 'probe' | 'plan' | 'teach' }));
+        return c.json(withNotices(id, actions.phase(id, a as { phase: 'probe' | 'plan' | 'teach' })));
       case 'explain_back':
-        return c.json(await actions.explainBack(id, a as { prompt: string; rubric: string; node_id?: string }));
+        return c.json(withNotices(id, await actions.explainBack(id, a as { prompt: string; rubric: string; node_id?: string })));
       case 'remember':
         return c.json(actions.remember(id, a as { fact: string; kind?: 'learner' | 'preference' | 'strength' | 'gap' }));
+      case 'read_material':
+        return c.json(actions.readMaterial(id, a as { name?: string; from?: number; to?: number }));
+      case 'search_material':
+        return c.json(actions.searchMaterial(id, a as { query: string; name?: string; limit?: number }));
       case 'mirror': {
         // The plugin's hooks post transcript text here.
         const { role, text, uid, at } = a as { role: 'assistant' | 'user'; text: string; uid?: string; at?: number };

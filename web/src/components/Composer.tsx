@@ -1,20 +1,27 @@
-import { ArrowUp, Square } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowUp, Paperclip, Square } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { MATERIAL_ACCEPT } from '../lib/useMaterials';
 
 export function Composer({
   onSend,
   onStop,
+  onAttach,
+  attaching,
   busy,
   waiting,
   external,
 }: {
   onSend: (text: string) => Promise<unknown>;
   onStop: () => Promise<unknown>;
+  /** Attach course material mid-lesson. */
+  onAttach?: (files: FileList | null) => void;
+  attaching?: boolean;
   busy: boolean;
   waiting: boolean;
   external?: boolean;
 }) {
   const [text, setText] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const canSend = !!text.trim() && !sending && (external || !busy);
 
@@ -49,6 +56,30 @@ export function Composer({
       className="flex items-end gap-3 rounded-2xl border hairline bg-ink-900/90 backdrop-blur pl-4 pr-2 py-2 focus-within:border-ink-500 transition-colors"
     >
       <span className="font-mono text-gold-500 text-[15px] pb-2">›</span>
+      {onAttach && (
+        <>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            accept={MATERIAL_ACCEPT}
+            className="hidden"
+            onChange={(e) => {
+              onAttach(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            title="Attach course material (pdf, pptx, docx, md, txt)"
+            disabled={attaching}
+            onClick={() => fileInput.current?.click()}
+            className={`pb-2 transition-colors ${attaching ? 'text-gold-500 animate-pulse' : 'text-ink-500 hover:text-ink-100'}`}
+          >
+            <Paperclip size={15} strokeWidth={1.8} />
+          </button>
+        </>
+      )}
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}

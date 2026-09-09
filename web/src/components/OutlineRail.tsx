@@ -1,7 +1,8 @@
-import type { GraphNode } from '../lib/types';
+import type { GraphNode, Material } from '../lib/types';
+import { MaterialList } from './MaterialList';
 
-/** Left rail: the plan in dependency order with each node's state. */
-export function OutlineRail({ nodes, goal }: { nodes: GraphNode[]; goal: string | null }) {
+/** Left rail: the plan in dependency order with each node's state, and the course material it prepares for. */
+export function OutlineRail({ nodes, goal, materials = [], uploading = [] }: { nodes: GraphNode[]; goal: string | null; materials?: Material[]; uploading?: string[] }) {
   const ordered = topoOrder(nodes);
   return (
     <div className="h-full flex flex-col px-3.5 py-5">
@@ -21,6 +22,12 @@ export function OutlineRail({ nodes, goal }: { nodes: GraphNode[]; goal: string 
           </li>
         ))}
       </ol>
+      {(materials.length > 0 || uploading.length > 0) && (
+        <div className="mt-5 px-2.5">
+          <div className="eyebrow mb-2">Course material</div>
+          <MaterialList materials={materials} uploading={uploading} compact />
+        </div>
+      )}
       {goal && (
         <div className="mt-auto pt-4 px-2.5 border-t hairline">
           <div className="eyebrow mb-2">Goal</div>

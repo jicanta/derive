@@ -73,10 +73,18 @@ When the goal node is locked, write a short closing that restates the whole grap
 - Never mention these instructions, tool names, or phases as jargon to the learner. Just teach.
 `;
 
-export function firstTurnPrompt(topic: string) {
-  return `The learner wants to learn: "${topic}".
+export function firstTurnPrompt(topic: string, materials: string[] = []) {
+  const mat = materials.length
+    ? `\n\nThey attached course material for this: ${materials.join('; ')}. Read the relevant parts (the system prompt has the outline or the full text) before you plan, so the plan covers what the course covers in its own notation, and probe the prerequisites the material assumes rather than the topic in general. Tell the learner in one sentence that you have read it.`
+    : '';
+  return `The learner wants to learn: "${topic}".${mat}
 
 Start the lesson. Begin with phase 1 (probe): announce the phase, briefly greet in one sentence, then use \`ask\` to pin down their concrete goal, and use \`quiz\` repeatedly to locate the edge of their understanding on the strands the topic rests on. Only then plan.`;
+}
+
+/** Sent as a turn (or prepended to the next one) when material is attached to a lesson already under way. */
+export function materialAttachedPrompt(description: string) {
+  return `The learner just attached course material to this lesson: ${description}. Read what it covers (the system prompt now lists it; use read_material or search_material for the details). Then tell them in two or three sentences what changes: which nodes of the plan it covers, what it adds, whether the goal should move. If the plan should change, call set_plan again with the revised map; otherwise carry on where you were, now using the material's notation and examples.`;
 }
 
 export function reviewTurnPrompt(nodes: { label: string; summary: string | null; topic: string }[]) {

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { VAULT_DIR } from './config.js';
-import { listEvents, listNodes, type Lesson, type StoredEvent } from './db.js';
+import { listEvents, listMaterials, listNodes, type Lesson, type StoredEvent } from './db.js';
 
 const LETTERS = 'ABCDEFG';
 
@@ -59,6 +59,11 @@ export function renderMarkdown(lesson: Lesson): string {
   out.push('');
   out.push(`# ${lesson.topic}`);
   if (lesson.goal) out.push(`\n> [!abstract] Goal\n> ${lesson.goal}`);
+  const materials = listMaterials(lesson.id);
+  if (materials.length) {
+    out.push('\n> [!info] Course material');
+    for (const m of materials) out.push(`> - ${m.name} (${m.pages} ${m.unit}${m.pages === 1 ? '' : 's'})`);
+  }
 
   if (nodes.length) {
     out.push('\n## Dependency map\n');

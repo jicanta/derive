@@ -65,6 +65,18 @@ db.exec(`
     correct INTEGER NOT NULL,
     ts INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS materials (
+    id TEXT PRIMARY KEY,
+    lesson_id TEXT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    unit TEXT NOT NULL DEFAULT 'part',
+    pages INTEGER NOT NULL DEFAULT 0,
+    chars INTEGER NOT NULL DEFAULT 0,
+    text TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS materials_lesson ON materials (lesson_id);
 `);
 
 try {
@@ -132,6 +144,15 @@ const q = {
   deleteEvents: db.prepare('DELETE FROM events WHERE lesson_id = ?'),
   deleteNodes: db.prepare('DELETE FROM nodes WHERE lesson_id = ?'),
   deleteQuiz: db.prepare('DELETE FROM quiz_results WHERE lesson_id = ?'),
+  insertMaterial: db.prepare(
+    'INSERT INTO materials (id, lesson_id, name, kind, unit, pages, chars, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ),
+  getMaterial: db.prepare('SELECT * FROM materials WHERE id = ?'),
+  listMaterials: db.prepare('SELECT id, lesson_id, name, kind, unit, pages, chars, created_at FROM materials WHERE lesson_id = ? ORDER BY created_at, rowid'),
+  bindMaterial: db.prepare('UPDATE materials SET lesson_id = ? WHERE id = ? AND lesson_id IS NULL'),
+  deleteMaterial: db.prepare('DELETE FROM materials WHERE id = ?'),
+  deleteMaterialsByLesson: db.prepare('DELETE FROM materials WHERE lesson_id = ?'),
+  deleteOrphanMaterials: db.prepare('DELETE FROM materials WHERE lesson_id IS NULL AND created_at < ?'),
   nextSeq: db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM events WHERE lesson_id = ?'),
   insertEvent: db.prepare(
     'INSERT INTO events (lesson_id, seq, type, payload, ts) VALUES (?, ?, ?, ?, ?)',
@@ -185,6 +206,7 @@ export function listLessons(): Lesson[] {
 }
 
 export function deleteLesson(id: string) {
+  q.deleteMaterialsByLesson.run(id);
   q.deleteMemoryByLesson.run(id);
   q.deleteMisByLesson.run(id);
   q.deleteQuiz.run(id);
@@ -274,6 +296,52 @@ export function dueNodes(now = Date.now()) {
 
 export function stats() {
   return q.stats.get() as { lessons: number; locked: number; quizzes: number; correct: number };
+}
+
+// ---------- course material ----------
+
+/** Text extracted from a file the learner attached (slides, a PDF, notes). */
+export type MaterialRow = {
+  id: string;
+  /** Null until the material is bound to a lesson (uploads happen before the lesson exists). */
+  lesson_id: string | null;
+  name: string;
+  kind: 'pdf' | 'pptx' | 'docx' | 'md' | 'txt';
+  /** What one segment of the text is: a page (pdf), a slide (pptx), or a part (continuous text split at headings). */
+  unit: 'page' | 'slide' | 'part';
+  pages: number;
+  chars: number;
+  created_at: number;
+};
+export type MaterialFull = MaterialRow & { text: string };
+
+export function insertMaterial(m: Omit<MaterialFull, 'created_at'>): MaterialRow {
+  q.insertMaterial.run(m.id, m.lesson_id, m.name, m.kind, m.unit, m.pages, m.chars, m.text, Date.now());
+  const { text: _t, ...row } = getMaterial(m.id)!;
+  return row;
+}
+
+export function getMaterial(id: string): MaterialFull | undefined {
+  return q.getMaterial.get(id) as MaterialFull | undefined;
+}
+
+export function listMaterials(lessonId: string): MaterialRow[] {
+  return q.listMaterials.all(lessonId) as MaterialRow[];
+}
+
+/** Attach uploaded-but-unbound materials to a lesson. Ignores ids that are missing or already bound. */
+export function bindMaterials(lessonId: string, ids: string[]): MaterialRow[] {
+  for (const id of ids) q.bindMaterial.run(lessonId, id);
+  return listMaterials(lessonId);
+}
+
+export function deleteMaterial(id: string) {
+  q.deleteMaterial.run(id);
+}
+
+/** Uploads that never got attached to a lesson (the tab was closed) are dropped after a day. */
+export function sweepOrphanMaterials(olderThanMs = 86_400_000) {
+  q.deleteOrphanMaterials.run(Date.now() - olderThanMs);
 }
 
 export type MemoryRow = { id: number; fact: string; kind: string; lesson_id: string | null; ts: number };

@@ -1,4 +1,4 @@
-import type { Atlas, DueNode, Lesson, LessonSummary, NodeRow, Stats, StoredEvent } from './types';
+import type { Atlas, DueNode, Lesson, LessonSummary, Material, NodeRow, Stats, StoredEvent } from './types';
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -21,9 +21,17 @@ export const api = {
   lessons: () => fetch('/api/lessons').then((r) => j<LessonSummary[]>(r)),
   lesson: (id: string) =>
     fetch(`/api/lessons/${id}`).then((r) =>
-      j<{ lesson: Lesson; nodes: NodeRow[]; events: StoredEvent[]; busy: boolean; pending: boolean }>(r),
+      j<{ lesson: Lesson; nodes: NodeRow[]; materials: Material[]; events: StoredEvent[]; busy: boolean; pending: boolean }>(r),
     ),
-  createLesson: (topic: string) => post('/api/lessons', { topic }).then((r) => j<Lesson>(r)),
+  createLesson: (topic: string, materials: string[] = []) => post('/api/lessons', { topic, materials }).then((r) => j<Lesson>(r)),
+  /** Upload files; with a lesson id they attach at once, without one they wait for createLesson. */
+  uploadMaterials: (files: File[], lessonId?: string) => {
+    const form = new FormData();
+    if (lessonId) form.set('lesson_id', lessonId);
+    for (const f of files) form.append('files', f, f.name);
+    return fetch('/api/materials', { method: 'POST', body: form }).then((r) => j<{ materials: Material[]; errors: { name: string; error: string }[] }>(r));
+  },
+  deleteMaterial: (id: string) => fetch(`/api/materials/${id}`, { method: 'DELETE' }).then((r) => j<{ ok: true }>(r)),
   deleteLesson: (id: string) => fetch(`/api/lessons/${id}`, { method: 'DELETE' }).then((r) => j<{ ok: true }>(r)),
   message: (id: string, text: string) => post(`/api/lessons/${id}/message`, { text }).then((r) => j<{ ok: true; note?: string }>(r)),
   answer: (id: string, prompt_id: string, answer: Record<string, unknown>) =>

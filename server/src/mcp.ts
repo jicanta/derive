@@ -11,6 +11,8 @@
  * or install the plugin in ./plugin, which wires this plus the teach skill.
  */
 import { exec } from 'node:child_process';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, extname, join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -46,6 +48,38 @@ async function ensureLesson(): Promise<string> {
 
 const text = (obj: unknown) => ({ content: [{ type: 'text' as const, text: typeof obj === 'string' ? obj : JSON.stringify(obj) }] });
 
+const MATERIAL_EXTS = new Set(['.pdf', '.pptx', '.docx', '.md', '.markdown', '.mdx', '.txt', '.text', '.tex', '.rst', '.org']);
+
+/** Expand paths (files or folders, `~` allowed) to the course-material files in them. */
+function materialPaths(paths: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of paths) {
+    const p = resolve(raw.replace(/^~(?=$|[\\/])/, process.env.HOME ?? ''));
+    const st = statSync(p, { throwIfNoEntry: false });
+    if (!st) throw new Error(`No such file: ${raw}`);
+    if (st.isDirectory()) {
+      for (const f of readdirSync(p).sort()) if (MATERIAL_EXTS.has(extname(f).toLowerCase())) out.push(join(p, f));
+    } else out.push(p);
+  }
+  if (!out.length) throw new Error('No .pdf, .pptx, .docx, .md or .txt files found at those paths.');
+  return out;
+}
+
+type Material = { id: string; name: string; kind: string; unit: string; pages: number; chars: number };
+
+/** Upload local files to the running Derive server and attach them to a lesson. */
+async function uploadMaterials(lesson: string, paths: string[]): Promise<{ materials: Material[]; errors: { name: string; error: string }[] }> {
+  const form = new FormData();
+  form.set('lesson_id', lesson);
+  for (const p of materialPaths(paths)) form.append('files', new Blob([readFileSync(p)]), basename(p));
+  const res = await fetch(`${BASE}/api/materials`, { method: 'POST', body: form });
+  const body = (await res.json().catch(() => ({}))) as { materials?: Material[]; errors?: { name: string; error: string }[]; error?: string };
+  if (!res.ok) throw new Error(`derive server: ${body.error ?? res.statusText}`);
+  return { materials: body.materials ?? [], errors: body.errors ?? [] };
+}
+
+const materialsBrief = (lesson: string) => api<{ materials: Material[]; brief: string }>(`/api/external/lessons/${lesson}/materials`);
+
 function openBrowser(url: string) {
   const cmd = process.platform === 'darwin' ? `open "${url}"` : process.platform === 'win32' ? `start "" "${url}"` : `xdg-open "${url}"`;
   exec(cmd, () => undefined);
@@ -65,16 +99,65 @@ server.registerTool(
   'start_lesson',
   {
     description:
-      'Start a Derive lesson for a topic. Opens the companion view in the browser, where quizzes, the plan and the dependency graph are rendered and answered. Call once at the start of /learn, before any quiz. Returns the lesson id, the URL, and what is already known about this learner.',
-    inputSchema: { topic: z.string(), open_browser: z.boolean().optional().describe('Default true.') },
+      'Start a Derive lesson for a topic. Opens the companion view in the browser, where quizzes, the plan and the dependency graph are rendered and answered. Call once at the start of /learn, before any quiz. Returns the lesson id, the URL, what is already known about this learner, and, when `files` were given, a brief of the course material (its outline, or its full text when short) with instructions on how to use it.',
+    inputSchema: {
+      topic: z.string(),
+      files: z
+        .array(z.string())
+        .optional()
+        .describe('Course material to prepare for: local paths to .pdf, .pptx, .docx, .md or .txt files, or a folder of them. Pass every file the learner named.'),
+      open_browser: z.boolean().optional().describe('Default true.'),
+    },
   },
-  async ({ topic, open_browser }) => {
+  async ({ topic, files, open_browser }) => {
     const l = await api<{ id: string; url: string }>('/api/external/lessons', { topic });
     lessonId = l.id;
     if (open_browser !== false) openBrowser(l.url);
     const profile = await api<{ profile: string }>('/api/profile').catch(() => ({ profile: '' }));
-    return text({ lesson_id: l.id, url: l.url, learner_profile: profile.profile });
+    let material: { materials: Material[]; errors: { name: string; error: string }[]; brief?: string } | undefined;
+    if (files?.length) {
+      material = await uploadMaterials(l.id, files);
+      if (material.materials.length) material.brief = (await materialsBrief(l.id)).brief;
+    }
+    return text({ lesson_id: l.id, url: l.url, learner_profile: profile.profile, ...(material ? { course_material: material } : {}) });
   },
+);
+
+server.registerTool(
+  'attach_material',
+  {
+    description:
+      'Attach course material (local .pdf, .pptx, .docx, .md or .txt files, or a folder) to the current lesson. Returns a brief of it: read the relevant pages with read_material before changing the plan.',
+    inputSchema: { files: z.array(z.string()).min(1) },
+  },
+  async ({ files }) => {
+    const id = await ensureLesson();
+    const r = await uploadMaterials(id, files);
+    return text({ ...r, brief: r.materials.length ? (await materialsBrief(id)).brief : undefined });
+  },
+);
+
+server.registerTool(
+  'read_material',
+  {
+    description:
+      'Read a range of the course material attached to this lesson: pages of a PDF, slides of a deck, parts of a document. About ten per call; the text carries a marker before each page or slide. Read before planning and before teaching a node that maps to it.',
+    inputSchema: {
+      name: z.string().optional().describe('Which file, by name or part of it. Optional when only one is attached.'),
+      from: z.number().int().min(1).optional().describe('First page or slide, 1-based. Default 1.'),
+      to: z.number().int().min(1).optional().describe('Last page or slide, inclusive. Default from + 9.'),
+    },
+  },
+  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/read_material`, a)),
+);
+
+server.registerTool(
+  'search_material',
+  {
+    description: 'Find where something is covered in the attached course material. Returns the best-matching pages or slides with a snippet each.',
+    inputSchema: { query: z.string(), name: z.string().optional(), limit: z.number().int().min(1).max(20).optional() },
+  },
+  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/search_material`, a)),
 );
 
 server.registerTool(

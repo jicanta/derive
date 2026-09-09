@@ -12,10 +12,12 @@ import { PlanCard } from '../components/PlanCard';
 import { QuizCard } from '../components/QuizCard';
 import { api } from '../lib/api';
 import { useLesson } from '../lib/useLesson';
+import { useMaterials } from '../lib/useMaterials';
 
 export function LessonPage() {
   const { id } = useParams();
   const { state, send, answer, stop } = useLesson(id);
+  const upload = useMaterials(id);
   const scroller = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
@@ -115,7 +117,7 @@ export function LessonPage() {
 
       <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[232px_minmax(0,1fr)_452px] lg:grid-cols-[minmax(0,1fr)_420px]">
         <aside className="hidden xl:block border-r hairline min-h-0 overflow-y-auto scroll-thin">
-          <OutlineRail nodes={state.nodes} goal={state.lesson?.goal ?? null} />
+          <OutlineRail nodes={state.nodes} goal={state.lesson?.goal ?? null} materials={state.materials} uploading={upload.uploading} />
         </aside>
 
         <section className="relative min-h-0 flex flex-col">
@@ -209,6 +211,13 @@ export function LessonPage() {
                         noted · <span className="font-sans text-[13px] text-ink-300">{it.fact}</span>
                       </div>
                     );
+                  case 'material':
+                    return (
+                      <div key={`m-${it.seq}`} className="animate-fade-up font-mono text-[11px] text-ink-500">
+                        {it.removed ? 'removed' : 'attached'} · <span className="font-sans text-[13px] text-ink-300">{it.name}</span>
+                        {!it.removed && ` · ${it.pages} ${it.unit}${it.pages === 1 ? '' : 's'}`}
+                      </div>
+                    );
                   case 'error':
                     return (
                       <div key={it.seq} className="rounded-xl border border-rust-400/40 bg-rust-400/5 px-4 py-3 text-sm text-rust-400">
@@ -231,7 +240,8 @@ export function LessonPage() {
           </div>
           <div className="shrink-0 px-5 md:px-12 pb-5 pt-3 bg-gradient-to-t from-ink-950 via-ink-950/95 to-transparent">
             <div className="mx-auto max-w-[680px]">
-              <Composer onSend={send} onStop={stop} busy={state.busy} waiting={waiting} external={external} />
+              {upload.error && <p className="mb-2 text-sm text-rust-400">{upload.error}</p>}
+              <Composer onSend={send} onStop={stop} onAttach={(f) => void upload.add(f)} attaching={upload.uploading.length > 0} busy={state.busy} waiting={waiting} external={external} />
             </div>
           </div>
         </section>

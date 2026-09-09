@@ -19,7 +19,18 @@ import {
   type GraphNodeInput,
 } from './db.js';
 import { emit } from './events.js';
+import { readMaterial as readMat, searchMaterial as searchMat } from './materials.js';
 import { openPrompt } from './prompts.js';
+import { takeNotices } from './notices.js';
+
+/**
+ * A blocking action is the tutor's next chance to hear what happened while
+ * it waited (material attached or removed), so the notice rides on its result.
+ */
+const withNotice = <T extends object>(lessonId: string, result: T): T & { notice?: string } => {
+  const n = takeNotices(lessonId);
+  return n.length ? { ...result, notice: n.join('\n') } : result;
+};
 
 const sameSet = (a: number[], b: number[]) =>
   a.length === b.length && [...a].sort().every((v, i) => v === [...b].sort()[i]);
@@ -57,12 +68,12 @@ export async function quiz(lessonId: string, a: QuizArgs) {
       explanation: a.explanation,
     });
   }
-  return {
+  return withNotice(lessonId, {
     result,
     selected_options: selected.map((i) => a.options[i]),
     correct_options: a.correct.map((i) => a.options[i]),
     note: ans.note ?? null,
-  };
+  });
 }
 
 export async function ask(lessonId: string, a: { question: string; options?: string[] }) {
@@ -70,7 +81,7 @@ export async function ask(lessonId: string, a: { question: string; options?: str
   const ans = (await wait) as { text?: string; interrupted?: boolean };
   if (ans.interrupted) return { result: 'interrupted' };
   emit(lessonId, 'ask_result', { id, text: ans.text ?? '' });
-  return { answer: ans.text ?? '' };
+  return withNotice(lessonId, { answer: ans.text ?? '' });
 }
 
 export async function setPlan(lessonId: string, a: { goal: string; nodes: GraphNodeInput[] }) {
@@ -80,7 +91,7 @@ export async function setPlan(lessonId: string, a: { goal: string; nodes: GraphN
   const ans = (await wait) as { approved?: boolean; feedback?: string; interrupted?: boolean };
   if (ans.interrupted) return { result: 'interrupted' };
   emit(lessonId, 'plan_result', { id, approved: !!ans.approved, feedback: ans.feedback ?? null });
-  return { approved: !!ans.approved, feedback: ans.feedback ?? null };
+  return withNotice(lessonId, { approved: !!ans.approved, feedback: ans.feedback ?? null });
 }
 
 export function nodeStatus(lessonId: string, a: { id: string; status: 'teaching' | 'locked' | 'shaky' }) {
@@ -105,13 +116,23 @@ export async function explainBack(lessonId: string, a: { prompt: string; node_id
   const ans = (await wait) as { text?: string; interrupted?: boolean };
   if (ans.interrupted) return { result: 'interrupted' };
   emit(lessonId, 'explain_result', { id, text: ans.text ?? '' });
-  return { explanation: ans.text ?? '', rubric: a.rubric, instruction: 'Grade against the rubric. Name what is right first, then the one gap that matters most. Then call node_status.' };
+  return withNotice(lessonId, { explanation: ans.text ?? '', rubric: a.rubric, instruction: 'Grade against the rubric. Name what is right first, then the one gap that matters most. Then call node_status.' });
 }
 
 export function remember(lessonId: string, a: { fact: string; kind?: 'learner' | 'preference' | 'strength' | 'gap' }) {
   addMemory(a.fact, a.kind ?? 'learner', lessonId);
   emit(lessonId, 'memory', { fact: a.fact, kind: a.kind ?? 'learner' });
   return { ok: true };
+}
+
+/** A range of pages or slides from the attached course material. */
+export function readMaterial(lessonId: string, a: { name?: string | null; from?: number | null; to?: number | null }) {
+  return readMat(lessonId, a);
+}
+
+/** Where in the attached material something is covered. */
+export function searchMaterial(lessonId: string, a: { query: string; name?: string | null; limit?: number | null }) {
+  return searchMat(lessonId, a);
 }
 
 export function profile(lessonId?: string) {

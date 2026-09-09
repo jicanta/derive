@@ -39,6 +39,18 @@ export type NodeRow = {
 
 export type DueNode = NodeRow & { topic: string };
 
+/** A file the learner attached: slides, a PDF, notes. Text lives on the server. */
+export type Material = {
+  id: string;
+  lesson_id: string | null;
+  name: string;
+  kind: 'pdf' | 'pptx' | 'docx' | 'md' | 'txt';
+  unit: 'page' | 'slide' | 'part';
+  pages: number;
+  chars: number;
+  created_at?: number;
+};
+
 export type AtlasNode = Omit<NodeRow, 'depends_on'> & { depends_on: string[]; topic: string; goal: string | null; due: boolean };
 export type Misconception = {
   id: number;
@@ -87,6 +99,7 @@ export type TimelineItemBase =
   | { kind: 'node_start'; seq: number; id: string; label: string; index: number; total: number }
   | { kind: 'node'; seq: number; id: string; status: NodeStatus; label: string }
   | { kind: 'memory'; seq: number; fact: string }
+  | { kind: 'material'; seq: number; id: string; name: string; unit: string; pages: number; removed?: boolean }
   | { kind: 'complete'; seq: number; goal: string; locked: number; total: number; quizzes: number; correct: number; caught: number; minutes: number; reviewDays: number }
   | { kind: 'error'; seq: number; text: string };
 

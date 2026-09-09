@@ -5,6 +5,8 @@ import * as actions from './actions.js';
 import { DATA_DIR, EFFORT, MODEL } from './config.js';
 import { getLesson, learnerProfile, setSessionId, type GraphNodeInput } from './db.js';
 import { emit, emitEphemeral } from './events.js';
+import { materialsSection } from './materials.js';
+import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
 import { SYSTEM_PROMPT } from './prompt.js';
 
@@ -23,6 +25,8 @@ export async function interrupt(lessonId: string) {
   if (q) await q.interrupt().catch(() => undefined);
   cancelPending(lessonId);
 }
+
+export { addNotice, takeNotices } from './notices.js';
 
 // ---------- tool definitions ----------
 
@@ -49,6 +53,9 @@ export const TOOL_DESCRIPTIONS = {
     'Teach-back check: ask the learner to explain a node in their own words (2 to 5 sentences). Write the rubric first: the 2 or 3 things a correct explanation must contain. Returns their explanation for you to grade. Use once per lesson on the most important derived node, or when a quiz pass felt lucky. Blocks until they write.',
   remember:
     'Store one durable fact about this learner for future lessons: a strength, a gap, a preference (Socratic vs narrated), a background detail. One sentence. Use sparingly: 1 to 3 per lesson.',
+  read_material:
+    'Read a range of the course material the learner attached (pages of a PDF, slides of a deck, parts of a document). Returns the text with a marker before each page or slide. Read the relevant range before planning and before teaching a node that maps to it. About ten pages per call. Only useful when the lesson has material (listed in your instructions, or announced in a tool result).',
+  search_material: 'Find where something is covered in the attached course material. Returns the best-matching pages or slides with a snippet each. Use it to locate a definition, an example or a formula before you read the range around it. Only useful when the lesson has material.',
 };
 
 function buildTools(lessonId: string) {
@@ -108,15 +115,40 @@ function buildTools(lessonId: string) {
     async (a) => text(actions.remember(lessonId, a)),
   );
 
+  const read_material = tool(
+    'read_material',
+    TOOL_DESCRIPTIONS.read_material,
+    {
+      name: z.string().optional().describe('Which file, by name (or part of it). Optional when only one is attached.'),
+      from: z.number().int().min(1).optional().describe('First page or slide, 1-based. Default 1.'),
+      to: z.number().int().min(1).optional().describe('Last page or slide, inclusive. Default: from + 9.'),
+    },
+    async (a) => text(actions.readMaterial(lessonId, a)),
+  );
+
+  const search_material = tool(
+    'search_material',
+    TOOL_DESCRIPTIONS.search_material,
+    {
+      query: z.string().describe('A few words: the term, symbol or example you are looking for.'),
+      name: z.string().optional().describe('Restrict to one file. Default: all attached material.'),
+      limit: z.number().int().min(1).max(20).optional(),
+    },
+    async (a) => text(actions.searchMaterial(lessonId, a)),
+  );
+
+  // The material tools are always registered: material can be attached while
+  // a card is pending, and the tutor should be able to read it in that same
+  // turn. Without material they return a clear error.
   return createSdkMcpServer({
     name: 'derive',
     version: '0.2.0',
     alwaysLoad: true,
-    tools: [quiz, ask, set_plan, node_status, set_phase, explain_back, remember],
+    tools: [quiz, ask, set_plan, node_status, set_phase, explain_back, remember, read_material, search_material],
   });
 }
 
-export const DERIVE_TOOL_NAMES = ['quiz', 'ask', 'set_plan', 'node_status', 'set_phase', 'explain_back', 'remember'] as const;
+export const DERIVE_TOOL_NAMES = ['quiz', 'ask', 'set_plan', 'node_status', 'set_phase', 'explain_back', 'remember', 'read_material', 'search_material'] as const;
 
 // ---------- running a turn ----------
 
@@ -130,6 +162,8 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__derive__set_phase: 'Changing phase',
   mcp__derive__explain_back: 'Preparing a teach-back',
   mcp__derive__remember: 'Taking a note',
+  mcp__derive__read_material: 'Reading your material',
+  mcp__derive__search_material: 'Searching your material',
 };
 
 export async function runTurn(lessonId: string, prompt: string, opts: { echoUser?: string } = {}) {
@@ -140,10 +174,13 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   if (opts.echoUser) emit(lessonId, 'user', { text: opts.echoUser });
   emit(lessonId, 'turn_start', {});
 
+  const pendingNotices = takeNotices(lessonId);
+  if (pendingNotices.length) prompt = `${pendingNotices.join('\n\n')}\n\nThen, the learner's message:\n${prompt}`;
+
   const q = query({
     prompt,
     options: {
-      systemPrompt: SYSTEM_PROMPT + learnerProfile(lessonId),
+      systemPrompt: SYSTEM_PROMPT + materialsSection(lessonId) + learnerProfile(lessonId),
       cwd: DATA_DIR,
       settingSources: [],
       mcpServers: { derive: buildTools(lessonId) },

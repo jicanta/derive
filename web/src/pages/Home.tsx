@@ -1,9 +1,11 @@
-import { Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Paperclip, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Graph } from '../components/Graph';
+import { MaterialList } from '../components/MaterialList';
 import { api } from '../lib/api';
 import type { GraphNode, Lesson, LessonSummary, NodeRow, Stats } from '../lib/types';
+import { MATERIAL_ACCEPT, useMaterials } from '../lib/useMaterials';
 
 const TRY = ['Why does gradient descent work?', 'How does TCP make an unreliable network reliable?', 'What is a monad, really?'];
 
@@ -25,6 +27,9 @@ export function HomePage() {
   const [recent, setRecent] = useState<{ lesson: Lesson; nodes: GraphNode[] } | null>(null);
   const [starting, setStarting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const material = useMaterials();
 
   const refresh = () => {
     api.stats().then(setStats).catch(() => undefined);
@@ -42,11 +47,14 @@ export function HomePage() {
   useEffect(refresh, []);
 
   const start = async (t: string) => {
-    if (!t.trim() || starting) return;
+    if (!t.trim() || starting || material.uploading.length) return;
     setStarting(true);
     setErr(null);
     try {
-      const l = await api.createLesson(t.trim());
+      const l = await api.createLesson(
+        t.trim(),
+        material.materials.map((m) => m.id),
+      );
       nav(`/lesson/${l.id}`);
     } catch (e) {
       setErr((e as Error).message);
@@ -86,7 +94,21 @@ export function HomePage() {
 
         {/* Hero */}
         <section className="grid lg:grid-cols-[minmax(0,560px)_minmax(0,1fr)] gap-x-[72px] gap-y-14 pt-12 md:pt-14 flex-1">
-          <div className="flex flex-col">
+          <div
+            className="flex flex-col"
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes('Files')) {
+                e.preventDefault();
+                setDragging(true);
+              }
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              void material.add(e.dataTransfer.files);
+            }}
+          >
             <h1 className="font-serif text-[2.6rem] md:text-[3.9rem] leading-[1.02] tracking-[-0.02em] text-ink-50 text-balance">
               A tutor that finds where your understanding ends, and builds from there.
             </h1>
@@ -99,22 +121,52 @@ export function HomePage() {
                 e.preventDefault();
                 void start(topic);
               }}
-              className="mt-12 flex items-baseline gap-4 border-b border-ink-100/40 focus-within:border-gold-500 pb-3 transition-colors"
+              className={`mt-12 flex items-baseline gap-4 border-b pb-3 transition-colors ${dragging ? 'border-gold-500' : 'border-ink-100/40 focus-within:border-gold-500'}`}
             >
               <span className="font-mono text-xl text-gold-500">›</span>
               <input
                 autoFocus
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="What do you want to actually understand?"
+                placeholder={material.materials.length ? 'What do you want to understand from it?' : 'What do you want to actually understand?'}
                 disabled={starting}
                 className="flex-1 min-w-0 bg-transparent font-serif text-[1.6rem] md:text-[1.9rem] leading-tight text-ink-50 outline-none placeholder:text-ink-50/90 disabled:opacity-50"
               />
-              <button type="submit" disabled={!topic.trim() || starting} className="font-mono text-[11px] tracking-[0.12em] uppercase text-ink-400 hover:text-gold-500 disabled:hover:text-ink-400 transition-colors">
-                {starting ? 'starting' : 'enter ↵'}
+              <button
+                type="submit"
+                disabled={!topic.trim() || starting || material.uploading.length > 0}
+                className="font-mono text-[11px] tracking-[0.12em] uppercase text-ink-400 hover:text-gold-500 disabled:hover:text-ink-400 transition-colors"
+              >
+                {starting ? 'starting' : material.uploading.length ? 'reading' : 'enter ↵'}
               </button>
             </form>
             {err && <p className="mt-2 text-sm text-rust-400">{err}</p>}
+
+            {/* Course material: slides, a PDF, notes. The lesson then prepares for that course specifically. */}
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              accept={MATERIAL_ACCEPT}
+              className="hidden"
+              onChange={(e) => {
+                void material.add(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 font-mono text-[11px] text-ink-500">
+              <button type="button" onClick={() => fileInput.current?.click()} className="inline-flex items-center gap-1.5 text-ink-400 hover:text-gold-500 transition-colors">
+                <Paperclip size={11} strokeWidth={2} />
+                {material.materials.length ? 'add more material' : dragging ? 'drop to attach' : 'attach course material'}
+              </button>
+              <span>{material.materials.length ? 'the lesson will prepare you for this course specifically' : 'slides, a pdf, notes · pdf pptx docx md txt'}</span>
+            </div>
+            {(material.materials.length > 0 || material.uploading.length > 0) && (
+              <div className="mt-2">
+                <MaterialList materials={material.materials} uploading={material.uploading} onRemove={(id) => void material.remove(id)} />
+              </div>
+            )}
+            {material.error && <p className="mt-2 text-sm text-rust-400">{material.error}</p>}
 
             <div className="mt-7">
               <div className="eyebrow mb-1">Or start from one of these</div>
