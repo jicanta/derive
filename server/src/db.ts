@@ -77,13 +77,34 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS materials_lesson ON materials (lesson_id);
+  CREATE TABLE IF NOT EXISTS learners (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
 `);
 
-try {
-  db.exec("ALTER TABLE lessons ADD COLUMN mode TEXT NOT NULL DEFAULT 'agent'");
-} catch {
-  /* column exists */
+/** Columns added after the first release; SQLite has no ADD COLUMN IF NOT EXISTS. */
+for (const ddl of [
+  "ALTER TABLE lessons ADD COLUMN mode TEXT NOT NULL DEFAULT 'agent'",
+  "ALTER TABLE lessons ADD COLUMN learner_id TEXT NOT NULL DEFAULT 'default'",
+  "ALTER TABLE lessons ADD COLUMN answer_in TEXT NOT NULL DEFAULT 'browser'",
+]) {
+  try {
+    db.exec(ddl);
+  } catch {
+    /* column exists */
+  }
 }
+db.exec('CREATE INDEX IF NOT EXISTS lessons_learner ON lessons (learner_id)');
+
+/** The first learner. Lessons from before profiles existed belong to it. */
+export const DEFAULT_LEARNER_ID = 'default';
+db.prepare('INSERT OR IGNORE INTO learners (id, name, created_at) VALUES (?, ?, ?)').run(
+  DEFAULT_LEARNER_ID,
+  process.env.DERIVE_LEARNER?.trim() || (process.env.USER || process.env.USERNAME || 'You').replace(/^./, (c) => c.toUpperCase()),
+  Date.now(),
+);
 
 export type Lesson = {
   id: string;
@@ -93,9 +114,15 @@ export type Lesson = {
   phase: string;
   /** 'agent': the built-in tutor runs it. 'external': a Claude Code session drives it through the API. */
   mode: 'agent' | 'external';
+  /** Whose lesson this is. */
+  learner_id: string;
+  /** Companion lessons only: where the learner answers cards. 'terminal' makes blocking tools return at once. */
+  answer_in: 'browser' | 'terminal';
   created_at: number;
   updated_at: number;
 };
+
+export type Learner = { id: string; name: string; created_at: number };
 
 export type NodeRow = {
   lesson_id: string;
@@ -115,27 +142,39 @@ export type StoredEvent = { seq: number; type: string; payload: unknown; ts: num
 
 const q = {
   insertLesson: db.prepare(
-    'INSERT INTO lessons (id, topic, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO lessons (id, topic, mode, learner_id, answer_in, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
   ),
   lastExternal: db.prepare("SELECT * FROM lessons WHERE mode = 'external' ORDER BY created_at DESC LIMIT 1"),
+  setAnswerIn: db.prepare('UPDATE lessons SET answer_in = ?, updated_at = ? WHERE id = ?'),
+  insertLearner: db.prepare('INSERT INTO learners (id, name, created_at) VALUES (?, ?, ?)'),
+  getLearner: db.prepare('SELECT * FROM learners WHERE id = ?'),
+  getLearnerByName: db.prepare('SELECT * FROM learners WHERE lower(name) = lower(?)'),
+  listLearners: db.prepare('SELECT * FROM learners ORDER BY created_at'),
+  renameLearner: db.prepare('UPDATE learners SET name = ? WHERE id = ?'),
+  deleteLearner: db.prepare('DELETE FROM learners WHERE id = ?'),
+  lessonsOfLearner: db.prepare('SELECT id FROM lessons WHERE learner_id = ?'),
   insertMemory: db.prepare('INSERT INTO memory (fact, kind, lesson_id, ts) VALUES (?, ?, ?, ?)'),
-  listMemory: db.prepare('SELECT * FROM memory ORDER BY ts DESC LIMIT 60'),
+  listMemory: db.prepare(`
+    SELECT m.* FROM memory m JOIN lessons l ON l.id = m.lesson_id
+    WHERE l.learner_id = ? ORDER BY m.ts DESC LIMIT 60
+  `),
   insertMisconception: db.prepare(
     'INSERT INTO misconceptions (lesson_id, node_id, question, picked, correct, explanation, ts) VALUES (?, ?, ?, ?, ?, ?, ?)',
   ),
   resolveMisconceptions: db.prepare('UPDATE misconceptions SET resolved = 1 WHERE lesson_id = ? AND node_id = ?'),
   listMisconceptions: db.prepare(`
     SELECT m.*, l.topic FROM misconceptions m JOIN lessons l ON l.id = m.lesson_id
-    ORDER BY m.resolved ASC, m.ts DESC LIMIT 40
+    WHERE l.learner_id = ? ORDER BY m.resolved ASC, m.ts DESC LIMIT 40
   `),
   allNodes: db.prepare(`
     SELECT n.*, l.topic, l.goal FROM nodes n JOIN lessons l ON l.id = n.lesson_id
-    ORDER BY l.created_at, n.rowid
+    WHERE l.learner_id = ? ORDER BY l.created_at, n.rowid
   `),
   deleteMemoryByLesson: db.prepare('DELETE FROM memory WHERE lesson_id = ?'),
   deleteMisByLesson: db.prepare('DELETE FROM misconceptions WHERE lesson_id = ?'),
   getLesson: db.prepare('SELECT * FROM lessons WHERE id = ?'),
-  listLessons: db.prepare('SELECT * FROM lessons ORDER BY updated_at DESC'),
+  listLessons: db.prepare('SELECT * FROM lessons WHERE learner_id = ? ORDER BY updated_at DESC'),
+  listAllLessons: db.prepare('SELECT * FROM lessons ORDER BY updated_at DESC'),
   touchLesson: db.prepare('UPDATE lessons SET updated_at = ? WHERE id = ?'),
   setSession: db.prepare('UPDATE lessons SET session_id = ?, updated_at = ? WHERE id = ?'),
   setPhase: db.prepare('UPDATE lessons SET phase = ?, updated_at = ? WHERE id = ?'),
@@ -176,22 +215,71 @@ const q = {
   ),
   dueNodes: db.prepare(`
     SELECT n.*, l.topic FROM nodes n JOIN lessons l ON l.id = n.lesson_id
-    WHERE n.status = 'locked' AND n.review_at IS NOT NULL AND n.review_at <= ?
+    WHERE l.learner_id = ? AND n.status = 'locked' AND n.review_at IS NOT NULL AND n.review_at <= ?
     ORDER BY n.review_at
   `),
   stats: db.prepare(`
     SELECT
-      (SELECT COUNT(*) FROM lessons) AS lessons,
-      (SELECT COUNT(*) FROM nodes WHERE status = 'locked') AS locked,
-      (SELECT COUNT(*) FROM quiz_results) AS quizzes,
-      (SELECT COUNT(*) FROM quiz_results WHERE correct = 1) AS correct
+      (SELECT COUNT(*) FROM lessons WHERE learner_id = $l) AS lessons,
+      (SELECT COUNT(*) FROM nodes n JOIN lessons l ON l.id = n.lesson_id WHERE l.learner_id = $l AND n.status = 'locked') AS locked,
+      (SELECT COUNT(*) FROM quiz_results q JOIN lessons l ON l.id = q.lesson_id WHERE l.learner_id = $l) AS quizzes,
+      (SELECT COUNT(*) FROM quiz_results q JOIN lessons l ON l.id = q.lesson_id WHERE l.learner_id = $l AND q.correct = 1) AS correct
   `),
 };
 
-export function createLesson(id: string, topic: string, mode: 'agent' | 'external' = 'agent'): Lesson {
+// ---------- learners ----------
+
+export function listLearners(): Learner[] {
+  return q.listLearners.all() as Learner[];
+}
+
+export function getLearner(id: string): Learner | undefined {
+  return q.getLearner.get(id) as Learner | undefined;
+}
+
+/** A learner by id or (case-insensitive) name. */
+export function findLearner(idOrName: string): Learner | undefined {
+  return getLearner(idOrName) ?? (q.getLearnerByName.get(idOrName) as Learner | undefined);
+}
+
+export function createLearner(name: string): Learner {
+  const clean = name.trim().slice(0, 60);
+  if (!clean) throw new Error('name required');
+  const existing = q.getLearnerByName.get(clean) as Learner | undefined;
+  if (existing) return existing;
+  const id = clean.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'learner';
+  let unique = id;
+  for (let n = 2; getLearner(unique); n++) unique = `${id}-${n}`;
+  q.insertLearner.run(unique, clean, Date.now());
+  return getLearner(unique)!;
+}
+
+export function renameLearner(id: string, name: string): Learner {
+  const clean = name.trim().slice(0, 60);
+  if (!clean) throw new Error('name required');
+  q.renameLearner.run(clean, id);
+  return getLearner(id)!;
+}
+
+/** Removes the learner and everything they learned. The default learner cannot be removed. */
+export function deleteLearner(id: string) {
+  if (id === DEFAULT_LEARNER_ID) throw new Error('the first learner cannot be removed; rename it instead');
+  for (const { id: lessonId } of q.lessonsOfLearner.all(id) as { id: string }[]) deleteLesson(lessonId);
+  q.deleteLearner.run(id);
+}
+
+export function createLesson(
+  id: string,
+  topic: string,
+  opts: { mode?: 'agent' | 'external'; learnerId?: string; answerIn?: 'browser' | 'terminal' } = {},
+): Lesson {
   const now = Date.now();
-  q.insertLesson.run(id, topic, mode, now, now);
+  q.insertLesson.run(id, topic, opts.mode ?? 'agent', opts.learnerId ?? DEFAULT_LEARNER_ID, opts.answerIn ?? 'browser', now, now);
   return getLesson(id)!;
+}
+
+export function setAnswerIn(id: string, where: 'browser' | 'terminal') {
+  q.setAnswerIn.run(where, Date.now(), id);
 }
 
 export function lastExternalLesson(): Lesson | undefined {
@@ -202,8 +290,9 @@ export function getLesson(id: string): Lesson | undefined {
   return q.getLesson.get(id) as Lesson | undefined;
 }
 
-export function listLessons(): Lesson[] {
-  return q.listLessons.all() as Lesson[];
+/** A learner's lessons, newest first; every learner's when no id is given. */
+export function listLessons(learnerId?: string): Lesson[] {
+  return (learnerId ? q.listLessons.all(learnerId) : q.listAllLessons.all()) as Lesson[];
 }
 
 export function deleteLesson(id: string) {
@@ -297,12 +386,12 @@ export function recordQuiz(lessonId: string, nodeId: string | null, correct: boo
   q.insertQuiz.run(lessonId, nodeId, correct ? 1 : 0, Date.now());
 }
 
-export function dueNodes(now = Date.now()) {
-  return q.dueNodes.all(now) as (NodeRow & { topic: string })[];
+export function dueNodes(learnerId: string, now = Date.now()) {
+  return q.dueNodes.all(learnerId, now) as (NodeRow & { topic: string })[];
 }
 
-export function stats() {
-  return q.stats.get() as { lessons: number; locked: number; quizzes: number; correct: number };
+export function stats(learnerId: string) {
+  return q.stats.get({ l: learnerId }) as { lessons: number; locked: number; quizzes: number; correct: number };
 }
 
 // ---------- course material ----------
@@ -313,9 +402,9 @@ export type MaterialRow = {
   /** Null until the material is bound to a lesson (uploads happen before the lesson exists). */
   lesson_id: string | null;
   name: string;
-  kind: 'pdf' | 'pptx' | 'docx' | 'md' | 'txt';
-  /** What one segment of the text is: a page (pdf), a slide (pptx), or a part (continuous text split at headings). */
-  unit: 'page' | 'slide' | 'part';
+  kind: 'pdf' | 'pptx' | 'docx' | 'md' | 'txt' | 'repo';
+  /** What one segment of the text is: a page (pdf), a slide (pptx), a part (continuous text split at headings), or a file (repo). */
+  unit: 'page' | 'slide' | 'part' | 'file';
   pages: number;
   chars: number;
   created_at: number;
@@ -369,8 +458,8 @@ export function addMemory(fact: string, kind: string, lessonId: string | null) {
   q.insertMemory.run(fact, kind, lessonId, Date.now());
 }
 
-export function listMemory(): MemoryRow[] {
-  return q.listMemory.all() as MemoryRow[];
+export function listMemory(learnerId: string): MemoryRow[] {
+  return q.listMemory.all(learnerId) as MemoryRow[];
 }
 
 export function addMisconception(m: {
@@ -388,12 +477,12 @@ export function resolveMisconceptions(lessonId: string, nodeId: string) {
   q.resolveMisconceptions.run(lessonId, nodeId);
 }
 
-export function listMisconceptions(): MisconceptionRow[] {
-  return q.listMisconceptions.all() as MisconceptionRow[];
+export function listMisconceptions(learnerId: string): MisconceptionRow[] {
+  return q.listMisconceptions.all(learnerId) as MisconceptionRow[];
 }
 
-export function allNodes(): (NodeRow & { topic: string; goal: string | null })[] {
-  return q.allNodes.all() as (NodeRow & { topic: string; goal: string | null })[];
+export function allNodes(learnerId: string): (NodeRow & { topic: string; goal: string | null })[] {
+  return q.allNodes.all(learnerId) as (NodeRow & { topic: string; goal: string | null })[];
 }
 
 /**
@@ -401,8 +490,8 @@ export function allNodes(): (NodeRow & { topic: string; goal: string | null })[]
  * locked (by topic), what is shaky or due, misconceptions caught, and facts
  * the tutor chose to remember. Kept short on purpose.
  */
-export function learnerProfile(currentLessonId?: string): string {
-  const nodes = allNodes().filter((n) => n.lesson_id !== currentLessonId);
+export function learnerProfile(learnerId: string, currentLessonId?: string): string {
+  const nodes = allNodes(learnerId).filter((n) => n.lesson_id !== currentLessonId);
   const byTopic = new Map<string, { locked: string[]; shaky: string[] }>();
   for (const n of nodes) {
     if (!byTopic.has(n.topic)) byTopic.set(n.topic, { locked: [], shaky: [] });
@@ -418,20 +507,22 @@ export function learnerProfile(currentLessonId?: string): string {
       if (t.shaky.length) lines.push(`- ${topic} (SHAKY, re-derive before relying on): ${t.shaky.join('; ')}`);
     }
   }
-  const mis = listMisconceptions().filter((m) => !m.resolved && m.lesson_id !== currentLessonId).slice(0, 8);
+  const mis = listMisconceptions(learnerId).filter((m) => !m.resolved && m.lesson_id !== currentLessonId).slice(0, 8);
   if (mis.length) {
     lines.push('Misconceptions caught before (unresolved; watch for them resurfacing):');
     for (const m of mis) lines.push(`- In "${m.topic}": picked "${m.picked}" over "${m.correct}".`);
   }
-  const mem = listMemory().slice(0, 20);
+  const mem = listMemory(learnerId).slice(0, 20);
   if (mem.length) {
     lines.push('Notes you kept about this learner:');
     for (const m of mem) lines.push(`- ${m.fact}`);
   }
-  if (!lines.length) return '';
+  const learner = getLearner(learnerId);
+  const who = learner && learner.id !== DEFAULT_LEARNER_ID ? `The learner's name is ${learner.name}.` : '';
+  if (!lines.length) return who ? `\n\n# About this learner\n${who}\n` : '';
   return `
 
 # What you already know about this learner
-${lines.join('\n')}
+${who ? who + '\n' : ''}${lines.join('\n')}
 `;
 }

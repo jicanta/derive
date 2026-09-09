@@ -33,16 +33,39 @@ export function useMaterials(lessonId?: string) {
     [lessonId],
   );
 
+  /** A repository: a local folder path, a GitHub URL or a git URL. */
+  const addRepo = useCallback(
+    async (source: string) => {
+      const s = source.trim();
+      if (!s) return;
+      setError(null);
+      const label = s.replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
+      setUploading((u) => [...u, label]);
+      try {
+        const r = await api.importRepo(s, lessonId);
+        setMaterials((m) => [...m, ...r.materials]);
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setUploading((u) => u.filter((n) => n !== label));
+      }
+    },
+    [lessonId],
+  );
+
   const remove = useCallback(async (id: string) => {
     setMaterials((m) => m.filter((x) => x.id !== id));
     await api.deleteMaterial(id).catch(() => undefined);
   }, []);
 
-  return { materials, uploading, error, add, remove };
+  return { materials, uploading, error, add, addRepo, remove };
 }
 
-export const describeMaterial = (m: Pick<Material, 'pages' | 'unit' | 'chars'>) => {
+export const describeMaterial = (m: Pick<Material, 'pages' | 'unit' | 'chars'> & { kind?: Material['kind'] }) => {
   const w = Math.round(m.chars / 6);
   const words = w >= 1000 ? `${Math.round(w / 1000)}k words` : `${w} words`;
-  return `${m.pages} ${m.unit}${m.pages === 1 ? '' : 's'} · ${words}`;
+  return `${m.kind === 'repo' ? 'repo · ' : ''}${m.pages} ${m.unit}${m.pages === 1 ? '' : 's'} · ${words}`;
 };
+
+/** Something typed into the topic box that is clearly a repository, not a topic. */
+export const looksLikeRepo = (s: string) => /^(https?:\/\/(www\.)?(github|gitlab|bitbucket)\.com\/|git@|~?\/[^\s]+$|\.\.?\/)/i.test(s.trim());

@@ -12,6 +12,10 @@
  * session transcript, finds text not yet mirrored (tracked per session in
  * ~/.derive/mirror/<session>.json) and posts it to the active external
  * lesson. Silent when no Derive lesson is active or the server is down.
+ *
+ * On UserPromptSubmit it also asks whether a card the model left open for a
+ * terminal reply was answered in the browser meanwhile; if so, the result is
+ * printed, which Claude Code adds to the model's context for this prompt.
  */
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -98,7 +102,25 @@ async function main() {
   writeFileSync(stateFile, JSON.stringify({ lesson: active.id, seen: [...seen].slice(-5000) }));
 
   if (payload.hook_event_name === 'Stop') {
+    // Ends the turn in the companion. A card left open for a terminal reply survives this.
     await fetch(`${BASE}/api/external/lessons/${active.id}/end`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => undefined);
+  }
+
+  if (payload.hook_event_name === 'UserPromptSubmit' && active.held) {
+    // A card is open for a terminal reply. If the learner clicked in the
+    // browser instead, hand the model the result now, so it does not treat
+    // this message as the answer.
+    const r = await fetch(`${BASE}/api/external/lessons/${active.id}/collect`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+      .then((x) => (x.ok ? x.json() : null))
+      .catch(() => null);
+    if (r?.settled) {
+      const { kind, ...rest } = r.settled;
+      process.stdout.write(
+        `[derive] The open ${kind} card was answered in the browser, not by this message. Result: ${JSON.stringify(rest)}. Continue the lesson from that result and treat the message below as an ordinary message; do not call \`answer\` for this card.\n`,
+      );
+    } else {
+      process.stdout.write('[derive] A card is open in this lesson. If the message below is the learner\'s reply to it, pass it verbatim to the `answer` tool before anything else.\n');
+    }
   }
 }
 

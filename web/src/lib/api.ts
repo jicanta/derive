@@ -1,4 +1,32 @@
-import type { Atlas, DueNode, Lesson, LessonSummary, Material, NodeRow, Stats, StoredEvent } from './types';
+import type { Atlas, DueNode, Learner, Lesson, LessonSummary, Material, NodeRow, Stats, StoredEvent } from './types';
+
+/**
+ * The selected learner profile, kept in this browser. Sent on every request
+ * so lessons, the atlas and the review queue are theirs. Empty means the
+ * first learner.
+ */
+const LEARNER_KEY = 'derive.learner';
+export const currentLearner = (): string => {
+  try {
+    return localStorage.getItem(LEARNER_KEY) ?? '';
+  } catch {
+    return '';
+  }
+};
+export const selectLearner = (id: string) => {
+  try {
+    if (id) localStorage.setItem(LEARNER_KEY, id);
+    else localStorage.removeItem(LEARNER_KEY);
+  } catch {
+    /* private mode */
+  }
+};
+const headers = (extra: Record<string, string> = {}) => {
+  const l = currentLearner();
+  return l ? { ...extra, 'x-derive-learner': l } : extra;
+};
+const get = (url: string) => fetch(url, { headers: headers() });
+const del = (url: string) => fetch(url, { method: 'DELETE', headers: headers() });
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -13,14 +41,18 @@ async function j<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-const post = (url: string, body?: unknown) =>
-  fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+const post = (url: string, body?: unknown, method = 'POST') =>
+  fetch(url, { method, headers: headers({ 'content-type': 'application/json' }), body: body ? JSON.stringify(body) : undefined });
 
 export const api = {
-  stats: () => fetch('/api/stats').then((r) => j<Stats>(r)),
-  lessons: () => fetch('/api/lessons').then((r) => j<LessonSummary[]>(r)),
+  stats: () => get('/api/stats').then((r) => j<Stats>(r)),
+  learners: () => get('/api/learners').then((r) => j<{ learners: Learner[]; current: string }>(r)),
+  createLearner: (name: string) => post('/api/learners', { name }).then((r) => j<Learner>(r)),
+  renameLearner: (id: string, name: string) => post(`/api/learners/${id}`, { name }, 'PATCH').then((r) => j<Learner>(r)),
+  deleteLearner: (id: string) => del(`/api/learners/${id}`).then((r) => j<{ ok: true }>(r)),
+  lessons: () => get('/api/lessons').then((r) => j<LessonSummary[]>(r)),
   lesson: (id: string) =>
-    fetch(`/api/lessons/${id}`).then((r) =>
+    get(`/api/lessons/${id}`).then((r) =>
       j<{ lesson: Lesson; nodes: NodeRow[]; materials: Material[]; events: StoredEvent[]; busy: boolean; pending: boolean }>(r),
     ),
   createLesson: (topic: string, materials: string[] = []) => post('/api/lessons', { topic, materials }).then((r) => j<Lesson>(r)),
@@ -31,15 +63,20 @@ export const api = {
     for (const f of files) form.append('files', f, f.name);
     return fetch('/api/materials', { method: 'POST', body: form }).then((r) => j<{ materials: Material[]; errors: { name: string; error: string }[] }>(r));
   },
-  deleteMaterial: (id: string) => fetch(`/api/materials/${id}`, { method: 'DELETE' }).then((r) => j<{ ok: true }>(r)),
-  deleteLesson: (id: string) => fetch(`/api/lessons/${id}`, { method: 'DELETE' }).then((r) => j<{ ok: true }>(r)),
+  /** Import a repository as material: a folder on this machine, a GitHub URL, or a git URL. */
+  importRepo: (source: string, lessonId?: string) =>
+    post('/api/materials/repo', { source, lesson_id: lessonId }).then((r) => j<{ materials: Material[]; errors: { name: string; error: string }[] }>(r)),
+  deleteMaterial: (id: string) => del(`/api/materials/${id}`).then((r) => j<{ ok: true }>(r)),
+  deleteLesson: (id: string) => del(`/api/lessons/${id}`).then((r) => j<{ ok: true }>(r)),
   message: (id: string, text: string) => post(`/api/lessons/${id}/message`, { text }).then((r) => j<{ ok: true; note?: string }>(r)),
   answer: (id: string, prompt_id: string, answer: Record<string, unknown>) =>
     post(`/api/lessons/${id}/answer`, { prompt_id, ...answer }).then((r) => j<{ ok: true }>(r)),
   interrupt: (id: string) => post(`/api/lessons/${id}/interrupt`).then((r) => j<{ ok: true }>(r)),
-  exportMarkdown: (id: string) => fetch(`/api/lessons/${id}/export`).then((r) => r.text()),
+  /** Tell the tutor the learner switched voice mode on or off (it writes for the ear when on). */
+  voice: (id: string, on: boolean) => post(`/api/lessons/${id}/voice`, { on }).then((r) => j<{ ok: true }>(r)),
+  exportMarkdown: (id: string) => get(`/api/lessons/${id}/export`).then((r) => r.text()),
   exportToVault: (id: string) => post(`/api/lessons/${id}/export`).then((r) => j<{ ok: true; path: string }>(r)),
-  due: () => fetch('/api/review').then((r) => j<DueNode[]>(r)),
+  due: () => get('/api/review').then((r) => j<DueNode[]>(r)),
   startReview: () => post('/api/review').then((r) => j<Lesson>(r)),
-  atlas: () => fetch('/api/atlas').then((r) => j<Atlas>(r)),
+  atlas: () => get('/api/atlas').then((r) => j<Atlas>(r)),
 };

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { VAULT_DIR } from './config.js';
-import { getLesson, listEvents, listMaterials, listNodes, type Lesson, type StoredEvent } from './db.js';
+import { DEFAULT_LEARNER_ID, getLearner, getLesson, listEvents, listMaterials, listNodes, type Lesson, type StoredEvent } from './db.js';
 
 const LETTERS = 'ABCDEFG';
 
@@ -152,11 +152,20 @@ export function renderMarkdown(lesson: Lesson): string {
   return out.join('\n');
 }
 
-export function exportToVault(lesson: Lesson): string | null {
+/** The first learner's notes sit in the vault folder itself; every other learner gets a folder named after them. */
+function vaultDirFor(lesson: Lesson): string | null {
   if (!VAULT_DIR) return null;
-  mkdirSync(VAULT_DIR, { recursive: true });
+  if (lesson.learner_id === DEFAULT_LEARNER_ID) return VAULT_DIR;
+  const learner = getLearner(lesson.learner_id);
+  return join(VAULT_DIR, (learner?.name ?? lesson.learner_id).replace(/[\\/:*?"<>|]/g, '-').slice(0, 60));
+}
+
+export function exportToVault(lesson: Lesson): string | null {
+  const dir = vaultDirFor(lesson);
+  if (!dir) return null;
+  mkdirSync(dir, { recursive: true });
   const safe = lesson.topic.replace(/[\\/:*?"<>|]/g, '-').slice(0, 80);
-  const path = join(VAULT_DIR, `${safe}.md`);
+  const path = join(dir, `${safe}.md`);
   writeFileSync(path, renderMarkdown(lesson));
   return path;
 }

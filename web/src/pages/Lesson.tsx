@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, FileText } from 'lucide-react';
+import { ArrowLeft, Download, FileText, Terminal, Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AskCard } from '../components/AskCard';
@@ -14,6 +14,7 @@ import { QuizCard } from '../components/QuizCard';
 import { api } from '../lib/api';
 import { useLesson } from '../lib/useLesson';
 import { useMaterials } from '../lib/useMaterials';
+import { useVoiceMode } from '../lib/useVoiceMode';
 
 export function LessonPage() {
   const { id } = useParams();
@@ -24,6 +25,7 @@ export function LessonPage() {
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [vault, setVault] = useState(false);
   const external = state.lesson?.mode === 'external';
+  const terminal = external && state.lesson?.answer_in === 'terminal';
 
   useEffect(() => {
     api.stats().then((s) => setVault(s.vault)).catch(() => undefined);
@@ -43,6 +45,20 @@ export function LessonPage() {
     return last.approved === undefined ? last.plan.id : null;
   }, [state.items, state.busy]);
   const waiting = activePromptId !== null;
+
+  /** The open card, for voice replies: what kind it is and what its options are. */
+  const activeCard = useMemo(() => {
+    if (!activePromptId) return null;
+    for (const it of state.items) {
+      if (it.kind === 'quiz' && it.quiz.id === activePromptId) return { kind: 'quiz' as const, id: it.quiz.id, options: it.quiz.options };
+      if (it.kind === 'ask' && it.ask.id === activePromptId) return { kind: 'ask' as const, id: it.ask.id, options: it.ask.options };
+      if (it.kind === 'explain' && it.explain.id === activePromptId) return { kind: 'explain' as const, id: it.explain.id, options: [] };
+      if (it.kind === 'plan' && it.plan.id === activePromptId) return { kind: 'plan' as const, id: it.plan.id, options: [] };
+    }
+    return null;
+  }, [state.items, activePromptId]);
+
+  const voice = useVoiceMode({ lessonId: id, items: state.items, busy: state.busy, external, activeCard, answer, send });
 
   const ordered = useMemo(() => topoOrder(state.nodes), [state.nodes]);
   const timeline = useMemo(() => [...state.items].sort((a, b) => (a.at ?? 0) - (b.at ?? 0)), [state.items]);
@@ -93,9 +109,19 @@ export function LessonPage() {
         </Link>
         <h1 className="font-serif text-[22px] tracking-[-0.01em] truncate text-ink-50">{state.lesson?.topic ?? '…'}</h1>
         {external && (
-          <span className="hidden md:inline-flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 border hairline rounded-full px-2.5 h-6">
+          <span
+            className="hidden md:inline-flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 border hairline rounded-full px-2.5 h-6"
+            title={terminal ? 'Cards are answered in your terminal; answering here works too' : 'Cards are answered here in the browser'}
+          >
             <span className={`h-1.5 w-1.5 rounded-full ${state.connected ? 'bg-moss-400' : 'bg-ink-600'}`} />
             companion · claude code
+            {terminal && (
+              <>
+                <span className="text-ink-600">·</span>
+                <Terminal size={11} strokeWidth={2} />
+                answers in terminal
+              </>
+            )}
           </span>
         )}
         <div className="ml-auto hidden md:block">
@@ -107,6 +133,23 @@ export function LessonPage() {
               <span className="font-serif text-[26px] leading-none text-gold-500">{locked}</span>
               <span className="font-mono text-[11px] text-ink-500">/ {state.nodes.length} locked</span>
             </span>
+          )}
+          {voice.supported.speak && (
+            <button
+              type="button"
+              onClick={voice.toggle}
+              className={`inline-flex items-center gap-1.5 transition-colors ${voice.enabled ? 'text-gold-500' : 'text-ink-400 hover:text-ink-50'}`}
+              title={
+                voice.enabled
+                  ? 'Voice mode is on: the tutor is read aloud and the microphone opens for your reply. Click to switch off.'
+                  : voice.supported.listen
+                    ? 'Voice mode: hear the tutor, answer by speaking'
+                    : 'Read the tutor aloud (dictation needs Chrome)'
+              }
+            >
+              {voice.enabled ? <Volume2 size={15} strokeWidth={1.8} /> : <VolumeX size={15} strokeWidth={1.8} />}
+              <span className="hidden sm:inline font-mono text-[11px]">{voice.enabled ? (voice.listening ? 'listening' : voice.speaking ? 'speaking' : 'voice on') : 'voice'}</span>
+            </button>
           )}
           <button type="button" onClick={doExport} className="inline-flex items-center gap-1.5 text-ink-400 hover:text-ink-50 transition-colors" title={vault ? 'Save to Obsidian vault' : 'Download markdown'}>
             {vault ? <FileText size={15} strokeWidth={1.8} /> : <Download size={15} strokeWidth={1.8} />}
@@ -139,6 +182,7 @@ export function LessonPage() {
                         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-ink-800 border hairline px-4 py-2.5 text-[15px] whitespace-pre-wrap text-ink-100">
                           {it.text}
                           {it.source === 'terminal' && <span className="block font-mono text-[10px] text-ink-500 mt-1">from your terminal</span>}
+                          {it.source === 'browser' && external && <span className="block font-mono text-[10px] text-ink-500 mt-1">from this page · the tutor reads it at its next turn</span>}
                         </div>
                       </div>
                     );
@@ -248,7 +292,23 @@ export function LessonPage() {
           <div className="shrink-0 px-5 md:px-12 pb-5 pt-3 bg-gradient-to-t from-ink-950 via-ink-950/95 to-transparent">
             <div className="mx-auto max-w-[680px]">
               {upload.error && <p className="mb-2 text-sm text-rust-400">{upload.error}</p>}
-              <Composer onSend={send} onStop={stop} onAttach={(f) => void upload.add(f)} attaching={upload.uploading.length > 0} busy={state.busy} waiting={waiting} external={external} />
+              {voice.error && <p className="mb-2 text-sm text-rust-400">{voice.error}</p>}
+              <Composer
+                onSend={send}
+                onStop={stop}
+                onAttach={(f) => void upload.add(f)}
+                onAttachRepo={(s) => void upload.addRepo(s)}
+                attaching={upload.uploading.length > 0}
+                busy={state.busy}
+                waiting={waiting}
+                external={external}
+                terminal={terminal}
+                voice={
+                  voice.enabled && voice.supported.listen
+                    ? { supported: true, listening: voice.listening, speaking: voice.speaking, dictation: voice.dictation, toggleListening: voice.toggleListening }
+                    : undefined
+                }
+              />
             </div>
           </div>
         </section>

@@ -30,10 +30,10 @@ Derive is built around that one idea. Every lesson is a **dependency graph**: a 
 
 It runs two ways, and they share one record:
 
-- **The app.** A local web app with its own tutor, built on the Claude Agent SDK. Type a topic, get taught.
-- **Inside Claude Code.** A plugin that adds `/derive:learn` and the teaching method to your terminal. Claude Code teaches; the browser renders the quizzes, the plan and the graph live, the way the original [learn](https://github.com/amosblomqvist/learn) tool mirrored a pi session into Obsidian.
+- **The app.** A local web app with its own tutor, built on the Claude Agent SDK. Type a topic, get taught. Switch on voice mode and it talks you through it.
+- **Inside Claude Code.** A plugin that adds `/derive:learn` and the teaching method to your terminal. Claude Code teaches; you answer the quizzes in the terminal or in the browser, and the browser renders the cards, the plan and the graph live, the way the original [learn](https://github.com/amosblomqvist/learn) tool mirrored a pi session into Obsidian.
 
-Both run on your Claude subscription. No API key, no per-token bill, everything in a SQLite file on your machine.
+Both run on your Claude subscription. No API key, no per-token bill, everything in a SQLite file on your machine. Several people can share one install: each learner has their own lessons, memory and review queue.
 
 ## Quick start
 
@@ -58,6 +58,18 @@ Preparing for a specific course? Attach its slides, a PDF or your notes (`.pdf`,
 
 Files are reduced to text on your machine at upload; nothing leaves it except what the tutor reads. Short material goes into the tutor's context whole. Longer material gets an outline, and the tutor reads pages or slides on demand (`read_material`, `search_material`) before planning and before teaching each node. You can attach more mid-lesson with the paperclip in the composer.
 
+### Or from a codebase
+
+A repository is a course too. Click *import a repo* and give it a folder on your machine, a GitHub URL (`https://github.com/owner/repo`, optionally `/tree/<branch>/<subdir>`) or any git URL; pasting one of those into the topic box does the same. Derive packs the readable files (README and docs first, then manifests, then source, tests last; `.gitignore` respected, lockfiles and binaries skipped) into one material with a directory outline. The tutor reads files by path as it plans and teaches, cites them (`see src/events.ts`), and treats the constraints the code cannot escape as the ground truths and the design decisions as the derived nodes. Ask it why the code had to be shaped this way, not just what it does. From the terminal, name the folder or the URL in the `/derive:learn` argument.
+
+### Voice mode
+
+Click *voice* in a lesson's header. The tutor's prose and every card are read aloud with the browser's speech engine, and when it stops talking the microphone opens for your reply. Say *B*, *the second one* or *I don't know* to answer a quiz, *yes* to approve a plan, or anything longer to talk to the tutor. Explanations are read with a longer pause allowance so you can think between sentences. The tutor is told when voice is on and writes for the ear: shorter paragraphs, formulas said in words. Speech stays in the browser; Chrome has both engines, other browsers may only read aloud.
+
+### Several learners
+
+The name in the top right of the home page is who is learning. Add a learner, and they get their own lessons, Atlas, misconceptions, tutor notes and review queue; the tutor never mixes two people's memories. The choice is kept per browser. In the vault, the first learner's notes sit at the root and every other learner gets a folder. The plugin follows `DERIVE_LEARNER` or `--learner <name>` on the command.
+
 Optional configuration lives in environment variables; copy [`.env.example`](.env.example) to `.env` in the repo root and `pnpm start` / `pnpm dev` read it.
 
 | Variable | Default | What it does |
@@ -66,6 +78,8 @@ Optional configuration lives in environment variables; copy [`.env.example`](.en
 | `DERIVE_EFFORT` | `high` | Reasoning effort, `low` to `max` |
 | `DERIVE_VAULT_DIR` | unset | Obsidian folder; every lesson is mirrored there live as it happens |
 | `DERIVE_DATA_DIR` | `~/.derive` | Where the SQLite database lives |
+| `DERIVE_LEARNER` | the first learner | Which learner profile the Claude Code plugin uses, by name |
+| `DERIVE_ANSWER_IN` | `browser` | Where a Claude Code lesson is answered: `browser` or `terminal` |
 
 ## Inside Claude Code
 
@@ -73,7 +87,7 @@ The `plugin/` directory is a Claude Code plugin. It ships:
 
 - **`/derive:learn <topic>`** and **`/derive:review`** commands
 - the **`teach` skill**: the full method (below), written for Claude Code
-- an **MCP server** exposing the tutor's tools: `quiz`, `ask`, `set_plan`, `node_status`, `explain_back`, `remember`, `learner_profile`, and `read_material` / `search_material` / `attach_material` for course material
+- an **MCP server** exposing the tutor's tools: `quiz`, `ask`, `set_plan`, `node_status`, `explain_back`, `remember`, `learner_profile`, `learners`, `answer` / `answer_in` for terminal answers, and `read_material` / `search_material` / `attach_material` for course material
 - **hooks** that mirror every terminal turn into the lesson log, so the browser companion shows the prose, the cards and the graph as one record
 
 ```bash
@@ -82,15 +96,22 @@ pnpm start                      # keep the Derive server running
 claude --plugin-dir ./plugin    # in any project
 > /derive:learn why does gradient descent work
 > /derive:learn Fourier series, from ~/uni/signals/week3.pdf and week3-slides.pptx
+> /derive:learn how does this codebase handle auth, from ~/code/api --terminal
+> /derive:learn the event loop in https://github.com/owner/repo --learner Ana
 ```
 
-Name files or a folder in the argument and Claude Code uploads them to Derive as the lesson's course material.
+Name files, a folder, a repository or a GitHub URL in the argument and Claude Code attaches them to Derive as the lesson's course material.
 
 <p align="center">
   <img src="docs/screenshot-companion.png" alt="Companion mode: Claude Code in the terminal, Derive rendering the quiz and graph in the browser" width="960" />
 </p>
 
-Claude Code runs the lesson in your terminal. When it asks a graded question, the tool call blocks, the card appears in the browser, you answer there, and the answer flows back into the terminal conversation. The graph on the right lights up as nodes lock. Everything you learn this way lands in the same Atlas and the same review queue as app lessons.
+Claude Code runs the lesson in your terminal, and you choose where to answer:
+
+- **In the browser** (the default). When Claude asks a graded question, the tool call blocks, the card appears in the browser, you answer there, and the answer flows back into the terminal conversation.
+- **In the terminal** (`--terminal`, or `DERIVE_ANSWER_IN=terminal`). The card is printed in the conversation with its options lettered; you reply `B`, `2`, `?`, `a and c`, or a whole sentence if you would rather talk back. Claude hands your reply to Derive's `answer` tool, the server grades it, and only then does the explanation come back. The browser still shows the card live, and answering there works too: the result is picked up on your next message. Say "let me answer here" mid-lesson to switch.
+
+Either way the model never grades its own question. The graph on the right lights up as nodes lock, and everything you learn this way lands in the same Atlas and the same review queue as app lessons.
 
 To wire only the MCP server without the plugin:
 
@@ -124,8 +145,11 @@ flowchart LR
 - **Spaced repetition on nodes, not flashcards.** An expanding interval per node, bumped only by a fresh question. Miss it and the node is marked shaky and re-derived from its dependencies.
 - **Verified facts.** The tutor is instructed to web-search anything it is even slightly unsure of before teaching it, and to say so if a check changed what it was about to say.
 - **Your course, not the topic in general.** Attach slides, a PDF or notes and the plan is scoped to what that course covers, in its notation, with every node citing the slides or pages it rests on. The tutor reads the material page by page as it plans and teaches, and pushes back when the slides skip a step.
+- **A codebase as a course.** Import a repo (a folder, a GitHub URL, a git URL) and the tutor reads it file by file, cites paths, treats the invariants as ground truths and the design decisions as derived nodes, and quizzes you on what a change would break.
+- **Voice.** The tutor is read aloud and listens for your reply, so a Socratic exchange can happen away from the keyboard. Quiz options are picked by letter, plans approved with a word.
+- **One install, several learners.** Each learner has their own lessons, memory, misconceptions, Atlas and review queue. The tutor is told whose lesson it is and builds only on that person's floors.
 - **Renders properly.** KaTeX math, Mermaid diagrams, and inline SVG for geometry, all streaming. Export any lesson as an Obsidian note with callouts, or point `DERIVE_VAULT_DIR` at your vault and every lesson is written there live, paragraph by paragraph, while it happens.
-- **Keyboard first.** `1` `2` `3` pick an option, `Enter` answers or approves the plan, `?` is "I don't know". A lesson never needs the mouse.
+- **Keyboard first.** `1` `2` `3` pick an option, `Enter` answers or approves the plan, `?` is "I don't know". A lesson never needs the mouse; from the terminal it never needs the browser.
 
 ## Why this works
 
@@ -158,18 +182,13 @@ derive/
 ```
 
 - **One set of tutor actions, two drivers.** `server/src/actions.ts` implements `quiz`, `ask`, `set_plan`, `node_status`, `explain_back`, `remember`, `read_material` and `search_material`. The in-process agent calls them through an SDK MCP server; a Claude Code session calls them through the HTTP API via `server/src/mcp.ts`.
-- **Course material is text, segmented.** `server/src/materials.ts` reduces a PDF (via `unpdf`), a PPTX or DOCX (unzipped, XML runs joined per slide or paragraph, speaker notes included) or Markdown to a list of segments in SQLite. The tutor's system prompt carries the full text when it is short and an outline otherwise; the two material tools address segments by page or slide number.
-- **Tools block on you.** A `quiz` call emits a card to the browser and waits until you answer. The server grades it, records it, and only then returns to the model.
+- **Course material is text, segmented.** `server/src/materials.ts` reduces a PDF (via `unpdf`), a PPTX or DOCX (unzipped, XML runs joined per slide or paragraph, speaker notes included) or Markdown to a list of segments in SQLite. `server/src/repo.ts` does the same for a repository: one segment per file, from `git ls-files` for a local checkout, from the tarball for a GitHub URL (no git needed), from a shallow clone otherwise. The tutor's system prompt carries the full text when it is short and an outline otherwise; the material tools address segments by page, slide or file path.
+- **Tools block on you, or hold for you.** A `quiz` call emits a card to the browser and waits until you answer. The server grades it, records it, and only then returns to the model. In a terminal-answered lesson the same call opens the card as *held*, returns it as text, and the model's `answer` call settles it with your reply; a held card survives the end of a turn, and a browser answer to it is delivered on the next prompt by the hook. Grading never moves to the model.
+- **Voice is a browser feature.** `web/src/lib/voice.ts` wraps `speechSynthesis` and `SpeechRecognition`; `useVoiceMode` reads new prose and cards as they land and opens the microphone when the tutor goes quiet. The server only hears that voice is on, so the tutor can write for the ear.
+- **Learners are a column.** Every lesson belongs to a learner; memory, misconceptions, nodes and the review queue are joined through it. The web app sends its selected learner in a header, the plugin by name; an install starts with one learner named after your OS user, and old lessons belong to it.
 - **Event-sourced lessons.** Every turn is a stream of typed events appended to SQLite and fanned out over Server-Sent Events. The UI is a reducer over that stream, so reloads, reconnects, the Obsidian export and the terminal mirror all replay the same log.
 - **Conversation continuity** uses Agent SDK session resume: one SDK session per lesson, resumed on every turn.
 - **The mirror hook** (`plugin/hooks/mirror.mjs`) reads the Claude Code transcript on each turn and posts new prose to the active lesson, tracking what it has already sent per session.
-
-## Roadmap
-
-- Answer quizzes from the terminal as well as the browser
-- Import a repo as the source material for a lesson (PDFs, slides and notes already work)
-- Voice mode for the Socratic back-and-forth
-- Multi-learner profiles
 
 ## License
 

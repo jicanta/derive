@@ -13,6 +13,7 @@ import { extname } from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
 import { extractText } from 'unpdf';
 import { getMaterial, insertMaterial, listMaterials, type MaterialFull, type MaterialRow } from './db.js';
+import { collectRepo, type RepoSource } from './repo.js';
 
 export type MaterialKind = MaterialRow['kind'];
 
@@ -174,6 +175,43 @@ export async function ingestMaterial(name: string, buf: Buffer, lessonId: string
   return insertMaterial({ id: randomUUID(), lesson_id: lessonId, name: name.replace(/^.*[\\/]/, '').slice(0, 120), kind, unit, pages: segments.length, chars: text.length, text });
 }
 
+/**
+ * A repository as material: one segment per file, the path on its first
+ * line so the outline, the search hits and the read markers all name files.
+ */
+export async function ingestRepo(source: string, lessonId: string | null): Promise<MaterialRow> {
+  const repo = await collectRepo(source);
+  return storeRepo(repo, lessonId);
+}
+
+export function storeRepo(repo: RepoSource, lessonId: string | null): MaterialRow {
+  if (!repo.files.length) throw new Error(`${repo.name}: no readable source or text files found`);
+  const segments: string[] = [];
+  let total = 0;
+  let dropped = repo.skipped;
+  for (const f of repo.files) {
+    const seg = clean(`${f.path}\n${f.text}`);
+    if (total + seg.length > MAX_CHARS) {
+      dropped += 1;
+      continue;
+    }
+    segments.push(seg);
+    total += seg.length;
+  }
+  if (dropped) segments.push(`[${dropped} file${dropped === 1 ? '' : 's'} left out: binary, generated, larger than the limit, or past the ${MAX_CHARS}-character budget.]`);
+  const text = segments.join(SEP);
+  return insertMaterial({
+    id: randomUUID(),
+    lesson_id: lessonId,
+    name: (repo.ref ? `${repo.name}@${repo.ref}` : repo.name).slice(0, 120),
+    kind: 'repo',
+    unit: 'file',
+    pages: segments.length,
+    chars: text.length,
+    text,
+  });
+}
+
 // ---------- what the tutor sees ----------
 
 export const segmentsOf = (m: MaterialFull) => m.text.split(SEP);
@@ -183,7 +221,10 @@ const words = (chars: number) => {
   return w >= 1000 ? `${Math.round(w / 1000)}k words` : `${w} words`;
 };
 
-export const describe = (m: MaterialRow) => `${m.name} (${m.kind}, ${m.pages} ${m.unit}${m.pages === 1 ? '' : 's'}, about ${words(m.chars)})`;
+export const describe = (m: MaterialRow) =>
+  m.kind === 'repo'
+    ? `${m.name} (repository, ${m.pages} file${m.pages === 1 ? '' : 's'}, about ${words(m.chars)})`
+    : `${m.name} (${m.kind}, ${m.pages} ${m.unit}${m.pages === 1 ? '' : 's'}, about ${words(m.chars)})`;
 
 /** The first meaningful line of a segment: the slide title, the page's running head, the section heading. */
 function titleOf(seg: string) {
@@ -191,7 +232,34 @@ function titleOf(seg: string) {
   return line.length > 64 ? line.slice(0, 61).trimEnd() + '…' : line;
 }
 
+/** A repo outline is its tree: one line per directory with the files in it, numbered so read_material can address them. */
+function repoOutline(m: MaterialFull, budget = 7000) {
+  const segs = segmentsOf(m);
+  const byDir = new Map<string, string[]>();
+  segs.forEach((s, i) => {
+    const path = s.split('\n', 1)[0];
+    if (path.startsWith('[')) return;
+    const slash = path.lastIndexOf('/');
+    const dir = slash < 0 ? '.' : path.slice(0, slash);
+    if (!byDir.has(dir)) byDir.set(dir, []);
+    byDir.get(dir)!.push(`${path.slice(slash + 1)} (${i + 1})`);
+  });
+  const lines: string[] = [];
+  let len = 0;
+  for (const [dir, files] of byDir) {
+    const line = `${dir}/: ${files.join(', ')}`;
+    if (len + line.length > budget) {
+      lines.push(`… ${byDir.size - lines.length} more directories; use search_material or read_material by path`);
+      break;
+    }
+    lines.push(line);
+    len += line.length + 1;
+  }
+  return lines.join('\n  ');
+}
+
 function outlineOf(m: MaterialFull, budget = 2600) {
+  if (m.kind === 'repo') return repoOutline(m);
   const segs = segmentsOf(m);
   const entries = segs.map((s, i) => `${i + 1} ${titleOf(s)}`);
   const out: string[] = [];
@@ -222,6 +290,14 @@ The learner is preparing for a specific course and attached its material. It is 
 - Method unchanged. You still derive every node from unconditional truths. Slides state results; you make the learner discover them. Never walk through the slides in order.
 - Cite. When a node corresponds to a place in the material, name it ("slides 12 to 15", "page 4") so the learner can go back to it. Use the course's own examples, symbols and edge cases in your questions: that is what their exam will use.
 - Disagree when needed. If the material is wrong, sloppy, or skips a step, say so plainly, verify with WebSearch, and teach the correct version. Do not smooth it over.`);
+  if (full.some((m) => m.kind === 'repo')) {
+    lines.push(`
+A repository is attached. Treat it as the course: the lesson teaches how this codebase works and the ideas it is built on.
+- Read the README, the manifests and the entry points before you plan, then the files a node rests on before you teach it. Cite files by path ("see src/events.ts"). Quote the exact lines when a claim depends on them.
+- The unconditional truths are the constraints the code cannot escape (the runtime, the protocol, the data model, the invariants the tests pin down); the derived nodes are the design decisions that follow from them. Make the learner discover why the code had to be shaped this way, not just what it does.
+- Quiz with the code's own names, types and edge cases. A good question asks what a change would break, or which invariant a line protects.
+- Never paste large stretches of code back to the learner: a few lines, then the reasoning.`);
+  }
   if (total <= INLINE_CHARS) {
     lines.push('\nThe material is short, so here it is in full.\n');
     for (const m of full) {
@@ -231,10 +307,10 @@ The learner is preparing for a specific course and attached its material. It is 
     }
   } else {
     lines.push(
-      '- Tools. `read_material` returns a range of pages or slides; `search_material` finds where something is covered. The outline below is titles only: read the relevant range BEFORE you plan, and again before you teach a node that maps to it.\n',
+      '- Tools. `read_material` returns a range of pages, slides or files (a repo file can be read by `path`); `search_material` finds where something is covered. The outline below is titles only: read the relevant range BEFORE you plan, and again before you teach a node that maps to it.\n',
     );
     lines.push('## Outline');
-    for (const m of full) lines.push(`- ${describe(m)}: ${outlineOf(m)}`);
+    for (const m of full) lines.push(m.kind === 'repo' ? `- ${describe(m)}:\n  ${outlineOf(m)}` : `- ${describe(m)}: ${outlineOf(m)}`);
   }
   return lines.join('\n');
 }
@@ -253,11 +329,32 @@ function resolve(lessonId: string, name?: string | null): MaterialFull {
   return getMaterial(hit.id)!;
 }
 
-export function readMaterial(lessonId: string, a: { name?: string | null; from?: number | null; to?: number | null }) {
-  const m = resolve(lessonId, a.name);
+/** The segment index of a repo file, by exact path, then by path suffix, then by file name. */
+function fileIndex(segs: string[], path: string): number {
+  const want = path.trim().replace(/^\.?\//, '').toLowerCase();
+  const paths = segs.map((s) => s.split('\n', 1)[0].toLowerCase());
+  const exact = paths.indexOf(want);
+  if (exact >= 0) return exact;
+  const suffix = paths.findIndex((p) => p.endsWith('/' + want));
+  if (suffix >= 0) return suffix;
+  const name = want.split('/').pop()!;
+  const byName = paths.findIndex((p) => p === name || p.endsWith('/' + name));
+  if (byName >= 0) return byName;
+  throw new Error(`No file matching "${path}" in this repository. Use search_material, or the outline in your instructions.`);
+}
+
+export function readMaterial(lessonId: string, a: { name?: string | null; path?: string | null; from?: number | null; to?: number | null }) {
+  const rows = listMaterials(lessonId);
+  // A path selects the repo (the only one, or the one holding that path) and the file in it.
+  const m = a.path?.trim() && !a.name?.trim() && rows.filter((r) => r.kind === 'repo').length === 1 ? getMaterial(rows.find((r) => r.kind === 'repo')!.id)! : resolve(lessonId, a.name);
   const segs = segmentsOf(m);
-  const from = Math.max(1, Math.min(segs.length, Math.floor(a.from ?? 1)));
-  const to = Math.max(from, Math.min(segs.length, Math.floor(a.to ?? from + 9)));
+  let from = Math.max(1, Math.min(segs.length, Math.floor(a.from ?? 1)));
+  let to = Math.max(from, Math.min(segs.length, Math.floor(a.to ?? from + 9)));
+  if (a.path?.trim()) {
+    if (m.kind !== 'repo') throw new Error(`"${m.name}" is not a repository; pass from/to instead of path.`);
+    from = fileIndex(segs, a.path) + 1;
+    to = Math.max(from, Math.min(segs.length, Math.floor(a.to ?? from)));
+  }
   const chunks: string[] = [];
   let len = 0;
   let last = from - 1;
@@ -284,7 +381,7 @@ export function searchMaterial(lessonId: string, a: { query: string; name?: stri
   const targets = a.name?.trim() ? [resolve(lessonId, a.name)] : rows.map((r) => getMaterial(r.id)!);
   const terms = [...new Set(a.query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 2))];
   if (!terms.length) return { hits: [], note: 'Empty query.' };
-  type Hit = { name: string; unit: string; index: number; score: number; snippet: string };
+  type Hit = { name: string; unit: string; index: number; title: string; score: number; snippet: string };
   const hits: Hit[] = [];
   for (const m of targets) {
     segmentsOf(m).forEach((seg, i) => {
@@ -308,7 +405,7 @@ export function searchMaterial(lessonId: string, a: { query: string; name?: stri
       if (found === terms.length) score += 10;
       const start = Math.max(0, firstAt - 160);
       const snippet = (start > 0 ? '…' : '') + seg.slice(start, start + 420).replace(/\s+/g, ' ').trim() + (start + 420 < seg.length ? '…' : '');
-      hits.push({ name: m.name, unit: m.unit, index: i + 1, score, snippet });
+      hits.push({ name: m.name, unit: m.unit, index: i + 1, title: titleOf(seg), score, snippet });
     });
   }
   hits.sort((x, y) => y.score - x.score || x.index - y.index);

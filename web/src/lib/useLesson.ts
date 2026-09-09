@@ -69,9 +69,12 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
       return { ...s, busy: true, status: s.lesson?.mode === 'external' ? 'Teaching in your terminal' : 'Thinking', error: null };
     case 'turn_end': {
       const ok = ev.payload?.ok;
+      // A companion lesson answered from the terminal ends its turn with the
+      // card still open; the card stays answerable here until it is settled.
+      const heldOpen = !!ev.payload?.held;
       return {
         ...s,
-        busy: false,
+        busy: heldOpen,
         status: null,
         lastCost: typeof ev.payload?.cost_usd === 'number' ? ev.payload.cost_usd : s.lastCost,
         verified: s.verified + (typeof ev.payload?.verified === 'number' ? ev.payload.verified : 0),
@@ -174,6 +177,8 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
       const materials = s.materials.some((x) => x.id === m.id) ? s.materials : [...s.materials, m];
       return { ...s, materials, items: [...items, { kind: 'material', seq: ev.seq, id: m.id, name: m.name, unit: m.unit, pages: m.pages }] };
     }
+    case 'answer_in':
+      return s.lesson ? { ...s, lesson: { ...s.lesson, answer_in: ev.payload.where } } : s;
     case 'material_removed':
       return {
         ...s,
@@ -222,7 +227,7 @@ function reducer(s: LessonState, a: Action): LessonState {
 
 const EVENT_TYPES = [
   'ready', 'turn_start', 'turn_end', 'status', 'user', 'block_start', 'delta', 'assistant', 'quiz', 'quiz_result', 'ask', 'ask_result',
-  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'node_status', 'memory', 'material', 'material_removed',
+  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'node_status', 'memory', 'material', 'material_removed', 'answer_in',
 ];
 
 export function useLesson(id: string | undefined) {

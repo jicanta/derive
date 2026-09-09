@@ -5,9 +5,14 @@ export type Lesson = {
   session_id: string | null;
   phase: 'probe' | 'plan' | 'teach' | string;
   mode: 'agent' | 'external';
+  learner_id: string;
+  /** Companion lessons: where cards are answered. */
+  answer_in: 'browser' | 'terminal';
   created_at: number;
   updated_at: number;
 };
+
+export type Learner = { id: string; name: string; created_at: number; lessons?: number };
 
 export type LessonSummary = Lesson & { nodes: number; locked: number; shaky: number; busy: boolean };
 
@@ -44,8 +49,8 @@ export type Material = {
   id: string;
   lesson_id: string | null;
   name: string;
-  kind: 'pdf' | 'pptx' | 'docx' | 'md' | 'txt';
-  unit: 'page' | 'slide' | 'part';
+  kind: 'pdf' | 'pptx' | 'docx' | 'md' | 'txt' | 'repo';
+  unit: 'page' | 'slide' | 'part' | 'file';
   pages: number;
   chars: number;
   created_at?: number;
@@ -104,4 +109,4 @@ export type TimelineItemBase =
   | { kind: 'complete'; seq: number; goal: string; locked: number; total: number; quizzes: number; correct: number; caught: number; minutes: number; reviewDays: number }
   | { kind: 'error'; seq: number; text: string };
 
-export type Stats = { lessons: number; locked: number; quizzes: number; correct: number; due: number; vault: boolean };
+export type Stats = { lessons: number; locked: number; quizzes: number; correct: number; due: number; vault: boolean; learner?: Learner };

@@ -1,4 +1,4 @@
-import { FileText, X } from 'lucide-react';
+import { FileText, FolderGit2, X } from 'lucide-react';
 import type { Material } from '../lib/types';
 import { describeMaterial } from '../lib/useMaterials';
 
@@ -19,7 +19,11 @@ export function MaterialList({
     <ul className={compact ? 'flex flex-col gap-2.5' : ''}>
       {materials.map((m) => (
         <li key={m.id} className={`group flex min-w-0 ${compact ? 'items-start gap-2.5' : 'items-baseline gap-3 py-2.5 border-t border-ink-100/10'}`}>
-          <FileText size={compact ? 12 : 14} strokeWidth={1.8} className={`text-ink-500 shrink-0 ${compact ? 'mt-[3px]' : 'self-center'}`} />
+          {m.kind === 'repo' ? (
+            <FolderGit2 size={compact ? 12 : 14} strokeWidth={1.8} className={`text-ink-500 shrink-0 ${compact ? 'mt-[3px]' : 'self-center'}`} />
+          ) : (
+            <FileText size={compact ? 12 : 14} strokeWidth={1.8} className={`text-ink-500 shrink-0 ${compact ? 'mt-[3px]' : 'self-center'}`} />
+          )}
           {compact ? (
             <span className="min-w-0" title={m.name}>
               <span className="block text-[12.5px] leading-[1.35] text-ink-200 text-pretty line-clamp-2">{m.name}</span>

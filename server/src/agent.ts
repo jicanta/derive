@@ -59,8 +59,8 @@ export const TOOL_DESCRIPTIONS = {
   remember:
     'Store one durable fact about this learner for future lessons: a strength, a gap, a preference (Socratic vs narrated), a background detail. One sentence. Use sparingly: 1 to 3 per lesson.',
   read_material:
-    'Read a range of the course material the learner attached (pages of a PDF, slides of a deck, parts of a document). Returns the text with a marker before each page or slide. Read the relevant range before planning and before teaching a node that maps to it. About ten pages per call. Only useful when the lesson has material (listed in your instructions, or announced in a tool result).',
-  search_material: 'Find where something is covered in the attached course material. Returns the best-matching pages or slides with a snippet each. Use it to locate a definition, an example or a formula before you read the range around it. Only useful when the lesson has material.',
+    'Read a range of the course material the learner attached (pages of a PDF, slides of a deck, parts of a document, files of a repository). Returns the text with a marker before each page, slide or file. For a repository pass `path` to read one file. Read the relevant range before planning and before teaching a node that maps to it. About ten pages per call. Only useful when the lesson has material (listed in your instructions, or announced in a tool result).',
+  search_material: 'Find where something is covered in the attached course material. Returns the best-matching pages, slides or files with a snippet each. Use it to locate a definition, an example, a formula or a function before you read the range around it. Only useful when the lesson has material.',
 };
 
 function buildTools(lessonId: string) {
@@ -124,9 +124,10 @@ function buildTools(lessonId: string) {
     'read_material',
     TOOL_DESCRIPTIONS.read_material,
     {
-      name: z.string().optional().describe('Which file, by name (or part of it). Optional when only one is attached.'),
-      from: z.number().int().min(1).optional().describe('First page or slide, 1-based. Default 1.'),
-      to: z.number().int().min(1).optional().describe('Last page or slide, inclusive. Default: from + 9.'),
+      name: z.string().optional().describe('Which material, by name (or part of it). Optional when only one is attached.'),
+      path: z.string().optional().describe('Repository material only: the file to read, by path (exact, or a suffix such as "src/db.ts").'),
+      from: z.number().int().min(1).optional().describe('First page, slide or file, 1-based. Default 1.'),
+      to: z.number().int().min(1).optional().describe('Last page, slide or file, inclusive. Default: from + 9 (or the one file, with path).'),
     },
     async (a) => text(actions.readMaterial(lessonId, a)),
   );
@@ -185,7 +186,7 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   const q = query({
     prompt,
     options: {
-      systemPrompt: SYSTEM_PROMPT + materialsSection(lessonId) + learnerProfile(lessonId),
+      systemPrompt: SYSTEM_PROMPT + materialsSection(lessonId) + learnerProfile(lesson.learner_id, lessonId),
       cwd: DATA_DIR,
       settingSources: [],
       mcpServers: { derive: buildTools(lessonId) },

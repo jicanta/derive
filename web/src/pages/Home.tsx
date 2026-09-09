@@ -1,11 +1,12 @@
-import { Paperclip, Trash2 } from 'lucide-react';
+import { FolderGit2, Paperclip, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Graph } from '../components/Graph';
+import { LearnerMenu } from '../components/LearnerMenu';
 import { MaterialList } from '../components/MaterialList';
 import { api } from '../lib/api';
 import type { GraphNode, Lesson, LessonSummary, NodeRow, Stats } from '../lib/types';
-import { MATERIAL_ACCEPT, useMaterials } from '../lib/useMaterials';
+import { looksLikeRepo, MATERIAL_ACCEPT, useMaterials } from '../lib/useMaterials';
 
 const TRY = ['Why does gradient descent work?', 'How does TCP make an unreliable network reliable?', 'What is a monad, really?'];
 
@@ -28,6 +29,8 @@ export function HomePage() {
   const [starting, setStarting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [repoOpen, setRepoOpen] = useState(false);
+  const [repo, setRepo] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
   const material = useMaterials();
 
@@ -46,8 +49,20 @@ export function HomePage() {
   };
   useEffect(refresh, []);
 
+  const importRepo = (source: string) => {
+    setRepo('');
+    setRepoOpen(false);
+    void material.addRepo(source);
+  };
+
   const start = async (t: string) => {
     if (!t.trim() || starting || material.uploading.length) return;
+    // A path or a GitHub URL in the topic box is a repo to learn from, not a topic.
+    if (looksLikeRepo(t)) {
+      setTopic('');
+      importRepo(t.trim());
+      return;
+    }
     setStarting(true);
     setErr(null);
     try {
@@ -82,13 +97,13 @@ export function HomePage() {
         <header className="flex items-baseline justify-between pb-4 border-b border-ink-100/14">
           <div className="flex items-baseline gap-3.5">
             <span className="font-serif text-[26px] tracking-[-0.01em] text-ink-50">Derive</span>
-            <span className="font-mono text-[11px] text-ink-500">v0.2</span>
+            <span className="font-mono text-[11px] text-ink-500">v0.3</span>
           </div>
-          <nav className="hidden md:flex gap-8 font-mono text-[11px] tracking-[0.06em] text-ink-400">
-            <Link to="/atlas" className="hover:text-ink-50">atlas</Link>
-            <a href="https://github.com/jicanta/derive#inside-claude-code" className="hover:text-ink-50">claude code plugin</a>
-            <a href="https://github.com/jicanta/derive" className="hover:text-ink-50">github</a>
-            <span className="text-ink-500">runs on your claude subscription</span>
+          <nav className="flex items-center gap-5 md:gap-8 font-mono text-[11px] tracking-[0.06em] text-ink-400">
+            <Link to="/atlas" className="hidden md:inline hover:text-ink-50">atlas</Link>
+            <a href="https://github.com/jicanta/derive#inside-claude-code" className="hidden md:inline hover:text-ink-50">claude code plugin</a>
+            <a href="https://github.com/jicanta/derive" className="hidden md:inline hover:text-ink-50">github</a>
+            <LearnerMenu onChange={refresh} />
           </nav>
         </header>
 
@@ -128,7 +143,7 @@ export function HomePage() {
                 autoFocus
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder={material.materials.length ? 'What do you want to understand from it?' : 'What do you want to actually understand?'}
+                placeholder={material.materials.length ? (material.materials.some((m) => m.kind === 'repo') ? 'What do you want to understand about this code?' : 'What do you want to understand from it?') : 'What do you want to actually understand?'}
                 disabled={starting}
                 className="flex-1 min-w-0 bg-transparent font-serif text-[1.6rem] md:text-[1.9rem] leading-tight text-ink-50 outline-none placeholder:text-ink-50/90 disabled:opacity-50"
               />
@@ -159,8 +174,34 @@ export function HomePage() {
                 <Paperclip size={11} strokeWidth={2} />
                 {material.materials.length ? 'add more material' : dragging ? 'drop to attach' : 'attach course material'}
               </button>
-              <span>{material.materials.length ? 'the lesson will prepare you for this course specifically' : 'slides, a pdf, notes · pdf pptx docx md txt'}</span>
+              <button type="button" onClick={() => setRepoOpen((v) => !v)} className={`inline-flex items-center gap-1.5 transition-colors ${repoOpen ? 'text-gold-500' : 'text-ink-400 hover:text-gold-500'}`}>
+                <FolderGit2 size={11} strokeWidth={2} />
+                import a repo
+              </button>
+              <span>{material.materials.length ? 'the lesson will prepare you for this course specifically' : 'slides, a pdf, notes, or a codebase'}</span>
             </div>
+            {repoOpen && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (repo.trim()) importRepo(repo.trim());
+                }}
+                className="mt-2.5 flex items-center gap-2 rounded-xl border hairline bg-ink-900/70 pl-3 pr-1.5 py-1.5"
+              >
+                <FolderGit2 size={13} className="text-ink-500 shrink-0" />
+                <input
+                  autoFocus
+                  value={repo}
+                  onChange={(e) => setRepo(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Escape' && setRepoOpen(false)}
+                  placeholder="~/code/my-project, or https://github.com/owner/repo"
+                  className="flex-1 min-w-0 bg-transparent font-mono text-[12.5px] outline-none placeholder:text-ink-500"
+                />
+                <button type="submit" disabled={!repo.trim()} className="h-7 rounded-lg bg-ink-100 text-ink-950 px-3 text-[12px] font-medium disabled:opacity-40">
+                  Import
+                </button>
+              </form>
+            )}
             {(material.materials.length > 0 || material.uploading.length > 0) && (
               <div className="mt-2">
                 <MaterialList materials={material.materials} uploading={material.uploading} onRemove={(id) => void material.remove(id)} />
