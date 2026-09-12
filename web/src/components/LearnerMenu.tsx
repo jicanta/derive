@@ -1,4 +1,6 @@
-import { Check, ChevronDown, Pencil, Plus, Trash2, UserRound } from 'lucide-react';
+import { Check, ChevronDown, Pencil, Plus, SlidersHorizontal, Trash2, UserRound } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { describePrefs, hasPrefs } from '../lib/prefs';
 import { useEffect, useRef, useState } from 'react';
 import { api, currentLearner, selectLearner } from '../lib/api';
 import type { Learner } from '../lib/types';
@@ -171,6 +173,13 @@ export function LearnerMenu({ onChange }: { onChange?: () => void }) {
             </button>
           )}
           {err && <p className="px-2 pt-1.5 text-[12px] text-rust-400">{err}</p>}
+          <Link to="/you" onClick={() => setOpen(false)} className="mt-1 flex items-start gap-2 rounded-lg px-2 py-1.5 text-[13px] text-ink-300 hover:bg-ink-850 hover:text-ink-50">
+            <SlidersHorizontal size={12} className="mt-[3px] shrink-0" />
+            <span className="min-w-0">
+              How {me?.id === 'default' ? 'you' : (me?.name ?? 'you')} learn{me && me.id !== 'default' ? 's' : ''}
+              <span className="block font-mono text-[10px] text-ink-500 truncate">{hasPrefs(me?.prefs) ? describePrefs(me!.prefs) : 'tell the tutor, once, in your words'}</span>
+            </span>
+          </Link>
           <p className="px-2 pt-2 pb-1 font-mono text-[10px] leading-relaxed text-ink-500">Each learner has their own lessons, memory and review queue. The tutor never mixes them.</p>
         </div>
       )}

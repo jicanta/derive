@@ -59,6 +59,8 @@ export const TOOL_DESCRIPTIONS = {
     'Teach-back check: ask the learner to explain a node in their own words (2 to 5 sentences), or to say WHY a claim must be true. Write the rubric first: the 2 or 3 things a correct explanation must contain. Returns their explanation for you to grade. Use it at least once per lesson on the most important derived node, and whenever a pass was unsure. Blocks until they write.',
   remember:
     'Store one durable fact about this learner for future lessons: a strength, a gap, a preference (Socratic vs narrated), a background detail. One sentence. Use sparingly: 1 to 3 per lesson.',
+  set_preferences:
+    "Update how this learner wants to be taught, for this and every future lesson: the language to write in, how Socratic (style), how long each step runs (pace), their background, how they learn in their words, and where to take examples from. Call it when the learner TELLS you how they want to be taught (\"en español por favor\", \"just explain it, stop quizzing me through every step\", \"I'm a musician, use music\"), passing only the fields they touched, in their words. Do not infer it from a single reaction; that is what `remember` is for. An empty string clears a field.",
   read_material:
     'Read a range of the course material the learner attached (pages of a PDF, slides of a deck, parts of a document, files of a repository). Returns the text with a marker before each page, slide or file. For a repository pass `path` to read one file. Read the relevant range before planning and before teaching a node that maps to it. About ten pages per call. Only useful when the lesson has material (listed in your instructions, or announced in a tool result).',
   search_material: 'Find where something is covered in the attached course material. Returns the best-matching pages, slides or files with a snippet each. Use it to locate a definition, an example, a formula or a function before you read the range around it. Only useful when the lesson has material.',
@@ -128,6 +130,20 @@ function buildTools(lessonId: string) {
     TOOL_DESCRIPTIONS.remember,
     { fact: z.string(), kind: z.enum(['learner', 'preference', 'strength', 'gap']).optional() },
     async (a) => text(actions.remember(lessonId, a)),
+  );
+
+  const set_preferences = tool(
+    'set_preferences',
+    TOOL_DESCRIPTIONS.set_preferences,
+    {
+      language: z.string().optional().describe('The language to teach in, e.g. "Spanish". Empty string: the language the learner writes in.'),
+      style: z.enum(['adaptive', 'socratic', 'narrated']).optional(),
+      pace: z.enum(['brisk', 'standard', 'thorough']).optional(),
+      background: z.string().optional().describe('Who they are and what they already know, in their words.'),
+      how: z.string().optional().describe('What works for them and what does not, in their words.'),
+      examples: z.string().optional().describe('Domains to draw examples and analogies from.'),
+    },
+    async (a) => text(actions.setPreferences(lessonId, a)),
   );
 
   const read_material = tool(
@@ -211,12 +227,12 @@ function buildTools(lessonId: string) {
     name: 'derive',
     version: '0.2.0',
     alwaysLoad: true,
-    tools: [quiz, ask, set_plan, node_status, set_phase, explain_back, remember, read_material, search_material, search_library, read_resource, suggest_resource, add_resource],
+    tools: [quiz, ask, set_plan, node_status, set_phase, explain_back, remember, set_preferences, read_material, search_material, search_library, read_resource, suggest_resource, add_resource],
   });
 }
 
 export const DERIVE_TOOL_NAMES = [
-  'quiz', 'ask', 'set_plan', 'node_status', 'set_phase', 'explain_back', 'remember', 'read_material', 'search_material',
+  'quiz', 'ask', 'set_plan', 'node_status', 'set_phase', 'explain_back', 'remember', 'set_preferences', 'read_material', 'search_material',
   'search_library', 'read_resource', 'suggest_resource', 'add_resource',
 ] as const;
 
@@ -232,6 +248,7 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__derive__set_phase: 'Changing phase',
   mcp__derive__explain_back: 'Preparing a teach-back',
   mcp__derive__remember: 'Taking a note',
+  mcp__derive__set_preferences: 'Updating how you learn',
   mcp__derive__read_material: 'Reading your material',
   mcp__derive__search_material: 'Searching your material',
   mcp__derive__search_library: 'Searching your library',

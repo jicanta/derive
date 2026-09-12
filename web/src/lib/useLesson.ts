@@ -4,6 +4,7 @@ import type {
   AskPayload,
   ExplainPayload,
   GraphNode,
+  LearnerPrefs,
   Lesson,
   Material,
   NodeRow,
@@ -173,6 +174,8 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
     }
     case 'memory':
       return { ...s, items: [...items, { kind: 'memory', seq: ev.seq, fact: ev.payload.fact }] };
+    case 'preferences':
+      return { ...s, items: [...items, { kind: 'preferences', seq: ev.seq, prefs: ev.payload as LearnerPrefs }] };
     case 'material': {
       const m = ev.payload as Material;
       const materials = s.materials.some((x) => x.id === m.id) ? s.materials : [...s.materials, m];
@@ -230,7 +233,7 @@ function reducer(s: LessonState, a: Action): LessonState {
 
 const EVENT_TYPES = [
   'ready', 'turn_start', 'turn_end', 'status', 'user', 'block_start', 'delta', 'assistant', 'quiz', 'quiz_result', 'ask', 'ask_result',
-  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'node_status', 'memory', 'material', 'material_removed', 'answer_in', 'resource',
+  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'node_status', 'memory', 'preferences', 'material', 'material_removed', 'answer_in', 'resource',
 ];
 
 export function useLesson(id: string | undefined) {

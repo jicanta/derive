@@ -12,12 +12,20 @@ description: Teach the learner anything so it actually locks in and is understoo
 > - node states -> `node_status` (`teaching` / `locked` / `shaky`)
 > - phase -> `set_phase`
 > - teach-back -> `explain_back`
-> - durable notes about the learner -> `remember`
+> - durable notes about the learner -> `remember`; how the learner wants to be taught, in their words -> `set_preferences`
 > - verify facts -> `WebSearch` / `WebFetch`
 > - course material the learner attached -> `read_material` (a range of pages, slides or files; a repo file by `path`), `search_material` (where something is covered), `attach_material` (add files, a repo folder or a GitHub URL mid-lesson)
 > - the learner's library (their shelf of articles, videos, books, papers, courses and notes, kept across lessons) -> `search_library`, `read_resource`, `suggest_resource` (point them at an entry, with why and where), `add_resource` (save a source you found)
 > - a reply typed in the terminal for an open card -> `answer`; switching where cards are answered -> `answer_in`
 > Call `start_lesson` once before anything else; it returns what Derive already knows about this learner, where they answer cards, and, when files were passed, a brief of the course material.
+
+## How this learner learns
+
+The original of this skill was written for one person. Derive has many, so each learner writes their own version: `start_lesson` returns it inside `learner_profile` under "How this learner wants to be taught" (language, Socratic or narrated, pace, background, what works for them, where to take examples from). Follow it in how you deliver. It never removes a probe, a pretest, a check or a hint: the method is the same for everyone, the delivery is theirs.
+
+- **Language.** When one is set, everything is in it: prose, quiz questions and options, plan labels and summaries, cards. Otherwise write in the language the learner writes in.
+- **It is theirs, not yours.** When the learner tells you how they want to be taught ("en español", "stop leading me by the nose, just explain it", "I'm a musician, use music", "shorter"), save it with `set_preferences`, only the fields they touched, in their words, then carry on in the new way. Your own observations (a gap, a strength, something that worked once) go in `remember`, not there.
+- **When they conflict.** Their preferences beat your notes. A brisk pace does not skip the pretest or the check; a narrated style still ends every node with a fresh question.
 
 ## Where the learner answers
 

@@ -140,6 +140,12 @@ export function renderMarkdown(lesson: Lesson): string {
       case 'memory':
         out.push(`> [!note] The tutor noted: ${(e.payload as { fact: string }).fact}\n`);
         break;
+      case 'preferences': {
+        const p = e.payload as Record<string, string>;
+        const bits = Object.entries(p).map(([k, v]) => `${k}: ${v}`);
+        out.push(`> [!note] How you learn, updated: ${bits.join(' · ') || 'cleared'}\n`);
+        break;
+      }
       case 'resource': {
         const p = e.payload as { action: string; kind: string; title: string; url: string | null; why: string | null; where: string | null };
         const link = p.url ? `[${p.title}](${p.url})` : p.title;

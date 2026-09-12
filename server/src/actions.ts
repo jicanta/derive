@@ -17,6 +17,8 @@ import {
   getLesson,
   getNode,
   learnerProfile,
+  updateLearnerPrefs,
+  getLearner,
   listEvents,
   listNodes,
   listMisconceptions,
@@ -358,9 +360,24 @@ export async function saveResource(lessonId: string, a: { url?: string | null; t
   };
 }
 
+/**
+ * The learner's own account of how they want to be taught. Theirs, not the
+ * tutor's: the tutor writes here only what the learner said, in their words.
+ */
+export function setPreferences(lessonId: string, a: { language?: string; style?: string; pace?: string; background?: string; how?: string; examples?: string }) {
+  const lesson = getLesson(lessonId);
+  if (!lesson) throw new Error('lesson not found');
+  const learner = updateLearnerPrefs(lesson.learner_id, a);
+  emit(lessonId, 'preferences', learner.prefs);
+  return { ok: true, preferences: learner.prefs, instruction: 'Saved for every lesson from now on. Apply it from your next message; no need to announce it beyond one short sentence.' };
+}
+
+const getLearnerPrefs = (learnerId: string) => getLearner(learnerId)?.prefs ?? {};
+
 export function profile(learnerId: string, lessonId?: string) {
   return {
     profile: learnerProfile(learnerId, lessonId) || 'Nothing yet. This is a new learner.',
+    preferences: getLearnerPrefs(learnerId),
     memory: listMemory(learnerId).slice(0, 20).map((m) => m.fact),
     misconceptions: listMisconceptions(learnerId)
       .filter((m) => !m.resolved)

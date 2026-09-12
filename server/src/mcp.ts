@@ -403,9 +403,34 @@ server.registerTool(
 );
 
 server.registerTool(
+  'set_preferences',
+  {
+    description:
+      "Update how this learner wants to be taught, for this and every future lesson: the language to write in, how Socratic (style), how long each step runs (pace), their background, how they learn in their words, and where to take examples from. Call it when the learner TELLS you how they want to be taught (\"en español por favor\", \"just explain it, stop quizzing me through every step\", \"I'm a musician, use music\"), passing only the fields they touched, in their words. Do not infer it from a single reaction; that is what `remember` is for. An empty string clears a field. With no fields it returns the current preferences.",
+    inputSchema: {
+      language: z.string().optional().describe('The language to teach in, e.g. "Spanish". Empty string: the language the learner writes in.'),
+      style: z.enum(['adaptive', 'socratic', 'narrated']).optional(),
+      pace: z.enum(['brisk', 'standard', 'thorough']).optional(),
+      background: z.string().optional().describe('Who they are and what they already know, in their words.'),
+      how: z.string().optional().describe('What works for them and what does not, in their words.'),
+      examples: z.string().optional().describe('Domains to draw examples and analogies from.'),
+      learner: z.string().optional().describe('A learner name or id. Default: the current lesson\'s learner.'),
+    },
+  },
+  async ({ learner, ...fields }) => {
+    if (lessonId && !learner && Object.keys(fields).length) return text(await api(`/api/external/lessons/${lessonId}/set_preferences`, fields));
+    let who = learner ?? LEARNER;
+    if (!who && lessonId) who = (await api<{ learner_id?: string }>('/api/external/active').catch(() => ({}) as { learner_id?: string })).learner_id;
+    const qs = who ? `?learner=${encodeURIComponent(who)}` : '';
+    if (!Object.keys(fields).length) return text(await api(`/api/preferences${qs}`));
+    return text(await api(`/api/preferences${qs}`, { ...fields, learner: who }, 'PATCH'));
+  },
+);
+
+server.registerTool(
   'learner_profile',
   {
-    description: 'What Derive already knows about a learner: locked nodes by topic, shaky nodes, misconceptions (with whether they were held with confidence), notes, and the nodes due for review. Defaults to the learner of the current lesson.',
+    description: 'What Derive already knows about a learner: how they want to be taught (their own preferences), locked nodes by topic, shaky nodes, misconceptions (with whether they were held with confidence), notes, and the nodes due for review. Defaults to the learner of the current lesson.',
     inputSchema: { learner: z.string().optional().describe('A learner name or id. Default: the current lesson\'s learner.') },
   },
   async ({ learner }) => {

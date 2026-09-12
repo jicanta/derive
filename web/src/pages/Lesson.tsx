@@ -13,6 +13,7 @@ import { PlanCard } from '../components/PlanCard';
 import { QuizCard } from '../components/QuizCard';
 import { ResourceCard } from '../components/ResourceCard';
 import { api } from '../lib/api';
+import { describePrefs } from '../lib/prefs';
 import { useLesson } from '../lib/useLesson';
 import { useMaterials } from '../lib/useMaterials';
 import { useVoiceMode } from '../lib/useVoiceMode';
@@ -261,6 +262,13 @@ export function LessonPage() {
                     return (
                       <div key={it.seq} className="animate-fade-up font-mono text-[11px] text-ink-500">
                         noted · <span className="font-sans text-[13px] text-ink-300">{it.fact}</span>
+                      </div>
+                    );
+                  case 'preferences':
+                    return (
+                      <div key={`p-${it.seq}`} className="animate-fade-up font-mono text-[11px] text-ink-500">
+                        how you learn · <span className="font-sans text-[13px] text-ink-300">{describePrefs(it.prefs)}</span> ·{' '}
+                        <Link to="/you" className="text-ink-300 hover:text-gold-500">edit</Link>
                       </div>
                     );
                   case 'material':

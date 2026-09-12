@@ -1,4 +1,4 @@
-import type { Atlas, DueNode, Learner, Lesson, LessonSummary, Library, Material, NodeRow, Resource, Stats, StoredEvent } from './types';
+import type { Atlas, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, Library, Material, NodeRow, Resource, Stats, StoredEvent } from './types';
 
 /**
  * The selected learner profile, kept in this browser. Sent on every request
@@ -49,6 +49,10 @@ export const api = {
   learners: () => get('/api/learners').then((r) => j<{ learners: Learner[]; current: string }>(r)),
   createLearner: (name: string) => post('/api/learners', { name }).then((r) => j<Learner>(r)),
   renameLearner: (id: string, name: string) => post(`/api/learners/${id}`, { name }, 'PATCH').then((r) => j<Learner>(r)),
+  /** How this learner wants to be taught. Fields merge; an empty string clears one. */
+  setPrefs: (id: string, prefs: Partial<Record<keyof LearnerPrefs, string>>) => post(`/api/learners/${id}`, { prefs }, 'PATCH').then((r) => j<Learner>(r)),
+  /** What the tutor knows about the current learner: the notes it kept, open misconceptions, what is due. */
+  profile: () => get('/api/profile').then((r) => j<{ memory: string[]; misconceptions: { topic: string; picked: string; correct: string }[]; learner?: Learner }>(r)),
   deleteLearner: (id: string) => del(`/api/learners/${id}`).then((r) => j<{ ok: true }>(r)),
   lessons: () => get('/api/lessons').then((r) => j<LessonSummary[]>(r)),
   lesson: (id: string) =>

@@ -12,7 +12,16 @@ export type Lesson = {
   updated_at: number;
 };
 
-export type Learner = { id: string; name: string; created_at: number; lessons?: number };
+/** How a learner wants to be taught, in their own words. The method never bends to it; the delivery does. */
+export type LearnerPrefs = {
+  language?: string;
+  style?: 'adaptive' | 'socratic' | 'narrated';
+  pace?: 'brisk' | 'standard' | 'thorough';
+  background?: string;
+  how?: string;
+  examples?: string;
+};
+export type Learner = { id: string; name: string; created_at: number; prefs: LearnerPrefs; lessons?: number };
 
 export type LessonSummary = Lesson & { nodes: number; locked: number; shaky: number; busy: boolean };
 
@@ -150,6 +159,7 @@ export type TimelineItemBase =
   | { kind: 'node_start'; seq: number; id: string; label: string; index: number; total: number }
   | { kind: 'node'; seq: number; id: string; status: NodeStatus; label: string; reviewDays?: number }
   | { kind: 'memory'; seq: number; fact: string }
+  | { kind: 'preferences'; seq: number; prefs: LearnerPrefs }
   | { kind: 'material'; seq: number; id: string; name: string; unit: string; pages: number; removed?: boolean }
   | { kind: 'resource'; seq: number; resource: ResourceEvent }
   | { kind: 'complete'; seq: number; goal: string; locked: number; total: number; quizzes: number; correct: number; caught: number; minutes: number; reviewDays: number }

@@ -102,6 +102,7 @@ export function HomePage() {
           <nav className="flex items-center gap-5 md:gap-8 font-mono text-[11px] tracking-[0.06em] text-ink-400">
             <Link to="/atlas" className="hidden md:inline hover:text-ink-50">atlas</Link>
             <Link to="/library" className="hidden md:inline hover:text-ink-50">library</Link>
+            <Link to="/you" className="hidden md:inline hover:text-ink-50">how you learn</Link>
             <a href="https://github.com/jicanta/derive#inside-claude-code" className="hidden md:inline hover:text-ink-50">claude code plugin</a>
             <a href="https://github.com/jicanta/derive" className="hidden md:inline hover:text-ink-50">github</a>
             <LearnerMenu onChange={refresh} />

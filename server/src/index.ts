@@ -33,6 +33,7 @@ import {
   listMisconceptions,
   listNodes,
   renameLearner,
+  updateLearnerPrefs,
   setAnswerIn,
   stats,
   sweepOrphanMaterials,
@@ -117,9 +118,11 @@ app.post('/api/learners', async (c) => {
 app.patch('/api/learners/:id', async (c) => {
   const id = c.req.param('id');
   if (!getLearner(id)) return c.json({ error: 'not found' }, 404);
-  const body = (await c.req.json().catch(() => ({}))) as { name?: string };
+  const body = (await c.req.json().catch(() => ({}))) as { name?: string; prefs?: Record<string, unknown> };
   try {
-    return c.json(renameLearner(id, String(body.name ?? '')));
+    if (body.name !== undefined) renameLearner(id, String(body.name));
+    if (body.prefs && typeof body.prefs === 'object') updateLearnerPrefs(id, body.prefs);
+    return c.json(getLearner(id));
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
   }
@@ -483,6 +486,23 @@ app.get('/api/atlas', (c) => {
 
 app.get('/api/profile', (c) => c.json({ ...actions.profile(learnerOf(c)), learner: getLearner(learnerOf(c)) }));
 
+/** How a learner wants to be taught, for the plugin (the web app patches the learner directly). */
+app.get('/api/preferences', (c) => {
+  const l = getLearner(learnerOf(c))!;
+  return c.json({ learner: l.name, preferences: l.prefs });
+});
+app.patch('/api/preferences', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown> & { learner?: string };
+  const id = learnerOf(c, body.learner);
+  const { learner: _who, ...patch } = body;
+  try {
+    const l = updateLearnerPrefs(id, patch);
+    return c.json({ learner: l.name, preferences: l.prefs });
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
 // ---------- external lessons (Claude Code plugin) ----------
 
 app.post('/api/external/lessons', async (c) => {
@@ -689,6 +709,8 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         return c.json(withNotices(id, actions.phase(id, a as { phase: 'probe' | 'plan' | 'teach' })));
       case 'remember':
         return c.json(actions.remember(id, a as { fact: string; kind?: 'learner' | 'preference' | 'strength' | 'gap' }));
+      case 'set_preferences':
+        return c.json(actions.setPreferences(id, a as Parameters<typeof actions.setPreferences>[1]));
       case 'read_material':
         return c.json(actions.readMaterial(id, a as { name?: string; path?: string; from?: number; to?: number }));
       case 'search_material':

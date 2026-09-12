@@ -120,6 +120,8 @@ for (const ddl of [
   'ALTER TABLE quiz_results ADD COLUMN confidence TEXT',
   'ALTER TABLE quiz_results ADD COLUMN purpose TEXT',
   'ALTER TABLE misconceptions ADD COLUMN confidence TEXT',
+  // How the learner wants to be taught, in their own words (JSON, see LearnerPrefs).
+  'ALTER TABLE learners ADD COLUMN prefs TEXT',
 ]) {
   try {
     db.exec(ddl);
@@ -154,7 +156,29 @@ export type Lesson = {
   updated_at: number;
 };
 
-export type Learner = { id: string; name: string; created_at: number };
+/**
+ * How a learner wants to be taught, set by the learner. The method (probe,
+ * plan, pretest, check, hint before re-deriving) never bends to these; the
+ * delivery does: language, how Socratic, how long, where examples come from.
+ */
+export type LearnerPrefs = {
+  /** The language the tutor writes in. Empty: the language the learner writes in. */
+  language?: string;
+  /** How much to lead with questions versus narrate. */
+  style?: 'adaptive' | 'socratic' | 'narrated';
+  /** How much prose per step. */
+  pace?: 'brisk' | 'standard' | 'thorough';
+  /** Who they are and what they already know. */
+  background?: string;
+  /** What works for them and what does not, in their words. */
+  how?: string;
+  /** Domains to draw examples and analogies from. */
+  examples?: string;
+};
+export const PREF_STYLES = ['adaptive', 'socratic', 'narrated'] as const;
+export const PREF_PACES = ['brisk', 'standard', 'thorough'] as const;
+export type Learner = { id: string; name: string; created_at: number; prefs: LearnerPrefs };
+type LearnerRow = { id: string; name: string; created_at: number; prefs: string | null };
 
 export type NodeRow = {
   lesson_id: string;
@@ -191,6 +215,7 @@ const q = {
   getLearnerByName: db.prepare('SELECT * FROM learners WHERE lower(name) = lower(?)'),
   listLearners: db.prepare('SELECT * FROM learners ORDER BY created_at'),
   renameLearner: db.prepare('UPDATE learners SET name = ? WHERE id = ?'),
+  setLearnerPrefs: db.prepare('UPDATE learners SET prefs = ? WHERE id = ?'),
   deleteLearner: db.prepare('DELETE FROM learners WHERE id = ?'),
   lessonsOfLearner: db.prepare('SELECT id FROM lessons WHERE learner_id = ?'),
   insertResource: db.prepare(
@@ -287,17 +312,83 @@ const q = {
 
 // ---------- learners ----------
 
+const PREF_TEXT_MAX = 1500;
+
+/** Keeps only known fields, trimmed and capped; unknown enum values fall back to the default. */
+export function cleanPrefs(input: unknown): LearnerPrefs {
+  const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string).trim().slice(0, PREF_TEXT_MAX) : '');
+  const out: LearnerPrefs = {};
+  const language = str('language').slice(0, 60);
+  if (language) out.language = language;
+  if ((PREF_STYLES as readonly string[]).includes(o.style as string) && o.style !== 'adaptive') out.style = o.style as LearnerPrefs['style'];
+  if ((PREF_PACES as readonly string[]).includes(o.pace as string) && o.pace !== 'standard') out.pace = o.pace as LearnerPrefs['pace'];
+  for (const k of ['background', 'how', 'examples'] as const) {
+    const v = str(k);
+    if (v) out[k] = v;
+  }
+  return out;
+}
+
+const toLearner = (r: LearnerRow | undefined): Learner | undefined => {
+  if (!r) return undefined;
+  let prefs: LearnerPrefs = {};
+  try {
+    prefs = cleanPrefs(r.prefs ? JSON.parse(r.prefs) : {});
+  } catch {
+    /* unreadable prefs read as none */
+  }
+  return { id: r.id, name: r.name, created_at: r.created_at, prefs };
+};
+
 export function listLearners(): Learner[] {
-  return q.listLearners.all() as Learner[];
+  return (q.listLearners.all() as LearnerRow[]).map((r) => toLearner(r)!);
 }
 
 export function getLearner(id: string): Learner | undefined {
-  return q.getLearner.get(id) as Learner | undefined;
+  return toLearner(q.getLearner.get(id) as LearnerRow | undefined);
 }
 
 /** A learner by id or (case-insensitive) name. */
 export function findLearner(idOrName: string): Learner | undefined {
-  return getLearner(idOrName) ?? (q.getLearnerByName.get(idOrName) as Learner | undefined);
+  return getLearner(idOrName) ?? toLearner(q.getLearnerByName.get(idOrName) as LearnerRow | undefined);
+}
+
+/** Merges the given fields into the learner's preferences; an empty string clears a field. */
+export function updateLearnerPrefs(id: string, patch: Partial<Record<keyof LearnerPrefs, unknown>>): Learner {
+  const current = getLearner(id);
+  if (!current) throw new Error('learner not found');
+  const merged: Record<string, unknown> = { ...current.prefs };
+  for (const [k, v] of Object.entries(patch)) if (v !== undefined) merged[k] = v;
+  const prefs = cleanPrefs(merged);
+  q.setLearnerPrefs.run(Object.keys(prefs).length ? JSON.stringify(prefs) : null, id);
+  return getLearner(id)!;
+}
+
+/**
+ * The learner's preferences as a section of the tutor's system prompt.
+ * Empty when they have set nothing.
+ */
+export function preferencesSection(learnerId: string): string {
+  const learner = getLearner(learnerId);
+  if (!learner) return '';
+  const p = learner.prefs;
+  const lines: string[] = [];
+  if (p.language) lines.push(`- Write in ${p.language}: your prose, the quiz questions and options, the plan's labels and summaries, the cards. Keep standard technical terms in the form the field uses.`);
+  if (p.style === 'socratic') lines.push('- Lean Socratic. Where a step can be reasoned out, pose it as a question and let them try, even when narrating would be faster. Narrate only what is genuinely out of reach.');
+  if (p.style === 'narrated') lines.push('- Lean narrated. Establish each step in prose, cleanly and with the motivation, and keep the questions for the pretest and the check. They would rather be told and then tested than led question by question.');
+  if (p.pace === 'brisk') lines.push('- Keep it brisk. Shorter teaching prose, one example not three, and no lingering once a check passes. Depth over length; never skip the pretest or the check.');
+  if (p.pace === 'thorough') lines.push('- Take it slowly. Work the first example fully, one step at a time, prefer two small nodes over one large one, and pause on the connections between nodes.');
+  if (p.background) lines.push(`- Background, in their words: ${p.background}`);
+  if (p.how) lines.push(`- How they learn, in their words: ${p.how}`);
+  if (p.examples) lines.push(`- Draw examples and analogies from: ${p.examples}. Use those domains when they fit; do not force them.`);
+  if (!lines.length) return '';
+  return `
+
+# How this learner wants to be taught
+Written by the learner${learner.id !== DEFAULT_LEARNER_ID ? ` (${learner.name})` : ''}; they can change it any time. Follow it in how you deliver. The method does not bend to it: still probe, still plan, still pretest and check every node, still hint before re-deriving, still grade honestly.
+${lines.join('\n')}
+`;
 }
 
 export function createLearner(name: string): Learner {
@@ -754,8 +845,9 @@ export function learnerProfile(learnerId: string, currentLessonId?: string): str
   }
   const learner = getLearner(learnerId);
   const who = learner && learner.id !== DEFAULT_LEARNER_ID ? `The learner's name is ${learner.name}.` : '';
-  if (!lines.length) return who ? `\n\n# About this learner\n${who}\n` : '';
-  return `
+  const prefs = preferencesSection(learnerId);
+  if (!lines.length) return prefs + (who ? `\n\n# About this learner\n${who}\n` : '');
+  return `${prefs}
 
 # What you already know about this learner
 ${who ? who + '\n' : ''}${lines.join('\n')}
