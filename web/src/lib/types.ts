@@ -56,6 +56,44 @@ export type Material = {
   created_at?: number;
 };
 
+export type ResourceKind = 'article' | 'video' | 'book' | 'paper' | 'course' | 'note';
+export const RESOURCE_KINDS: ResourceKind[] = ['article', 'video', 'book', 'paper', 'course', 'note'];
+
+/** One entry of the learner's library. The fetched text lives on the server. */
+export type Resource = {
+  id: string;
+  learner_id: string;
+  kind: ResourceKind;
+  title: string;
+  url: string | null;
+  author: string | null;
+  note: string | null;
+  tags: string[];
+  host: string | null;
+  chars: number;
+  fetched_at: number | null;
+  fetch_error: string | null;
+  added_by: 'learner' | 'tutor';
+  lesson_id: string | null;
+  created_at: number;
+  updated_at: number;
+};
+export type Library = { resources: Resource[]; tags: { tag: string; count: number }[]; kinds: ResourceKind[]; total: number };
+
+/** The tutor pointed at a library entry, or saved one. */
+export type ResourceEvent = {
+  action: 'suggested' | 'saved' | 'already_saved';
+  id: string;
+  kind: ResourceKind;
+  title: string;
+  url: string | null;
+  author: string | null;
+  tags: string[];
+  why: string | null;
+  where: string | null;
+  node_id: string | null;
+};
+
 export type AtlasNode = Omit<NodeRow, 'depends_on'> & { depends_on: string[]; topic: string; goal: string | null; due: boolean };
 export type Misconception = {
   id: number;
@@ -65,6 +103,8 @@ export type Misconception = {
   picked: string;
   correct: string;
   explanation: string;
+  /** 'sure': the learner committed to the wrong claim with confidence, a held belief rather than a slip. */
+  confidence?: 'sure' | 'unsure' | null;
   resolved: number;
   ts: number;
   topic: string;
@@ -78,7 +118,9 @@ export type Atlas = {
 
 export type StoredEvent = { seq: number; type: string; payload: any; ts: number };
 
-export type QuizPayload = { id: string; question: string; options: string[]; multi: boolean; node_id: string | null };
+/** What a question is for: 'pretest' is the attempt before teaching (a miss is expected), 'check' locks a node. */
+export type QuizPurpose = 'probe' | 'pretest' | 'check' | 'review';
+export type QuizPayload = { id: string; question: string; options: string[]; multi: boolean; node_id: string | null; purpose?: QuizPurpose };
 export type QuizResultPayload = {
   id: string;
   selected: number[];
@@ -87,6 +129,9 @@ export type QuizResultPayload = {
   /** 'skipped': the learner typed in the chat instead of answering; nothing was graded or revealed. */
   result: 'correct' | 'incorrect' | 'dont_know' | 'skipped';
   note: string | null;
+  /** How sure the learner said they were, committed before the reveal. */
+  confidence?: 'sure' | 'unsure' | null;
+  purpose?: QuizPurpose;
 };
 export type AskPayload = { id: string; question: string; options: string[] };
 export type PlanPayload = { id: string; goal: string; nodes: Omit<GraphNode, 'status'>[] };
@@ -103,10 +148,11 @@ export type TimelineItemBase =
   | { kind: 'explain'; seq: number; explain: ExplainPayload; answer?: string }
   | { kind: 'phase'; seq: number; phase: string }
   | { kind: 'node_start'; seq: number; id: string; label: string; index: number; total: number }
-  | { kind: 'node'; seq: number; id: string; status: NodeStatus; label: string }
+  | { kind: 'node'; seq: number; id: string; status: NodeStatus; label: string; reviewDays?: number }
   | { kind: 'memory'; seq: number; fact: string }
   | { kind: 'material'; seq: number; id: string; name: string; unit: string; pages: number; removed?: boolean }
+  | { kind: 'resource'; seq: number; resource: ResourceEvent }
   | { kind: 'complete'; seq: number; goal: string; locked: number; total: number; quizzes: number; correct: number; caught: number; minutes: number; reviewDays: number }
   | { kind: 'error'; seq: number; text: string };
 
-export type Stats = { lessons: number; locked: number; quizzes: number; correct: number; due: number; vault: boolean; learner?: Learner };
+export type Stats = { lessons: number; locked: number; quizzes: number; correct: number; due: number; vault: boolean; library?: number; learner?: Learner };

@@ -1,3 +1,4 @@
+import { grade, schedule, type Confidence, type Grade, type Scheduled } from './schedule.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -82,6 +83,25 @@ db.exec(`
     name TEXT NOT NULL,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS resources (
+    id TEXT PRIMARY KEY,
+    learner_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT,
+    author TEXT,
+    note TEXT,
+    tags TEXT NOT NULL DEFAULT '[]',
+    text TEXT,
+    chars INTEGER NOT NULL DEFAULT 0,
+    fetched_at INTEGER,
+    fetch_error TEXT,
+    added_by TEXT NOT NULL DEFAULT 'learner',
+    lesson_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS resources_learner ON resources (learner_id);
 `);
 
 /** Columns added after the first release; SQLite has no ADD COLUMN IF NOT EXISTS. */
@@ -89,6 +109,17 @@ for (const ddl of [
   "ALTER TABLE lessons ADD COLUMN mode TEXT NOT NULL DEFAULT 'agent'",
   "ALTER TABLE lessons ADD COLUMN learner_id TEXT NOT NULL DEFAULT 'default'",
   "ALTER TABLE lessons ADD COLUMN answer_in TEXT NOT NULL DEFAULT 'browser'",
+  // Memory state per node (FSRS), and where a review copy comes from.
+  'ALTER TABLE nodes ADD COLUMN stability REAL',
+  'ALTER TABLE nodes ADD COLUMN difficulty REAL',
+  'ALTER TABLE nodes ADD COLUMN lapses INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE nodes ADD COLUMN last_review INTEGER',
+  'ALTER TABLE nodes ADD COLUMN source_lesson TEXT',
+  'ALTER TABLE nodes ADD COLUMN source_node TEXT',
+  // How sure the learner was, and what the question was for (probe, pretest, check, review).
+  'ALTER TABLE quiz_results ADD COLUMN confidence TEXT',
+  'ALTER TABLE quiz_results ADD COLUMN purpose TEXT',
+  'ALTER TABLE misconceptions ADD COLUMN confidence TEXT',
 ]) {
   try {
     db.exec(ddl);
@@ -97,6 +128,7 @@ for (const ddl of [
   }
 }
 db.exec('CREATE INDEX IF NOT EXISTS lessons_learner ON lessons (learner_id)');
+db.exec('CREATE INDEX IF NOT EXISTS quiz_results_node ON quiz_results (lesson_id, node_id)');
 
 /** The first learner. Lessons from before profiles existed belong to it. */
 export const DEFAULT_LEARNER_ID = 'default';
@@ -136,6 +168,14 @@ export type NodeRow = {
   review_at: number | null;
   interval_days: number;
   reps: number;
+  /** FSRS memory state; null until the node is first locked. */
+  stability: number | null;
+  difficulty: number | null;
+  lapses: number;
+  last_review: number | null;
+  /** Set on a review lesson's copy of a node: the lesson and node it stands for. Status changes propagate there. */
+  source_lesson: string | null;
+  source_node: string | null;
 };
 
 export type StoredEvent = { seq: number; type: string; payload: unknown; ts: number };
@@ -153,13 +193,23 @@ const q = {
   renameLearner: db.prepare('UPDATE learners SET name = ? WHERE id = ?'),
   deleteLearner: db.prepare('DELETE FROM learners WHERE id = ?'),
   lessonsOfLearner: db.prepare('SELECT id FROM lessons WHERE learner_id = ?'),
+  insertResource: db.prepare(
+    'INSERT INTO resources (id, learner_id, kind, title, url, author, note, tags, text, chars, fetched_at, fetch_error, added_by, lesson_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ),
+  getResource: db.prepare('SELECT * FROM resources WHERE id = ?'),
+  listResources: db.prepare('SELECT id, learner_id, kind, title, url, author, note, tags, chars, fetched_at, fetch_error, added_by, lesson_id, created_at, updated_at FROM resources WHERE learner_id = ? ORDER BY created_at DESC'),
+  resourceByUrl: db.prepare('SELECT * FROM resources WHERE learner_id = ? AND url = ?'),
+  updateResourceMeta: db.prepare('UPDATE resources SET kind = ?, title = ?, author = ?, note = ?, tags = ?, updated_at = ? WHERE id = ?'),
+  updateResourceText: db.prepare('UPDATE resources SET text = ?, chars = ?, fetched_at = ?, fetch_error = ?, updated_at = ? WHERE id = ?'),
+  deleteResource: db.prepare('DELETE FROM resources WHERE id = ?'),
+  deleteResourcesOfLearner: db.prepare('DELETE FROM resources WHERE learner_id = ?'),
   insertMemory: db.prepare('INSERT INTO memory (fact, kind, lesson_id, ts) VALUES (?, ?, ?, ?)'),
   listMemory: db.prepare(`
     SELECT m.* FROM memory m JOIN lessons l ON l.id = m.lesson_id
     WHERE l.learner_id = ? ORDER BY m.ts DESC LIMIT 60
   `),
   insertMisconception: db.prepare(
-    'INSERT INTO misconceptions (lesson_id, node_id, question, picked, correct, explanation, ts) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO misconceptions (lesson_id, node_id, question, picked, correct, explanation, confidence, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   ),
   resolveMisconceptions: db.prepare('UPDATE misconceptions SET resolved = 1 WHERE lesson_id = ? AND node_id = ?'),
   listMisconceptions: db.prepare(`
@@ -168,7 +218,7 @@ const q = {
   `),
   allNodes: db.prepare(`
     SELECT n.*, l.topic, l.goal FROM nodes n JOIN lessons l ON l.id = n.lesson_id
-    WHERE l.learner_id = ? ORDER BY l.created_at, n.rowid
+    WHERE l.learner_id = ? AND n.source_lesson IS NULL ORDER BY l.created_at, n.rowid
   `),
   deleteMemoryByLesson: db.prepare('DELETE FROM memory WHERE lesson_id = ?'),
   deleteMisByLesson: db.prepare('DELETE FROM misconceptions WHERE lesson_id = ?'),
@@ -207,15 +257,23 @@ const q = {
   listNodes: db.prepare('SELECT * FROM nodes WHERE lesson_id = ? ORDER BY rowid'),
   getNode: db.prepare('SELECT * FROM nodes WHERE lesson_id = ? AND node_id = ?'),
   setNodeStatus: db.prepare('UPDATE nodes SET status = ? WHERE lesson_id = ? AND node_id = ?'),
-  lockNode: db.prepare(
-    'UPDATE nodes SET status = ?, locked_at = ?, review_at = ?, interval_days = ?, reps = ? WHERE lesson_id = ? AND node_id = ?',
-  ),
+  scheduleNode: db.prepare(`
+    UPDATE nodes SET status = ?, locked_at = ?, review_at = ?, interval_days = ?, reps = ?,
+      stability = ?, difficulty = ?, lapses = ?, last_review = ?
+    WHERE lesson_id = ? AND node_id = ?
+  `),
+  insertNodeCopy: db.prepare(`
+    INSERT INTO nodes (lesson_id, node_id, label, kind, summary, depends_on, status, locked_at, review_at, interval_days, reps,
+      stability, difficulty, lapses, last_review, source_lesson, source_node)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `),
   insertQuiz: db.prepare(
-    'INSERT INTO quiz_results (lesson_id, node_id, correct, ts) VALUES (?, ?, ?, ?)',
+    'INSERT INTO quiz_results (lesson_id, node_id, correct, confidence, purpose, ts) VALUES (?, ?, ?, ?, ?, ?)',
   ),
+  lastQuiz: db.prepare('SELECT * FROM quiz_results WHERE lesson_id = ? AND node_id = ? ORDER BY ts DESC, id DESC LIMIT 1'),
   dueNodes: db.prepare(`
     SELECT n.*, l.topic FROM nodes n JOIN lessons l ON l.id = n.lesson_id
-    WHERE l.learner_id = ? AND n.status = 'locked' AND n.review_at IS NOT NULL AND n.review_at <= ?
+    WHERE l.learner_id = ? AND n.source_lesson IS NULL AND n.status = 'locked' AND n.review_at IS NOT NULL AND n.review_at <= ?
     ORDER BY n.review_at
   `),
   stats: db.prepare(`
@@ -265,6 +323,7 @@ export function renameLearner(id: string, name: string): Learner {
 export function deleteLearner(id: string) {
   if (id === DEFAULT_LEARNER_ID) throw new Error('the first learner cannot be removed; rename it instead');
   for (const { id: lessonId } of q.lessonsOfLearner.all(id) as { id: string }[]) deleteLesson(lessonId);
+  q.deleteResourcesOfLearner.run(id);
   q.deleteLearner.run(id);
 }
 
@@ -366,28 +425,131 @@ export function getNode(lessonId: string, nodeId: string): NodeRow | undefined {
 
 const DAY = 86_400_000;
 
-export function setNodeStatus(lessonId: string, nodeId: string, status: string) {
+export type QuizPurpose = 'probe' | 'pretest' | 'check' | 'review';
+export type QuizResultRow = { id: number; lesson_id: string; node_id: string | null; correct: number; confidence: Confidence | null; purpose: QuizPurpose | null; ts: number };
+
+/**
+ * A node's state change, with its memory schedule. Locking grades the node
+ * by the last check on it in this lesson (a confident pass stretches the
+ * interval, an unsure one barely moves it); shaky is a lapse. A review
+ * lesson's copy of a node forwards the change to the node it stands for,
+ * so reviewing reschedules the original and the Atlas sees one node.
+ */
+export function setNodeStatus(lessonId: string, nodeId: string, status: string): Scheduled | null {
   const node = getNode(lessonId, nodeId);
-  if (!node) return;
-  if (status === 'locked') {
-    // Simple spaced-repetition schedule: 1d, 3d, 7d, 16d, 35d ...
-    const reps = node.reps + 1;
-    const interval = node.reps === 0 ? 1 : Math.round(node.interval_days * 2.2);
-    const now = Date.now();
-    q.lockNode.run('locked', now, now + interval * DAY, interval, reps, lessonId, nodeId);
-  } else if (status === 'shaky') {
-    q.lockNode.run('shaky', node.locked_at, Date.now() + DAY, 1, 0, lessonId, nodeId);
-  } else {
+  if (!node) return null;
+  if (status !== 'locked' && status !== 'shaky') {
     q.setNodeStatus.run(status, lessonId, nodeId);
+    return null;
   }
+  const last = lastQuizFor(lessonId, nodeId);
+  const g: Grade = status === 'shaky' ? 'again' : grade(true, last?.purpose === 'pretest' ? null : last?.confidence);
+  const memory = node.source_lesson && node.source_node ? (getNode(node.source_lesson, node.source_node) ?? node) : node;
+  const now = Date.now();
+  const next = schedule(memory, g, now);
+  const apply = (l: string, n: string, lockedAt: number | null) =>
+    q.scheduleNode.run(status, lockedAt, next.review_at, next.interval_days, next.reps, next.stability, next.difficulty, next.lapses, next.last_review, l, n);
+  const lockedAt = status === 'locked' ? now : memory.locked_at;
+  apply(lessonId, nodeId, lockedAt);
+  if (memory !== node) apply(memory.lesson_id, memory.node_id, lockedAt);
+  return next;
 }
 
-export function recordQuiz(lessonId: string, nodeId: string | null, correct: boolean) {
-  q.insertQuiz.run(lessonId, nodeId, correct ? 1 : 0, Date.now());
+export function recordQuiz(lessonId: string, nodeId: string | null, correct: boolean, opts: { confidence?: Confidence | null; purpose?: QuizPurpose | null } = {}) {
+  q.insertQuiz.run(lessonId, nodeId, correct ? 1 : 0, opts.confidence ?? null, opts.purpose ?? null, Date.now());
+}
+
+export function lastQuizFor(lessonId: string, nodeId: string): QuizResultRow | undefined {
+  return q.lastQuiz.get(lessonId, nodeId) as QuizResultRow | undefined;
 }
 
 export function dueNodes(learnerId: string, now = Date.now()) {
   return q.dueNodes.all(learnerId, now) as (NodeRow & { topic: string })[];
+}
+
+export type ReviewNode = NodeRow & { topic: string };
+export type ReviewGraph = {
+  /** The nodes to check, interleaved across topics, with their ids in the review lesson. */
+  due: (ReviewNode & { review_id: string; deps: { id: string; label: string; status: string }[] })[];
+  /** Everything placed in the review lesson's graph, due nodes and the dependencies they rest on. */
+  nodes: GraphNodeInput[];
+};
+
+/**
+ * The graph of a review session. Due nodes are taken in order of how
+ * overdue they are, then interleaved so two from the same topic are never
+ * adjacent when it can be helped (mixing topics forces the learner to
+ * retrieve the right frame each time). Each comes with the nodes it was
+ * derived from, so a miss can be re-derived instead of re-told. Every
+ * node is a copy that points back at its source; status changes made on
+ * the copy are forwarded there.
+ */
+export function buildReviewGraph(lessonId: string, learnerId: string, limit = 6): ReviewGraph {
+  const due = dueNodes(learnerId);
+  const byLesson = new Map<string, ReviewNode[]>();
+  for (const n of due) byLesson.set(n.lesson_id, [...(byLesson.get(n.lesson_id) ?? []), n]);
+  const picked: ReviewNode[] = [];
+  const queues = [...byLesson.values()];
+  while (picked.length < limit && queues.some((qq) => qq.length)) {
+    for (const qq of queues) {
+      if (picked.length >= limit) break;
+      const n = qq.shift();
+      if (n) picked.push(n);
+    }
+  }
+  const idOf = new Map<string, string>(); // `${lesson}/${node}` -> id in the review lesson
+  const taken = new Set<string>();
+  const assign = (n: NodeRow) => {
+    const key = `${n.lesson_id}/${n.node_id}`;
+    if (idOf.has(key)) return idOf.get(key)!;
+    let id = n.node_id;
+    for (let i = 2; taken.has(id); i++) id = `${n.node_id}-${i}`;
+    taken.add(id);
+    idOf.set(key, id);
+    return id;
+  };
+  // Dependencies come along, to depth 2, so a re-derivation has something to stand on.
+  const rows = new Map<string, NodeRow>();
+  const lessonNodes = new Map<string, Map<string, NodeRow>>();
+  const nodesOf = (l: string) => {
+    if (!lessonNodes.has(l)) lessonNodes.set(l, new Map(listNodes(l).map((n) => [n.node_id, n])));
+    return lessonNodes.get(l)!;
+  };
+  const add = (n: NodeRow, depth: number) => {
+    const key = `${n.lesson_id}/${n.node_id}`;
+    if (rows.has(key)) return;
+    rows.set(key, n);
+    assign(n);
+    if (depth === 0) return;
+    for (const d of JSON.parse(n.depends_on || '[]') as string[]) {
+      const dep = nodesOf(n.lesson_id).get(d);
+      if (dep) add(dep, depth - 1);
+    }
+  };
+  for (const n of picked) add(n, 2);
+  const nodes: GraphNodeInput[] = [];
+  for (const n of rows.values()) {
+    const deps = (JSON.parse(n.depends_on || '[]') as string[]).map((d) => idOf.get(`${n.lesson_id}/${d}`)).filter((x): x is string => !!x);
+    const id = assign(n);
+    const isDue = picked.some((p) => p.lesson_id === n.lesson_id && p.node_id === n.node_id);
+    q.insertNodeCopy.run(
+      lessonId, id, n.label, n.kind, n.summary, JSON.stringify(deps),
+      isDue ? 'pending' : n.status, n.locked_at, n.review_at, n.interval_days, n.reps,
+      n.stability, n.difficulty, n.lapses, n.last_review, n.lesson_id, n.node_id,
+    );
+    nodes.push({ id, label: n.label, kind: n.kind as GraphNodeInput['kind'], summary: n.summary ?? undefined, depends_on: deps });
+  }
+  return {
+    due: picked.map((n) => ({
+      ...n,
+      review_id: assign(n),
+      deps: (JSON.parse(n.depends_on || '[]') as string[])
+        .map((d) => nodesOf(n.lesson_id).get(d))
+        .filter((d): d is NodeRow => !!d)
+        .map((d) => ({ id: assign(d), label: d.label, status: d.status })),
+    })),
+    nodes,
+  };
 }
 
 export function stats(learnerId: string) {
@@ -440,6 +602,76 @@ export function sweepOrphanMaterials(olderThanMs = 86_400_000) {
   q.deleteOrphanMaterials.run(Date.now() - olderThanMs);
 }
 
+// ---------- the library ----------
+
+export type ResourceKind = 'article' | 'video' | 'book' | 'paper' | 'course' | 'note';
+export const RESOURCE_KINDS: ResourceKind[] = ['article', 'video', 'book', 'paper', 'course', 'note'];
+
+/**
+ * One entry of a learner's library: a link, a video, a book, a paper, a
+ * course or a plain note, with whatever text could be fetched from it so
+ * the tutor can read and cite it. The text is segmented like course
+ * material (the record separator between parts); `chars` is its length.
+ */
+export type ResourceRow = {
+  id: string;
+  learner_id: string;
+  kind: ResourceKind;
+  title: string;
+  url: string | null;
+  author: string | null;
+  /** The learner's (or the tutor's) note: what this is good for. */
+  note: string | null;
+  /** JSON array of tags. */
+  tags: string;
+  chars: number;
+  /** When the URL was last fetched; null for a note or a resource with nothing to fetch. */
+  fetched_at: number | null;
+  fetch_error: string | null;
+  added_by: 'learner' | 'tutor';
+  /** The lesson it was saved from, when the tutor saved it. */
+  lesson_id: string | null;
+  created_at: number;
+  updated_at: number;
+};
+export type ResourceFull = ResourceRow & { text: string | null };
+
+export function insertResource(r: Omit<ResourceFull, 'created_at' | 'updated_at'>): ResourceRow {
+  const now = Date.now();
+  q.insertResource.run(r.id, r.learner_id, r.kind, r.title, r.url, r.author, r.note, r.tags, r.text, r.chars, r.fetched_at, r.fetch_error, r.added_by, r.lesson_id, now, now);
+  return resourceRow(getResource(r.id)!);
+}
+
+export const resourceRow = (r: ResourceFull): ResourceRow => {
+  const { text: _t, ...row } = r;
+  return row;
+};
+
+export function getResource(id: string): ResourceFull | undefined {
+  return q.getResource.get(id) as ResourceFull | undefined;
+}
+
+export function listResources(learnerId: string): ResourceRow[] {
+  return q.listResources.all(learnerId) as ResourceRow[];
+}
+
+export function resourceByUrl(learnerId: string, url: string): ResourceFull | undefined {
+  return q.resourceByUrl.get(learnerId, url) as ResourceFull | undefined;
+}
+
+export function updateResourceMeta(id: string, m: { kind: ResourceKind; title: string; author: string | null; note: string | null; tags: string[] }): ResourceRow {
+  q.updateResourceMeta.run(m.kind, m.title, m.author, m.note, JSON.stringify(m.tags), Date.now(), id);
+  return resourceRow(getResource(id)!);
+}
+
+export function updateResourceText(id: string, t: { text: string | null; chars: number; fetched_at: number | null; fetch_error: string | null }) {
+  q.updateResourceText.run(t.text, t.chars, t.fetched_at, t.fetch_error, Date.now(), id);
+}
+
+export function deleteResource(id: string) {
+  q.deleteResource.run(id);
+}
+
 export type MemoryRow = { id: number; fact: string; kind: string; lesson_id: string | null; ts: number };
 export type MisconceptionRow = {
   id: number;
@@ -449,6 +681,8 @@ export type MisconceptionRow = {
   picked: string;
   correct: string;
   explanation: string;
+  /** 'sure' when the learner committed to the wrong claim with confidence: a held belief, not a slip. */
+  confidence: Confidence | null;
   resolved: number;
   ts: number;
   topic: string;
@@ -469,8 +703,9 @@ export function addMisconception(m: {
   picked: string;
   correct: string;
   explanation: string;
+  confidence?: Confidence | null;
 }) {
-  q.insertMisconception.run(m.lessonId, m.nodeId, m.question, m.picked, m.correct, m.explanation, Date.now());
+  q.insertMisconception.run(m.lessonId, m.nodeId, m.question, m.picked, m.correct, m.explanation, m.confidence ?? null, Date.now());
 }
 
 export function resolveMisconceptions(lessonId: string, nodeId: string) {
@@ -510,7 +745,7 @@ export function learnerProfile(learnerId: string, currentLessonId?: string): str
   const mis = listMisconceptions(learnerId).filter((m) => !m.resolved && m.lesson_id !== currentLessonId).slice(0, 8);
   if (mis.length) {
     lines.push('Misconceptions caught before (unresolved; watch for them resurfacing):');
-    for (const m of mis) lines.push(`- In "${m.topic}": picked "${m.picked}" over "${m.correct}".`);
+    for (const m of mis) lines.push(`- In "${m.topic}": picked "${m.picked}" over "${m.correct}"${m.confidence === 'sure' ? ' (and was sure of it: a held belief, not a slip)' : ''}.`);
   }
   const mem = listMemory(learnerId).slice(0, 20);
   if (mem.length) {

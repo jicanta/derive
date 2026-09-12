@@ -1,4 +1,4 @@
-import type { Atlas, DueNode, Learner, Lesson, LessonSummary, Material, NodeRow, Stats, StoredEvent } from './types';
+import type { Atlas, DueNode, Learner, Lesson, LessonSummary, Library, Material, NodeRow, Resource, Stats, StoredEvent } from './types';
 
 /**
  * The selected learner profile, kept in this browser. Sent on every request
@@ -79,4 +79,15 @@ export const api = {
   due: () => get('/api/review').then((r) => j<DueNode[]>(r)),
   startReview: () => post('/api/review').then((r) => j<Lesson>(r)),
   atlas: () => get('/api/atlas').then((r) => j<Atlas>(r)),
+  /** The learner's library: links, videos, books, papers, courses and notes the tutor can read and point to. */
+  library: (f: { q?: string; kind?: string; tag?: string } = {}) => {
+    const qs = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]).toString();
+    return get(`/api/library${qs ? `?${qs}` : ''}`).then((r) => j<Library>(r));
+  },
+  addResource: (body: { url?: string; title?: string; kind?: string; author?: string; note?: string; tags?: string[] }) =>
+    post('/api/library', body).then((r) => j<Resource & { existing: boolean }>(r)),
+  editResource: (id: string, body: { title?: string; kind?: string; author?: string | null; note?: string | null; tags?: string[] }) =>
+    post(`/api/library/${id}`, body, 'PATCH').then((r) => j<Resource>(r)),
+  refetchResource: (id: string) => post(`/api/library/${id}/refetch`).then((r) => j<Resource>(r)),
+  deleteResource: (id: string) => del(`/api/library/${id}`).then((r) => j<{ ok: true }>(r)),
 };

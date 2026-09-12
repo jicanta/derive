@@ -68,7 +68,7 @@ export function useVoiceMode({
       if (card?.kind === 'quiz') {
         const c = parseSpokenChoice(text, card.options.length);
         if (c?.idk) return run(answer(card.id, { idk: true }));
-        if (c?.index !== undefined) return run(answer(card.id, { selected: [c.index] }));
+        if (c?.index !== undefined) return run(answer(card.id, { selected: [c.index], sure: c.sure !== false }));
         return run(send(text));
       }
       if (card?.kind === 'ask') {

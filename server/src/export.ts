@@ -5,20 +5,24 @@ import { DEFAULT_LEARNER_ID, getLearner, getLesson, listEvents, listMaterials, l
 
 const LETTERS = 'ABCDEFG';
 
-type QuizEv = { id: string; question: string; options: string[]; multi: boolean; node_id: string | null };
-type QuizRes = { id: string; selected: number[]; correct: number[]; explanation: string; result: string; note: string | null };
+type QuizEv = { id: string; question: string; options: string[]; multi: boolean; node_id: string | null; purpose?: string };
+type QuizRes = { id: string; selected: number[]; correct: number[]; explanation: string; result: string; note: string | null; confidence?: 'sure' | 'unsure' | null; purpose?: string };
 
 function quizBlock(qz: QuizEv, res: QuizRes | undefined) {
   const lines: string[] = [];
+  const what = qz.purpose === 'pretest' ? 'Pretest' : 'Quiz';
+  const sure = res?.confidence === 'unsure' ? ', unsure' : res?.confidence === 'sure' && res.result === 'incorrect' ? ', and sure of it' : '';
   const header = !res
-    ? '> [!question] Quiz — unanswered'
+    ? `> [!question] ${what} — unanswered`
     : res.result === 'skipped'
-      ? '> [!question] Quiz — answered in the chat instead'
+      ? `> [!question] ${what} — answered in the chat instead`
       : res.result === 'correct'
-      ? '> [!success] Quiz — correct ✓'
-      : res.result === 'incorrect'
-        ? '> [!failure] Quiz — incorrect ✗'
-        : "> [!question] Quiz — I don't know";
+        ? `> [!success] ${what} — correct ✓${sure}`
+        : res.result === 'incorrect'
+          ? qz.purpose === 'pretest'
+            ? `> [!question] ${what} — missed before the explanation${sure}`
+            : `> [!failure] ${what} — incorrect ✗${sure}`
+          : `> [!question] ${what} — I don't know`;
   lines.push(header);
   lines.push(`> ${qz.question.replace(/\n/g, '\n> ')}`);
   lines.push('>');
@@ -136,6 +140,13 @@ export function renderMarkdown(lesson: Lesson): string {
       case 'memory':
         out.push(`> [!note] The tutor noted: ${(e.payload as { fact: string }).fact}\n`);
         break;
+      case 'resource': {
+        const p = e.payload as { action: string; kind: string; title: string; url: string | null; why: string | null; where: string | null };
+        const link = p.url ? `[${p.title}](${p.url})` : p.title;
+        const head = p.action === 'suggested' ? 'From your library' : p.action === 'saved' ? 'Saved to your library' : 'Already in your library';
+        out.push(`> [!tip] ${head}: ${link} (${p.kind})${p.where ? ` · ${p.where}` : ''}${p.why ? `\n> ${p.why.replace(/\n/g, ' ')}` : ''}\n`);
+        break;
+      }
       case 'phase':
         out.push(`\n### Phase: ${(e.payload as { phase: string }).phase}\n`);
         break;

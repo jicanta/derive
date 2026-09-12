@@ -13,8 +13,12 @@
 import {
   addMemory,
   addMisconception,
+  dueNodes,
   getLesson,
+  getNode,
   learnerProfile,
+  listEvents,
+  listNodes,
   listMisconceptions,
   listMemory,
   recordQuiz,
@@ -24,8 +28,11 @@ import {
   setNodeStatus,
   setPhase,
   type GraphNodeInput,
+  type QuizPurpose,
 } from './db.js';
+import type { Confidence } from './schedule.js';
 import { emit } from './events.js';
+import { addResource, describeResource, readResource as readRes, relatedResources, resolveResource, searchLibrary as searchLib, tagsOf } from './library.js';
 import { readMaterial as readMat, searchMaterial as searchMat } from './materials.js';
 import { openPrompt, type PromptKind } from './prompts.js';
 import { takeNotices } from './notices.js';
@@ -48,16 +55,65 @@ export type QuizArgs = {
   correct: number[];
   explanation: string;
   node_id?: string | null;
+  /** What the question is for. Default: 'probe' in the probe phase, 'review' in a review session, else 'check'. */
+  purpose?: QuizPurpose | null;
 };
+
+export const QUIZ_PURPOSES: QuizPurpose[] = ['probe', 'pretest', 'check', 'review'];
+
+/** A question's purpose, defaulted from where the lesson is. */
+function purposeOf(lessonId: string, given?: QuizPurpose | null): QuizPurpose {
+  if (given && QUIZ_PURPOSES.includes(given)) return given;
+  // A review lesson's graph is made of copies of other lessons' nodes; its phase is irrelevant.
+  if (listNodes(lessonId).some((n) => n.source_lesson)) return 'review';
+  const lesson = getLesson(lessonId);
+  if (lesson?.phase === 'probe') return 'probe';
+  return 'check';
+}
+
+/**
+ * What the tutor should do with the result. Confidence is what makes a
+ * check informative: a confident miss is a held belief (and the moment it
+ * can be replaced, the hypercorrection effect), an unsure pass is not yet
+ * knowledge, a pretest miss is expected and is never held against the
+ * learner. Hints come before re-derivations, and answers are never handed
+ * over.
+ */
+function afterQuiz(result: 'correct' | 'incorrect' | 'dont_know', confidence: Confidence | null, purpose: QuizPurpose): string | undefined {
+  if (purpose === 'pretest') {
+    return result === 'correct'
+      ? 'Pretest: they reached it before being taught. Do not lock the node on this. Say what their reasoning got right, establish the node properly but briefly (they are close), then check it with a fresh quiz.'
+      : 'Pretest: a miss here is expected and is the point (a real attempt before instruction makes the correction stick). It is not recorded against them; do not lock or mark anything. Teach the node now, immediately, starting from their guess: name what made it tempting, then derive the correct claim from the nodes below it.';
+  }
+  if (purpose === 'probe') {
+    return result === 'incorrect' && confidence === 'sure'
+      ? 'A confident miss in the probe: more likely a misconception than a slip. Probe around it once, and plan to address it explicitly.'
+      : undefined;
+  }
+  if (result === 'correct') {
+    return confidence === 'unsure'
+      ? 'Correct, but they said they were unsure, so this is not yet knowledge. Do not lock the node on this alone: have them say why the answer must be so (explain_back with a two-line rubric) or ask one more fresh quiz on the same claim, and lock only after that.'
+      : purpose === 'review'
+        ? 'Correct and confident. Call node_status(id, "locked") to reschedule it, then move to the next node with at most one line in between.'
+        : 'Correct and confident. Lock the node if this was its check, then move on.';
+  }
+  if (result === 'dont_know') {
+    return 'They did not know. Do not reveal the derivation yet: give one hint that points at the node this rests on, then a fresh quiz on the same claim. If that misses too, re-derive it from its dependencies step by step and mark the node shaky.';
+  }
+  return confidence === 'sure'
+    ? 'A confident error: they committed to the wrong claim and were sure of it. This is the moment a belief can actually be replaced, so do not just restate the right answer. Name the exact claim they held and why it was tempting, then show what breaks it, from the nodes below. Re-check with a fresh quiz before locking; if that misses too, mark the node shaky and re-derive from its dependencies.'
+    : 'A miss, and they knew they were unsure. Give one hint that points at the dependency that decides it (not the answer) and let them try a fresh quiz on the same claim. If that misses too, re-derive it from its dependencies and mark the node shaky.';
+}
 
 type Open<T> = { id: string; done: Promise<T> };
 type OpenOpts = { hold?: boolean };
 
 export function openQuiz(lessonId: string, a: QuizArgs, opts: OpenOpts = {}): Open<Record<string, unknown>> {
   const multi = a.correct.length > 1;
-  const { id, wait } = openPrompt(lessonId, 'quiz', { question: a.question, options: a.options, multi, node_id: a.node_id ?? null }, opts);
+  const purpose = purposeOf(lessonId, a.purpose);
+  const { id, wait } = openPrompt(lessonId, 'quiz', { question: a.question, options: a.options, multi, node_id: a.node_id ?? null, purpose }, opts);
   const done = wait.then((raw) => {
-    const ans = raw as { selected?: number[]; idk?: boolean; note?: string; interrupted?: boolean; steer?: string };
+    const ans = raw as { selected?: number[]; idk?: boolean; sure?: boolean; note?: string; interrupted?: boolean; steer?: string };
     if (ans.interrupted) return { result: 'interrupted', note: 'The learner stopped the turn.' };
     if (ans.steer) {
       // The learner typed in the chat instead of picking an option. Close the
@@ -72,9 +128,12 @@ export function openQuiz(lessonId: string, a: QuizArgs, opts: OpenOpts = {}): Op
     const selected = (ans.idk ? [] : (ans.selected ?? [])).filter((i) => Number.isInteger(i) && i >= 0 && i < a.options.length);
     const isCorrect = !ans.idk && sameSet(selected, a.correct);
     const result = ans.idk ? 'dont_know' : isCorrect ? 'correct' : 'incorrect';
-    emit(lessonId, 'quiz_result', { id, selected, correct: a.correct, explanation: a.explanation, result, note: ans.note ?? null });
-    recordQuiz(lessonId, a.node_id ?? null, isCorrect);
-    if (result === 'incorrect') {
+    // The learner commits to how sure they are before the reveal. Default is sure: an unsure answer is a deliberate flag.
+    const confidence: Confidence | null = ans.idk ? null : ans.sure === false ? 'unsure' : 'sure';
+    emit(lessonId, 'quiz_result', { id, selected, correct: a.correct, explanation: a.explanation, result, note: ans.note ?? null, confidence, purpose });
+    recordQuiz(lessonId, a.node_id ?? null, isCorrect, { confidence, purpose });
+    // A pretest miss is the learner's honest guess before instruction, not a belief they hold.
+    if (result === 'incorrect' && purpose !== 'pretest') {
       addMisconception({
         lessonId,
         nodeId: a.node_id ?? null,
@@ -82,13 +141,18 @@ export function openQuiz(lessonId: string, a: QuizArgs, opts: OpenOpts = {}): Op
         picked: selected.map((i) => a.options[i]).join(' + '),
         correct: a.correct.map((i) => a.options[i]).join(' + '),
         explanation: a.explanation,
+        confidence,
       });
     }
+    const instruction = afterQuiz(result, confidence, purpose);
     return withNotice(lessonId, {
       result,
+      confidence,
+      purpose,
       selected_options: selected.map((i) => a.options[i]),
       correct_options: a.correct.map((i) => a.options[i]),
       note: ans.note ?? null,
+      ...(instruction ? { instruction } : {}),
     });
   });
   return { id, done };
@@ -121,7 +185,7 @@ export function openPlan(lessonId: string, a: { goal: string; nodes: GraphNodeIn
     const approved = ans.steer ? false : !!ans.approved;
     const feedback = ans.steer ?? ans.feedback ?? null;
     emit(lessonId, 'plan_result', { id, approved, feedback });
-    return withNotice(lessonId, { approved, feedback });
+    return withNotice(lessonId, { approved, feedback, ...(approved ? planLibraryInstruction(lessonId, a) : {}) });
   });
   return { id, done };
 }
@@ -129,10 +193,55 @@ export function openPlan(lessonId: string, a: { goal: string; nodes: GraphNodeIn
 export const setPlan = (lessonId: string, a: { goal: string; nodes: GraphNodeInput[] }) => openPlan(lessonId, a).done;
 
 export function nodeStatus(lessonId: string, a: { id: string; status: 'teaching' | 'locked' | 'shaky' }) {
-  setNodeStatus(lessonId, a.id, a.status);
+  const next = setNodeStatus(lessonId, a.id, a.status);
   if (a.status === 'locked') resolveMisconceptions(lessonId, a.id);
-  emit(lessonId, 'node_status', { id: a.id, status: a.status });
-  return { ok: true };
+  const when = next ? { review_at: next.review_at, interval_days: next.interval_days } : {};
+  emit(lessonId, 'node_status', { id: a.id, status: a.status, ...when });
+  return { ok: true, ...(next && a.status === 'locked' ? { next_review_in_days: next.interval_days } : {}), ...libraryHint(lessonId, a) };
+}
+
+const suggestedIds = (lessonId: string) =>
+  listEvents(lessonId)
+    .filter((e) => e.type === 'resource')
+    .map((e) => (e.payload as { id?: string }).id ?? '');
+
+/**
+ * The plan just got approved: if the shelf holds entries on this topic, the
+ * tutor is told to read the best one before teaching and to point to it
+ * when the node it fits locks. A tool result is where the model actually
+ * reads instructions, so this is where the library rule gets its teeth.
+ */
+function planLibraryInstruction(lessonId: string, a: { goal: string; nodes: GraphNodeInput[] }): { instruction?: string } {
+  const lesson = getLesson(lessonId);
+  if (!lesson) return {};
+  const text = `${lesson.topic} ${a.goal} ${a.nodes.map((n) => n.label).join(' ')}`;
+  const related = relatedResources(lesson.learner_id, text, suggestedIds(lessonId), 3);
+  if (!related.length) return {};
+  return {
+    instruction:
+      `The plan is approved. The learner's library has entries on this topic: ${related.map(describeResource).join('; ')}. ` +
+      'Before you teach the first node, read the most relevant one (read_resource, by id) and borrow its examples and framing where they are good. ' +
+      'Then, when the node it fits best locks, point the learner to it with suggest_resource (why, and where to look). The learner put it there to be used; not pointing to it at all is the failure mode.',
+  };
+}
+
+/**
+ * A locked node is the moment a library entry earns its place. If the shelf
+ * holds an entry related to the node (or the topic) that has not been
+ * suggested in this lesson, the reply tells the tutor to suggest it now.
+ */
+function libraryHint(lessonId: string, a: { id: string; status: string }): { instruction?: string } {
+  if (a.status !== 'locked') return {};
+  const lesson = getLesson(lessonId);
+  const node = getNode(lessonId, a.id);
+  if (!lesson || !node) return {};
+  const related = relatedResources(lesson.learner_id, `${node.label} ${node.summary ?? ''} ${lesson.topic}`, suggestedIds(lessonId), 1);
+  if (!related.length) return {};
+  return {
+    instruction:
+      `Locked. The learner's library has ${describeResource(related[0])}, related to this node and not yet pointed to in this lesson. ` +
+      'Call suggest_resource for it now, before the next node: one or two sentences on what it adds to what just locked, and where to look (a section, a timestamp). Skip only if it clearly does not bear on this node.',
+  };
 }
 
 export function phase(lessonId: string, a: { phase: 'probe' | 'plan' | 'teach' }) {
@@ -179,6 +288,76 @@ export function searchMaterial(lessonId: string, a: { query: string; name?: stri
   return searchMat(lessonId, a);
 }
 
+// ---------- the library ----------
+
+const learnerOfLesson = (lessonId: string) => {
+  const l = getLesson(lessonId);
+  if (!l) throw new Error('lesson not found');
+  return l.learner_id;
+};
+
+/** Entries of the learner's library that match, by title, tags, note and fetched text. */
+export function searchLibrary(lessonId: string, a: { query: string; kind?: string | null; tag?: string | null; limit?: number | null }) {
+  return searchLib(learnerOfLesson(lessonId), a);
+}
+
+/** A range of parts of one library entry. */
+export function readResource(lessonId: string, a: { id?: string | null; title?: string | null; from?: number | null; to?: number | null }) {
+  return readRes(learnerOfLesson(lessonId), a);
+}
+
+/**
+ * Point the learner at an entry of their library (or one the tutor just
+ * saved): a card in the timeline with the tutor's reason and where to look.
+ */
+export function suggestResource(lessonId: string, a: { id?: string | null; title?: string | null; why: string; where?: string | null; node_id?: string | null }) {
+  const r = resolveResource(learnerOfLesson(lessonId), a.id ?? a.title);
+  const why = String(a.why ?? '').trim();
+  if (!why) throw new Error('Say why this entry is worth their time (one or two sentences).');
+  emit(lessonId, 'resource', {
+    action: 'suggested',
+    id: r.id,
+    kind: r.kind,
+    title: r.title,
+    url: r.url,
+    author: r.author,
+    tags: tagsOf(r),
+    why: why.slice(0, 600),
+    where: a.where?.trim().slice(0, 200) || null,
+    node_id: a.node_id ?? null,
+  });
+  return { ok: true, id: r.id, title: r.title, url: r.url, instruction: 'The card is shown. One sentence of prose about it at most; do not repeat the reason.' };
+}
+
+/** The tutor saves a source it found to the learner's library; the timeline shows it was saved. */
+export async function saveResource(lessonId: string, a: { url?: string | null; title?: string | null; kind?: string | null; author?: string | null; note?: string | null; tags?: unknown }) {
+  const learnerId = learnerOfLesson(lessonId);
+  const { resource, existing } = await addResource(learnerId, a, { addedBy: 'tutor', lessonId });
+  emit(lessonId, 'resource', {
+    action: existing ? 'already_saved' : 'saved',
+    id: resource.id,
+    kind: resource.kind,
+    title: resource.title,
+    url: resource.url,
+    author: resource.author,
+    tags: tagsOf(resource),
+    why: resource.note,
+    where: null,
+    node_id: null,
+  });
+  return {
+    ok: true,
+    existing,
+    id: resource.id,
+    title: resource.title,
+    kind: resource.kind,
+    url: resource.url,
+    fetched_words: Math.round(resource.chars / 6),
+    ...(resource.fetch_error ? { fetch_error: resource.fetch_error } : {}),
+    instruction: existing ? 'This was already on the shelf; your note and tags were merged into it.' : 'Saved. Mention it in one sentence if it matters now; the learner sees it in their library.',
+  };
+}
+
 export function profile(learnerId: string, lessonId?: string) {
   return {
     profile: learnerProfile(learnerId, lessonId) || 'Nothing yet. This is a new learner.',
@@ -186,7 +365,8 @@ export function profile(learnerId: string, lessonId?: string) {
     misconceptions: listMisconceptions(learnerId)
       .filter((m) => !m.resolved)
       .slice(0, 10)
-      .map((m) => ({ topic: m.topic, picked: m.picked, correct: m.correct })),
+      .map((m) => ({ topic: m.topic, picked: m.picked, correct: m.correct, held_with_confidence: m.confidence === 'sure' })),
+    due: dueNodes(learnerId).map((n) => ({ label: n.label, topic: n.topic, overdue_days: Math.max(0, Math.floor((Date.now() - (n.review_at ?? Date.now())) / 86_400_000)) })),
   };
 }
 
@@ -213,6 +393,10 @@ const QUIZ_PICK_RE = new RegExp(
     '([\\s).:,\\]-]*)([\\s\\S]*)$',
   'i',
 );
+/** "not sure", "guessing", "?" after a pick, "creo que": the learner flagging an answer as unsure. */
+const UNSURE_PREFIX_RE = /^\s*(?:i\s+(?:think|guess|believe)|i'?m\s+not\s+sure(?:\s+but)?|not\s+sure(?:\s+but)?|creo\s+que|me\s+parece(?:\s+que)?|probably|maybe|quiz[aá]s?|tal\s+vez)(?![a-z])/i;
+const UNSURE_NOTE_RE = /^(?:\?+|not\s+(?:so\s+|too\s+|really\s+)?sure|unsure|(?:just\s+)?(?:a\s+)?(?:wild\s+)?guess(?:ing)?|maybe|probably|i\s+think|(?:no\s+)?(?:estoy\s+)?(?:muy\s+)?segur[oa]|creo|quiz[aá]s?|tal\s+vez|puede\s+ser|dudo|adivin(?:o|ando))(?![a-z])[\s.!,:;-]*(?:(?:but|pero|and|y)(?![a-z])[\s.!,:;-]*)?/i;
+
 const YES_RE = /^\s*(y|yes|yep|yeah|ok|okay|sure|approve[d]?|approved|looks?\s+(good|right|fine)|go|go\s+ahead|teach\s+me|s[ií]|dale|vamos|adelante|perfecto|de\s+acuerdo)\b[\s.!,]*$/i;
 
 /**
@@ -240,7 +424,14 @@ export function parseReply(kind: PromptKind, reply: string, optionCount: number)
         // "B, because ..." and "B) it has to" are picks with a note.
         const ambiguous = picks.length === 1 && /^[a-g]$/i.test(head[1]) && !/[).:,\]-]/.test(sep) && /^[a-z]/i.test(note) && !/^(because|since|as|porque|ya que)\b/i.test(note);
         if (!ambiguous && picks.every((i) => Number.isInteger(i) && i >= 0 && i < optionCount)) {
-          return { selected: [...new Set(picks)].sort((x, y) => x - y), note: note || undefined };
+          // "B?", "B, not sure", "I think B", "b guess": a pick the learner is unsure of.
+          let rest = note;
+          let unsure = UNSURE_PREFIX_RE.test(text);
+          if (UNSURE_NOTE_RE.test(rest)) {
+            unsure = true;
+            rest = rest.replace(UNSURE_NOTE_RE, '').trim();
+          }
+          return { selected: [...new Set(picks)].sort((x, y) => x - y), sure: !unsure, note: rest || undefined };
         }
       }
       return { steer: text };
@@ -256,13 +447,15 @@ export function parseReply(kind: PromptKind, reply: string, optionCount: number)
 export function renderCard(kind: PromptKind, payload: Record<string, unknown>, nodeLabel?: string | null): string {
   switch (kind) {
     case 'quiz': {
-      const p = payload as { question: string; options: string[]; multi: boolean };
+      const p = payload as { question: string; options: string[]; multi: boolean; purpose?: QuizPurpose };
       const opts = p.options.map((o, i) => `${LETTERS[i]}. ${o}`).join('\n');
       const letters = p.options.map((_, i) => LETTERS[i]);
+      const last = letters.at(-1);
       const how = p.multi
-        ? `Reply with every letter that applies (${letters.join(', ')}), or ? if you don't know.`
-        : `Reply with ${letters.slice(0, -1).join(', ')} or ${letters.at(-1)}, or ? if you don't know.`;
-      return `**Quiz${nodeLabel ? ` · checks: ${nodeLabel}` : ''}**\n\n${p.question}\n\n${opts}\n\n_${how}_`;
+        ? `Reply with every letter that applies (${letters.join(', ')}); add ? after them if you're unsure, or ? alone if you don't know.`
+        : `Reply with ${letters.slice(0, -1).join(', ')} or ${last} (${last}? if you're unsure), or ? alone if you don't know.`;
+      const head = p.purpose === 'pretest' ? `**Before I explain · your best guess${nodeLabel ? `: ${nodeLabel}` : ''}**\n\n_A miss is fine here; try, then I explain._` : `**Quiz${nodeLabel ? ` · checks: ${nodeLabel}` : ''}**`;
+      return `${head}\n\n${p.question}\n\n${opts}\n\n_${how}_`;
     }
     case 'ask': {
       const p = payload as { question: string; options: string[] };

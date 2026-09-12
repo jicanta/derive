@@ -12,10 +12,19 @@
     "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter server dev\" \"pnpm --filter web dev\"",
     "build": "pnpm --filter web build && pnpm --filter server build",
     "start": "pnpm --filter server start",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "check": "node --env-file-if-exists=.env scripts/doctor.mjs"
+  },
+  "engines": {
+    "node": ">=22.5"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
   },
-  "packageManager": "pnpm@10.33.2"
+  "packageManager": "pnpm@10.33.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
 }

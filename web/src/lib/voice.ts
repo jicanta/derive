@@ -229,10 +229,15 @@ const WORD_INDEX: Record<string, number> = {
  * "la segunda", "I don't know". Longer utterances are not picks; they are
  * things to say to the tutor.
  */
-export function parseSpokenChoice(text: string, optionCount: number): { index?: number; idk?: boolean } | null {
-  const t = text.trim().toLowerCase().replace(/[.,!?]/g, '');
+/** "B, not sure", "probably the second one", "I guess A": the learner flagging a pick as unsure. */
+const UNSURE = /\b(not\s+(?:so\s+|too\s+)?sure|unsure|guess(?:ing)?|maybe|probably|i\s+think|no\s+(?:estoy\s+)?segur[oa]|creo|quiz[aá]s?|tal\s+vez|dudo)\b/;
+
+export function parseSpokenChoice(text: string, optionCount: number): { index?: number; idk?: boolean; sure?: boolean } | null {
+  let t = text.trim().toLowerCase().replace(/[.,!?]/g, '');
   if (!t) return null;
   if (IDK.test(t)) return { idk: true };
+  const unsure = UNSURE.test(t);
+  if (unsure) t = t.replace(UNSURE, ' ').replace(/\b(but|pero|and|y)\b/g, ' ').replace(/\s+/g, ' ').trim();
   const words = t.split(/\s+/);
   if (words.length > 6) return null;
   const filler = new Set(['option', 'opción', 'opcion', 'the', 'la', 'el', 'one', 'answer', 'is', 'it', "it's", 'its', 'i', 'think', 'say', 'choose', 'pick', 'letter', 'number', 'creo', 'que', 'es', 'elijo', 'go', 'with']);
@@ -242,5 +247,5 @@ export function parseSpokenChoice(text: string, optionCount: number): { index?: 
   if (cand.length !== 1) return null;
   const idx = WORD_INDEX[cand[0]];
   if (idx === undefined || idx >= optionCount) return null;
-  return { index: idx };
+  return unsure ? { index: idx, sure: false } : { index: idx };
 }

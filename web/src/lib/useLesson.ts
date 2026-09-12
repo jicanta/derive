@@ -11,6 +11,7 @@ import type {
   PlanPayload,
   QuizPayload,
   QuizResultPayload,
+  ResourceEvent,
   StoredEvent,
   TimelineItem,
 } from './types';
@@ -148,7 +149,7 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
       const item: TimelineItem =
         status === 'teaching'
           ? { kind: 'node_start', seq: ev.seq, id: ev.payload.id, label, index: idx + 1, total: nodes.length }
-          : { kind: 'node', seq: ev.seq, id: ev.payload.id, status, label };
+          : { kind: 'node', seq: ev.seq, id: ev.payload.id, status, label, reviewDays: typeof ev.payload.interval_days === 'number' ? ev.payload.interval_days : undefined };
       const out = [...items, item];
       // The goal locked: the whole graph is built. Add the receipt.
       if (status === 'locked' && nodes[idx]?.kind === 'goal' && !items.some((i) => i.kind === 'complete')) {
@@ -165,7 +166,7 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
           correct,
           caught: quizzes.length - correct,
           minutes: Math.max(1, Math.round((ev.ts - first) / 60_000)),
-          reviewDays: 1,
+          reviewDays: typeof ev.payload.interval_days === 'number' ? ev.payload.interval_days : 1,
         });
       }
       return { ...s, nodes, items: out };
@@ -177,6 +178,8 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
       const materials = s.materials.some((x) => x.id === m.id) ? s.materials : [...s.materials, m];
       return { ...s, materials, items: [...items, { kind: 'material', seq: ev.seq, id: m.id, name: m.name, unit: m.unit, pages: m.pages }] };
     }
+    case 'resource':
+      return { ...s, items: [...items, { kind: 'resource', seq: ev.seq, resource: ev.payload as ResourceEvent }] };
     case 'answer_in':
       return s.lesson ? { ...s, lesson: { ...s.lesson, answer_in: ev.payload.where } } : s;
     case 'material_removed':
@@ -227,7 +230,7 @@ function reducer(s: LessonState, a: Action): LessonState {
 
 const EVENT_TYPES = [
   'ready', 'turn_start', 'turn_end', 'status', 'user', 'block_start', 'delta', 'assistant', 'quiz', 'quiz_result', 'ask', 'ask_result',
-  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'node_status', 'memory', 'material', 'material_removed', 'answer_in',
+  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'node_status', 'memory', 'material', 'material_removed', 'answer_in', 'resource',
 ];
 
 export function useLesson(id: string | undefined) {

@@ -6,7 +6,7 @@ description: Teach the learner anything so it actually locks in and is understoo
 # Teaching (Derive)
 
 > **Tool mapping.** This skill descends from the `teach` skill of amosblomqvist/learn. In Derive the conventions are tools from the `derive` MCP server (named `mcp__plugin_derive_derive__<tool>` when installed as a plugin, `mcp__derive__<tool>` when added with `claude mcp add`):
-> - `quiz` (graded; the app grades it, you never do)
+> - `quiz` (graded; the app grades it, you never do; `purpose: "pretest"` for the attempt before teaching a node, `"check"` for the question that locks it)
 > - open question -> `ask`
 > - the dependency map -> `set_plan` (blocks until the learner approves)
 > - node states -> `node_status` (`teaching` / `locked` / `shaky`)
@@ -15,6 +15,7 @@ description: Teach the learner anything so it actually locks in and is understoo
 > - durable notes about the learner -> `remember`
 > - verify facts -> `WebSearch` / `WebFetch`
 > - course material the learner attached -> `read_material` (a range of pages, slides or files; a repo file by `path`), `search_material` (where something is covered), `attach_material` (add files, a repo folder or a GitHub URL mid-lesson)
+> - the learner's library (their shelf of articles, videos, books, papers, courses and notes, kept across lessons) -> `search_library`, `read_resource`, `suggest_resource` (point them at an entry, with why and where), `add_resource` (save a source you found)
 > - a reply typed in the terminal for an open card -> `answer`; switching where cards are answered -> `answer_in`
 > Call `start_lesson` once before anything else; it returns what Derive already knows about this learner, where they answer cards, and, when files were passed, a brief of the course material.
 
@@ -63,9 +64,31 @@ When the learner attached material (slides, a PDF, notes, or a repository), the 
 - **Disagree when needed.** If the material is wrong, sloppy, or skips a step, say so plainly, verify with `WebSearch`, and teach the correct version.
 - **A repository is a course too.** Read the README, the manifests and the entry points before you plan (`read_material` with `path`), then the files a node rests on before you teach it. The unconditional truths are the constraints the code cannot escape (runtime, protocol, data model, the invariants the tests pin down); the derived nodes are the design decisions that follow. Cite files by path, quiz with the code's own names and edge cases ("what breaks if this line goes"), and never paste long stretches of code back: a few lines, then the reasoning.
 
+## The learner's library
+
+The learner keeps a library: articles, videos, books, papers, courses and notes, tagged, with the text of each page fetched and kept. `start_lesson` returns the entries relevant to the topic under `library` (absent when the shelf is empty). It is theirs, it outlives the lesson, and it is not a syllabus: attached course material scopes the plan, the library does not.
+
+- **Lean on it.** `search_library` for the topic before you plan. When an entry covers the lesson, `read_resource` the relevant parts and borrow its framing, examples and notation where they are good. The plan is still yours, derived from unconditional truths.
+- **Point to it.** When a node locks and an entry deepens it, when the learner wants to go further, or when a source explains a step better than chat can, `suggest_resource` with why (one or two sentences, to the learner) and where to look (a chapter, a section, a timestamp). The companion shows it as a card. One at a time, only when it earns its place, never a reading list.
+- **Grow it.** When a `WebSearch` or `WebFetch` turns up a source worth keeping (the primary source, a lucid explanation, a good figure), `add_resource` with a one-sentence note and a few tags. The server fetches the page and keeps its text; the learner sees it was saved by the tutor. One or two per lesson at most, and only sources you actually read.
+- **Disagree when needed.** A saved source can be wrong or sloppy. Teach the correct version and say so.
+- **Follow the nudges.** When the shelf has an entry on the topic, the result of `set_plan` (once approved) names it and tells you to read it before the first node, and the result of `node_status(id, "locked")` names a related entry not yet pointed to and tells you to `suggest_resource` it now. Those `instruction` fields are the moments; act on them unless the entry clearly does not fit.
+
 ## Accuracy is non-negotiable
 
 The moment you are even slightly unsure of a fact, name, date, formula or claim, verify it with `WebSearch` before you say it. If a check changes what you were about to teach, say so plainly. A wrong root corrupts every node built on top of it.
+
+## What a check tells you
+
+The learner commits to how sure they are before the reveal, and the quiz result carries it (`confidence`) with an `instruction` on what to do next. Follow the instruction. The logic behind it:
+
+- **Correct and sure**: knowledge. Lock.
+- **Correct but unsure**: not yet knowledge. One more fresh question, or have them say why it must be so (`explain_back`), then lock.
+- **Wrong but unsure, or "I don't know"**: a hint, not the answer. Point at the node this rests on, then a fresh question. Only if that misses too do you re-derive step by step.
+- **Wrong and sure**: a held belief, and the one moment it can be replaced (a confident error corrected at once is the correction people remember best). Name the exact claim they held and why it was tempting, then what breaks it, from the nodes below. Then a fresh question.
+- **A pretest miss**: expected, and the point. It is not recorded against them. Teach immediately, starting from their guess.
+
+Locking a node schedules its review from how the check went: a confident pass earns a longer interval than an unsure one, a lapse resets it. `node_status` tells you in how many days it comes back.
 
 ## Writing quiz options (construction procedure)
 
@@ -98,11 +121,14 @@ Write a short prose paragraph of the approach in the terminal, then call `set_pl
 
 1. `node_status(id, "teaching")`.
 2. **Motivate.** Why this node, right now.
-3. **Establish.** A foundational truth: stated plainly at face value. A derived step: built from what is already established via a motivated move (Socratic `quiz` or narration).
-4. **Connect.** Make the dependency edge explicit.
-5. **Quiz-check** with `quiz`, passing `node_id`. Pass -> `node_status(id, "locked")`. Miss -> teach into the specific misconception, re-check with a different question, then lock. Two misses -> `node_status(id, "shaky")` and go back to what it depends on.
+3. **Pretest** (derived nodes). Before you establish it, make them try: one `quiz` with `purpose: "pretest"` and the node's id. Given what is locked, what must be true here? A real attempt before instruction is what makes the instruction stick; a miss is expected, is not recorded against them, and never locks anything. The pretest is allowed before any teaching prose (the teach-first gate does not apply to it). Then teach at once, starting from their guess. Skip it for a foundational truth, and for a node the profile shows they are well past.
+4. **Establish.** A foundational truth: stated plainly at face value. A derived step: built from what is already established via a motivated move (Socratic `quiz` or narration). One step at a time when Socratic: reveal a step, check it, then the next.
+5. **Connect.** Make the dependency edge explicit.
+6. **Check** with `quiz` (`purpose: "check"`, a different question from the pretest), passing `node_id`. Then do what the result's `instruction` says (see "What a check tells you"): correct and sure -> `node_status(id, "locked")`; unsure -> one more question or a teach-back before locking; a miss -> a hint and a fresh question before any re-derivation; two misses -> `node_status(id, "shaky")` and go back to what it depends on.
 
-Use `explain_back` once per lesson on the most important derived node (write the rubric first; grade honestly: what is right, then the one gap that matters).
+Match the guidance to the learner. The pretest stays either way (an attempt helps novices most); what changes is what follows it: on a strand where the probe showed solid ground, skip the worked example and go to a completion problem; on a strand where they missed in the probe, work the first example fully, one step at a time, before the check. Guidance that helps a novice is noise to someone past it.
+
+Use `explain_back` at least once per lesson on the most important derived node, and whenever a pass was unsure (write the rubric first; grade honestly: what is right, then the one gap that matters).
 
 When the goal node is locked: write the closing that restates the whole graph in a few sentences (the compressed version; name the click), store 1 to 3 durable notes with `remember`, `ask` what they want next, then `end_lesson`.
 

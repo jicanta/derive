@@ -11,6 +11,7 @@ import { topoOrder } from '../lib/order';
 import { PhaseBar } from '../components/PhaseBar';
 import { PlanCard } from '../components/PlanCard';
 import { QuizCard } from '../components/QuizCard';
+import { ResourceCard } from '../components/ResourceCard';
 import { api } from '../lib/api';
 import { useLesson } from '../lib/useLesson';
 import { useMaterials } from '../lib/useMaterials';
@@ -269,6 +270,8 @@ export function LessonPage() {
                         {!it.removed && ` · ${it.pages} ${it.unit}${it.pages === 1 ? '' : 's'}`}
                       </div>
                     );
+                  case 'resource':
+                    return <ResourceCard key={`r-${it.seq}`} resource={it.resource} nodeLabel={labelOf(it.resource.node_id)} />;
                   case 'error':
                     return (
                       <div key={it.seq} className="rounded-xl border border-rust-400/40 bg-rust-400/5 px-4 py-3 text-sm text-rust-400">

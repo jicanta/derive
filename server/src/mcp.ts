@@ -158,11 +158,15 @@ server.registerTool(
         .describe('Where the learner answers cards. "terminal": quiz, ask, set_plan and explain_back return at once and the learner replies in this conversation. Default: the DERIVE_ANSWER_IN environment variable, else "browser".'),
       learner: z.string().optional().describe('Which learner profile this lesson belongs to, by name. Default: DERIVE_LEARNER, else the first learner.'),
       open_browser: z.boolean().optional().describe('Default true.'),
+      review: z
+        .boolean()
+        .optional()
+        .describe('Start a spaced-repetition review session instead of a lesson: the server picks the nodes due (interleaved across topics, with the nodes they rest on) and returns them with instructions. The topic is then ignored.'),
     },
   },
-  async ({ topic, files, answer_in, learner, open_browser }) => {
+  async ({ topic, files, answer_in, learner, open_browser, review }) => {
     const where = answer_in ?? ANSWER_IN;
-    const l = await api<{ id: string; url: string; learner_id: string }>('/api/external/lessons', { topic, answer_in: where, learner: learner ?? LEARNER });
+    const l = await api<{ id: string; url: string; learner_id: string; review?: unknown; library?: string }>('/api/external/lessons', { topic, answer_in: where, learner: learner ?? LEARNER, review: !!review });
     lessonId = l.id;
     if (open_browser !== false) openBrowser(l.url);
     const profile = await api<{ profile: string; learner?: { name: string } }>(`/api/profile?learner=${encodeURIComponent(l.learner_id)}`).catch(() => ({ profile: '', learner: undefined }));
@@ -181,7 +185,9 @@ server.registerTool(
           ? 'The learner answers in this terminal. Each of quiz, ask, set_plan and explain_back returns the card as text at once: show it verbatim, end your turn, and pass their reply to `answer`. They can also answer in the browser; `answer` returns that result too.'
           : 'The learner answers in the browser. quiz, ask, set_plan and explain_back block until they do and return the result. If they ask to answer here in the terminal instead, call `answer_in` with "terminal".',
       learner_profile: profile.profile,
+      ...(l.review ? { review: l.review } : {}),
       ...(material ? { course_material: material } : {}),
+      ...(l.library ? { library: l.library } : {}),
     });
   },
 );
@@ -224,11 +230,89 @@ server.registerTool(
   async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/search_material`, a)),
 );
 
+const KINDS = z.enum(['article', 'video', 'book', 'paper', 'course', 'note']);
+
+server.registerTool(
+  'search_library',
+  {
+    description:
+      "Search the learner's library: the articles, videos, books, papers, courses and notes they keep across lessons (start_lesson returns the catalog under `library` when there is one). Matches titles, tags, notes and the fetched text; returns entries with a snippet and the part it was found in. Search it before you plan, and when the learner asks for something to read or watch.",
+    inputSchema: {
+      query: z.string().describe('A few words: the topic, a term, an author. Empty lists the shelf.'),
+      kind: KINDS.optional(),
+      tag: z.string().optional(),
+      limit: z.number().int().min(1).max(20).optional(),
+    },
+  },
+  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/search_library`, a)),
+);
+
+server.registerTool(
+  'read_resource',
+  {
+    description:
+      "Read a range of parts of one library entry (an article's body, a paper's PDF, a video's description), about ten parts per call with a marker before each. Pass the entry id (from the catalog or a search hit) or its title. An entry with nothing fetched returns its URL and the learner's note; use WebFetch on the URL then.",
+    inputSchema: {
+      id: z.string().optional().describe('The entry id, or its first characters.'),
+      title: z.string().optional().describe('Or the title (or part of it).'),
+      from: z.number().int().min(1).optional(),
+      to: z.number().int().min(1).optional(),
+    },
+  },
+  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/read_resource`, a)),
+);
+
+server.registerTool(
+  'suggest_resource',
+  {
+    description:
+      "Point the learner at one entry of their library as a card in the companion: which entry, why it is worth their time now, and where to look (a chapter, a section, a timestamp). Use it when a node locks and the entry deepens it, when the learner wants more, or when a source explains a step better than chat can. One at a time, only when it earns its place; only entries in the library or ones you just saved.",
+    inputSchema: {
+      id: z.string().optional(),
+      title: z.string().optional(),
+      why: z.string().describe('One or two sentences, to the learner.'),
+      where: z.string().optional().describe('"chapter 3", "from 12:40", "the section on invariants".'),
+      node_id: z.string().optional(),
+    },
+  },
+  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/suggest_resource`, a)),
+);
+
+server.registerTool(
+  'add_resource',
+  {
+    description:
+      "Save a source to the learner's library: a URL you found with WebSearch or read with WebFetch (the server fetches it and keeps its text), with a one-sentence note on why and a few tags. Sparingly: one or two per lesson, only sources you actually read. A URL already on the shelf is not duplicated; the note and tags are merged in.",
+    inputSchema: {
+      url: z.string(),
+      title: z.string().optional(),
+      kind: KINDS.optional().describe('Guessed from the URL when omitted.'),
+      author: z.string().optional(),
+      note: z.string().describe('Why this is worth keeping, to the learner.'),
+      tags: z.array(z.string()).max(8).optional(),
+    },
+  },
+  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/add_resource`, a)),
+);
+
+server.registerTool(
+  'library',
+  {
+    description: "The learner's library outside a lesson: the whole shelf as a catalog, or the entries matching a topic. Lessons get this automatically from start_lesson.",
+    inputSchema: { topic: z.string().optional().describe('Rank entries by relevance to this.'), learner: z.string().optional() },
+  },
+  async ({ topic, learner }) => {
+    const who = learner ?? LEARNER;
+    const qs = new URLSearchParams({ ...(topic ? { topic } : {}), ...(who ? { learner: who } : {}) }).toString();
+    return text(await api(`/api/external/library${qs ? `?${qs}` : ''}`));
+  },
+);
+
 server.registerTool(
   'quiz',
   {
     description:
-      'Ask the learner ONE graded multiple-choice question with a known correct answer. The server grades it and returns what they picked and whether it was correct; you never grade it yourself. Never leak the answer in the question or options. Options are 2 or 3 bare claims; the app adds "I don\'t know". In the teach phase, a quiz for a node is refused until you have actually written the teaching for that node in the terminal (several paragraphs: motivate, establish, connect), so teach first, then check. In a browser-answered lesson this blocks until they answer.' +
+      'Ask the learner ONE graded multiple-choice question with a known correct answer. The server grades it and returns what they picked, whether it was correct, how sure they were, and what to do next; you never grade it yourself. Never leak the answer in the question or options. Options are 2 or 3 bare claims; the app adds "I don\'t know". Set `purpose`: "pretest" for the attempt you ask for BEFORE teaching a derived node (a miss is expected, not recorded against them, never locks), "check" for the question that locks a node. In the teach phase a check for a node is refused until you have actually written the teaching for that node in the terminal (several paragraphs: motivate, establish, connect), so teach first, then check; a pretest is allowed before the teaching. In a browser-answered lesson this blocks until they answer.' +
       TERMINAL_NOTE,
     inputSchema: {
       question: z.string(),
@@ -236,6 +320,7 @@ server.registerTool(
       correct: z.array(z.number().int().min(0)).min(1),
       explanation: z.string(),
       node_id: z.string().optional(),
+      purpose: z.enum(['probe', 'pretest', 'check', 'review']).optional().describe('Default: "probe" in the probe phase, "review" in a review session, else "check".'),
       already_held: z.boolean().optional().describe('Set true only when the probe already showed the learner holds this node and you are confirming rather than teaching it. Say so to the learner in one sentence.'),
     },
   },
@@ -275,7 +360,7 @@ server.registerTool(
   'answer',
   {
     description:
-      "Terminal-answered lessons only: hand the learner's reply to the card that is open (the last quiz, ask, set_plan or explain_back). Pass their message verbatim as `reply`: a letter or number picks a quiz option, \"?\" or \"I don't know\" is the don't-know option, \"yes\" approves a plan, anything else is feedback or a message. The server parses and grades it and returns exactly what the blocking tool would have returned (result, correct_options, or the learner's text). If the learner answered in the browser instead, returns that result. Call it once per card, right after their reply, before anything else.",
+      "Terminal-answered lessons only: hand the learner's reply to the card that is open (the last quiz, ask, set_plan or explain_back). Pass their message verbatim as `reply`: a letter or number picks a quiz option (\"B?\", \"B, not sure\" or \"I think B\" picks it as unsure), \"?\" or \"I don't know\" alone is the don't-know option, \"yes\" approves a plan, anything else is feedback or a message. The server parses and grades it and returns exactly what the blocking tool would have returned (result, correct_options, or the learner's text). If the learner answered in the browser instead, returns that result. Call it once per card, right after their reply, before anything else.",
     inputSchema: {
       reply: z.string().describe("The learner's message, verbatim. May be empty to collect an answer they gave in the browser."),
       prompt_id: z.string().optional().describe('The card, from the tool that opened it. Optional: the open card is the default.'),
@@ -296,7 +381,7 @@ server.registerTool(
 server.registerTool(
   'node_status',
   {
-    description: 'Mark a plan node "teaching", "locked" (a quiz confirmed it) or "shaky" (it did not land). Lights the graph up.',
+    description: 'Mark a plan node "teaching", "locked" (a confident check confirmed it; the node is scheduled for review by how well the check went, and the reply says in how many days) or "shaky" (it did not land after two checks). Lights the graph up.',
     inputSchema: { id: z.string(), status: z.enum(['teaching', 'locked', 'shaky']) },
   },
   async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/node_status`, a)),
@@ -320,7 +405,7 @@ server.registerTool(
 server.registerTool(
   'learner_profile',
   {
-    description: 'What Derive already knows about a learner: locked nodes by topic, shaky nodes, misconceptions, notes. Defaults to the learner of the current lesson.',
+    description: 'What Derive already knows about a learner: locked nodes by topic, shaky nodes, misconceptions (with whether they were held with confidence), notes, and the nodes due for review. Defaults to the learner of the current lesson.',
     inputSchema: { learner: z.string().optional().describe('A learner name or id. Default: the current lesson\'s learner.') },
   },
   async ({ learner }) => {

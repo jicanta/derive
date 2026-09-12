@@ -182,6 +182,7 @@ export function AtlasPage() {
                     <br />
                     <span className="text-ink-400 [&_.prose]:inline [&_.prose]:text-[13.5px] [&_.prose]:text-ink-300 [&_.prose_p]:inline">
                       in {m.topic}. Correct: <Markdown text={m.correct} />.
+                      {m.confidence === 'sure' && <span className="ml-1.5 font-mono text-[10px] tracking-[0.12em] uppercase text-rust-400/80" title="You were sure of the wrong claim: a held belief, not a slip">held belief</span>}
                     </span>
                   </li>
                 ))}

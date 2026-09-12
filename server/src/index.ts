@@ -13,6 +13,7 @@ import { PORT, VAULT_DIR } from './config.js';
 import {
   allNodes,
   bindMaterials,
+  buildReviewGraph,
   createLearner,
   createLesson,
   DEFAULT_LEARNER_ID,
@@ -32,7 +33,6 @@ import {
   listMisconceptions,
   listNodes,
   renameLearner,
-  replaceGraph,
   setAnswerIn,
   stats,
   sweepOrphanMaterials,
@@ -41,6 +41,7 @@ import {
 } from './db.js';
 import { emit, subscribe } from './events.js';
 import { exportToVault, renderMarkdown } from './export.js';
+import { addResource, deleteResource, editResource, getResource, isKind, librarySection, listResources, publicRow, refetchResource, RESOURCE_KINDS, segmentsOf, tagCounts } from './library.js';
 import { ACCEPTED, describe, ingestMaterial, ingestRepo, materialsSection, MAX_FILE_BYTES } from './materials.js';
 import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt } from './prompt.js';
@@ -93,7 +94,7 @@ sweepOrphanMaterials();
 app.get('/api/health', (c) => c.json({ ok: true, version: '0.3.0' }));
 app.get('/api/stats', (c) => {
   const learner = learnerOf(c);
-  return c.json({ ...stats(learner), due: dueNodes(learner).length, vault: !!VAULT_DIR, learner: getLearner(learner) });
+  return c.json({ ...stats(learner), due: dueNodes(learner).length, vault: !!VAULT_DIR, library: listResources(learner).length, learner: getLearner(learner) });
 });
 
 // ---------- learners ----------
@@ -373,22 +374,94 @@ app.delete('/api/materials/:id', (c) => {
   return c.json({ ok: true });
 });
 
+// ---------- the library ----------
+
+const err = (c: Context, e: unknown, status: 400 | 404 | 422 | 500 = 400) => c.json({ error: e instanceof Error ? e.message : String(e) }, status);
+
+/** The learner's shelf, filtered by ?q= (title, tags, note, author), ?kind= and ?tag=. */
+app.get('/api/library', (c) => {
+  const learner = learnerOf(c);
+  const q = (c.req.query('q') ?? '').trim().toLowerCase();
+  const kind = c.req.query('kind');
+  const tag = c.req.query('tag')?.toLowerCase();
+  const rows = listResources(learner)
+    .map(publicRow)
+    .filter((r) => (!kind || r.kind === kind) && (!tag || r.tags.includes(tag)))
+    .filter((r) => !q || [r.title, r.author, r.note, r.host, r.tags.join(' ')].some((s) => (s ?? '').toLowerCase().includes(q)));
+  return c.json({ resources: rows, tags: tagCounts(learner), kinds: RESOURCE_KINDS, total: listResources(learner).length });
+});
+
+/** Add an entry: a URL (fetched now), or a note with a title. */
+app.post('/api/library', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { url?: string; title?: string; kind?: string; author?: string; note?: string; tags?: unknown; fetch?: boolean; learner?: string };
+  try {
+    const { resource, existing } = await addResource(learnerOf(c, body.learner), body, { addedBy: 'learner' });
+    return c.json({ ...publicRow(resource), existing }, existing ? 200 : 201);
+  } catch (e) {
+    return err(c, e, 422);
+  }
+});
+
+app.get('/api/library/:id', (c) => {
+  const r = getResource(c.req.param('id'));
+  if (!r) return c.json({ error: 'not found' }, 404);
+  const { text: _t, ...meta } = r;
+  return c.json(c.req.query('text') ? { ...publicRow(meta), parts: segmentsOf(r) } : publicRow(meta));
+});
+
+app.patch('/api/library/:id', async (c) => {
+  const id = c.req.param('id');
+  if (!getResource(id)) return c.json({ error: 'not found' }, 404);
+  const body = (await c.req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; author?: unknown; note?: unknown; tags?: unknown };
+  if (body.kind !== undefined && !isKind(body.kind)) return c.json({ error: `kind must be one of ${RESOURCE_KINDS.join(', ')}` }, 400);
+  try {
+    return c.json(publicRow(editResource(id, body)));
+  } catch (e) {
+    return err(c, e);
+  }
+});
+
+app.post('/api/library/:id/refetch', async (c) => {
+  const id = c.req.param('id');
+  if (!getResource(id)) return c.json({ error: 'not found' }, 404);
+  try {
+    return c.json(publicRow(await refetchResource(id)));
+  } catch (e) {
+    return err(c, e, 422);
+  }
+});
+
+app.delete('/api/library/:id', (c) => {
+  const id = c.req.param('id');
+  if (!getResource(id)) return c.json({ error: 'not found' }, 404);
+  deleteResource(id);
+  return c.json({ ok: true });
+});
+
 // ---------- review ----------
 
 app.get('/api/review', (c) => c.json(dueNodes(learnerOf(c))));
 
+/**
+ * A review session is a lesson whose graph is copies of the due nodes and
+ * the nodes they rest on; a status change on a copy reschedules the
+ * original. The tutor gets the due nodes interleaved across topics and
+ * their dependencies, so a miss is re-derived rather than re-told.
+ */
+function startReview(learner: string, opts: { mode?: 'agent' | 'external'; answerIn?: 'browser' | 'terminal' } = {}) {
+  if (!dueNodes(learner).length) return null;
+  const id = randomUUID();
+  const graph = buildReviewGraph(id, learner);
+  // The topic names the due nodes, so the graph is built before the lesson row (no key constraint between them).
+  const lesson = createLesson(id, `Review · ${graph.due.map((n) => n.label).join(', ')}`, { learnerId: learner, mode: opts.mode, answerIn: opts.answerIn });
+  return { lesson, graph };
+}
+
 app.post('/api/review', async (c) => {
-  const learner = learnerOf(c);
-  const due = dueNodes(learner);
-  if (!due.length) return c.json({ error: 'nothing due' }, 400);
-  const picked = due.slice(0, 6);
-  const lesson = createLesson(randomUUID(), `Review · ${picked.map((n) => n.label).join(', ')}`, { learnerId: learner });
-  replaceGraph(
-    lesson.id,
-    picked.map((n) => ({ id: n.node_id, label: n.label, kind: n.kind as 'truth' | 'derived' | 'goal', summary: n.summary ?? undefined, depends_on: [] })),
-  );
-  void runTurn(lesson.id, reviewTurnPrompt(picked)).catch((e) => console.error('[turn]', e));
-  return c.json(lesson, 201);
+  const started = startReview(learnerOf(c));
+  if (!started) return c.json({ error: 'nothing due' }, 400);
+  void runTurn(started.lesson.id, reviewTurnPrompt(started.graph.due)).catch((e) => console.error('[turn]', e));
+  return c.json(started.lesson, 201);
 });
 
 // ---------- atlas + learner profile ----------
@@ -413,7 +486,21 @@ app.get('/api/profile', (c) => c.json({ ...actions.profile(learnerOf(c)), learne
 // ---------- external lessons (Claude Code plugin) ----------
 
 app.post('/api/external/lessons', async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { topic?: string; materials?: string[]; learner?: string; answer_in?: string };
+  const body = (await c.req.json().catch(() => ({}))) as { topic?: string; materials?: string[]; learner?: string; answer_in?: string; review?: boolean };
+  if (body.review) {
+    const started = startReview(learnerOf(c, body.learner), { mode: 'external', answerIn: body.answer_in === 'terminal' ? 'terminal' : 'browser' });
+    if (!started) return c.json({ error: 'Nothing is due for review for this learner.' }, 400);
+    emit(started.lesson.id, 'turn_start', { source: 'claude-code' });
+    const due = started.graph.due.map((n) => ({
+      id: n.review_id,
+      label: n.label,
+      summary: n.summary,
+      topic: n.topic,
+      overdue_days: Math.max(0, Math.floor((Date.now() - (n.review_at ?? Date.now())) / 86_400_000)),
+      derived_from: n.deps.map((d) => `${d.label} [${d.id}]`),
+    }));
+    return c.json({ ...started.lesson, url: `${baseUrl(c.req.url)}/lesson/${started.lesson.id}`, review: { due, instructions: reviewTurnPrompt(started.graph.due) } }, 201);
+  }
   const topic = body.topic?.trim();
   if (!topic) return c.json({ error: 'topic required' }, 400);
   const lesson = createLesson(randomUUID(), topic, {
@@ -424,7 +511,13 @@ app.post('/api/external/lessons', async (c) => {
   const materials = Array.isArray(body.materials) && body.materials.length ? bindMaterials(lesson.id, body.materials) : [];
   for (const m of materials) emit(lesson.id, 'material', materialEvent(m));
   emit(lesson.id, 'turn_start', { source: 'claude-code' });
-  return c.json({ ...lesson, materials, url: `${baseUrl(c.req.url)}/lesson/${lesson.id}` }, 201);
+  return c.json({ ...lesson, materials, url: `${baseUrl(c.req.url)}/lesson/${lesson.id}`, library: librarySection(lesson.learner_id, topic) }, 201);
+});
+
+/** The system-prompt section about a learner's library, for a driver that builds its own context (the plugin). */
+app.get('/api/external/library', (c) => {
+  const learner = learnerOf(c);
+  return c.json({ size: listResources(learner).length, brief: librarySection(learner, c.req.query('topic') ?? '') });
 });
 
 /** The system-prompt section about a lesson's material, for a driver that builds its own context (the plugin). */
@@ -519,13 +612,15 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
     }
     switch (action) {
       case 'quiz': {
-        const gap = teachingGap(id, a as { node_id?: string; already_held?: boolean });
-        if (gap) return c.json({ error: gap }, 400);
         const args = a as unknown as actions.QuizArgs;
+        if (args.purpose != null && !actions.QUIZ_PURPOSES.includes(args.purpose)) return c.json({ error: `purpose must be one of ${actions.QUIZ_PURPOSES.join(', ')}` }, 400);
+        // A pretest comes before the teaching by design; only the check that locks a node needs prose before it.
+        const gap = args.purpose === 'pretest' ? null : teachingGap(id, a as { node_id?: string; already_held?: boolean });
+        if (gap) return c.json({ error: gap }, 400);
         if (!Array.isArray(args.options) || args.options.length < 2 || !Array.isArray(args.correct) || !args.correct.length) return c.json({ error: 'quiz needs 2 or 3 options and at least one correct index' }, 400);
         if (terminal) {
           const open = actions.openQuiz(id, args, { hold: true });
-          return c.json(withNotices(id, holdCard(id, 'quiz', open, { question: args.question, options: args.options, multi: args.correct.length > 1 }, args.options.length, nodeLabelOf(id, args.node_id))));
+          return c.json(withNotices(id, holdCard(id, 'quiz', open, { question: args.question, options: args.options, multi: args.correct.length > 1, purpose: args.purpose ?? undefined }, args.options.length, nodeLabelOf(id, args.node_id))));
         }
         return c.json(withNotices(id, await actions.quiz(id, args)));
       }
@@ -598,6 +693,14 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         return c.json(actions.readMaterial(id, a as { name?: string; path?: string; from?: number; to?: number }));
       case 'search_material':
         return c.json(actions.searchMaterial(id, a as { query: string; name?: string; limit?: number }));
+      case 'search_library':
+        return c.json(actions.searchLibrary(id, a as { query: string; kind?: string; tag?: string; limit?: number }));
+      case 'read_resource':
+        return c.json(actions.readResource(id, a as { id?: string; title?: string; from?: number; to?: number }));
+      case 'suggest_resource':
+        return c.json(withNotices(id, actions.suggestResource(id, a as { id?: string; title?: string; why: string; where?: string; node_id?: string })));
+      case 'add_resource':
+        return c.json(withNotices(id, await actions.saveResource(id, a as { url?: string; title?: string; kind?: string; author?: string; note?: string; tags?: unknown })));
       case 'mirror': {
         // The plugin's hooks post transcript text here.
         const { role, text, uid, at } = a as { role: 'assistant' | 'user'; text: string; uid?: string; at?: number };

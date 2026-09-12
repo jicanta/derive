@@ -18,7 +18,7 @@ import { collectRepo, type RepoSource } from './repo.js';
 export type MaterialKind = MaterialRow['kind'];
 
 /** Segments are joined with the ASCII record separator, which never survives extraction. */
-const SEP = '';
+export const SEP = '';
 const SEP_RE = //g;
 export const MAX_FILE_BYTES = 40 * 1024 * 1024;
 /** Beyond this the tail is dropped; a semester of slides fits well below it. */
@@ -227,7 +227,7 @@ export const describe = (m: MaterialRow) =>
     : `${m.name} (${m.kind}, ${m.pages} ${m.unit}${m.pages === 1 ? '' : 's'}, about ${words(m.chars)})`;
 
 /** The first meaningful line of a segment: the slide title, the page's running head, the section heading. */
-function titleOf(seg: string) {
+export function titleOf(seg: string) {
   const line = seg.split('\n').map((l) => l.replace(/^#+\s*/, '').trim()).find((l) => l.length >= 3) ?? '';
   return line.length > 64 ? line.slice(0, 61).trimEnd() + '…' : line;
 }

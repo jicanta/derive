@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import './index.css';
 import { AtlasPage } from './pages/Atlas';
 import { HomePage } from './pages/Home';
+import { LibraryPage } from './pages/Library';
 import { LessonPage } from './pages/Lesson';
 
 createRoot(document.getElementById('root')!).render(
@@ -14,6 +15,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/" element={<HomePage />} />
           <Route path="/lesson/:id" element={<LessonPage />} />
           <Route path="/atlas" element={<AtlasPage />} />
+          <Route path="/library" element={<LibraryPage />} />
         </Routes>
       </div>
     </BrowserRouter>

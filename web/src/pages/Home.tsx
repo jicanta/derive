@@ -101,6 +101,7 @@ export function HomePage() {
           </div>
           <nav className="flex items-center gap-5 md:gap-8 font-mono text-[11px] tracking-[0.06em] text-ink-400">
             <Link to="/atlas" className="hidden md:inline hover:text-ink-50">atlas</Link>
+            <Link to="/library" className="hidden md:inline hover:text-ink-50">library</Link>
             <a href="https://github.com/jicanta/derive#inside-claude-code" className="hidden md:inline hover:text-ink-50">claude code plugin</a>
             <a href="https://github.com/jicanta/derive" className="hidden md:inline hover:text-ink-50">github</a>
             <LearnerMenu onChange={refresh} />
@@ -234,6 +235,11 @@ export function HomePage() {
                   </button>
                 ) : (
                   <span className="text-ink-500">nothing due today</span>
+                )}
+                {(stats.library ?? 0) > 0 && (
+                  <Link to="/library" className="text-ink-400 hover:text-gold-500">
+                    <span className="text-ink-100">{stats.library}</span> in your library
+                  </Link>
                 )}
               </div>
             )}

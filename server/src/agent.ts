@@ -5,6 +5,7 @@ import * as actions from './actions.js';
 import { DATA_DIR, EFFORT, MODEL } from './config.js';
 import { getLesson, learnerProfile, setSessionId, type GraphNodeInput } from './db.js';
 import { checkpoint, emit, emitEphemeral, emitUpdate } from './events.js';
+import { librarySection } from './library.js';
 import { materialsSection } from './materials.js';
 import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
@@ -48,19 +49,27 @@ export const nodeSchema = z.object({
 });
 
 export const TOOL_DESCRIPTIONS = {
-  quiz: 'Ask the learner ONE graded multiple-choice question with a known correct answer. The app renders the options, the learner answers, the app grades it and reveals your explanation. Returns what the learner picked and whether it was correct. Blocks until the learner answers.',
+  quiz: 'Ask the learner ONE graded multiple-choice question with a known correct answer. The app renders the options, the learner picks and says whether they are sure, the app grades it and reveals your explanation. Returns what they picked, whether it was correct, how sure they were, and what to do next. Set `purpose`: "pretest" for the attempt you ask for BEFORE teaching a derived node (a miss is expected and is not recorded against them), "check" for the question that locks a node; the probe phase and review sessions are recognised on their own. Blocks until the learner answers.',
   ask: 'Ask the learner a question with no right answer (goal, preference, energy, what next). Optionally offer choices; the learner can always type a free answer. Blocks until they answer.',
   set_plan:
     'Submit the lesson plan as a dependency DAG: unconditional truths at the roots (kind "truth"), derived steps (kind "derived"), exactly one "goal" sink. The app draws it and asks the learner to approve. Blocks until they approve or request changes; if they request changes, revise and call again.',
-  node_status: 'Update the state of a plan node: "teaching" when you start it, "locked" when a quiz confirms it landed, "shaky" when it did not.',
+  node_status: 'Update the state of a plan node: "teaching" when you start it, "locked" when a confident check confirmed it (the node is then scheduled for review by how well the check went; the reply says in how many days), "shaky" when it did not land after two checks.',
   set_phase: 'Announce which phase of the lesson you are in.',
   explain_back:
-    'Teach-back check: ask the learner to explain a node in their own words (2 to 5 sentences). Write the rubric first: the 2 or 3 things a correct explanation must contain. Returns their explanation for you to grade. Use once per lesson on the most important derived node, or when a quiz pass felt lucky. Blocks until they write.',
+    'Teach-back check: ask the learner to explain a node in their own words (2 to 5 sentences), or to say WHY a claim must be true. Write the rubric first: the 2 or 3 things a correct explanation must contain. Returns their explanation for you to grade. Use it at least once per lesson on the most important derived node, and whenever a pass was unsure. Blocks until they write.',
   remember:
     'Store one durable fact about this learner for future lessons: a strength, a gap, a preference (Socratic vs narrated), a background detail. One sentence. Use sparingly: 1 to 3 per lesson.',
   read_material:
     'Read a range of the course material the learner attached (pages of a PDF, slides of a deck, parts of a document, files of a repository). Returns the text with a marker before each page, slide or file. For a repository pass `path` to read one file. Read the relevant range before planning and before teaching a node that maps to it. About ten pages per call. Only useful when the lesson has material (listed in your instructions, or announced in a tool result).',
   search_material: 'Find where something is covered in the attached course material. Returns the best-matching pages, slides or files with a snippet each. Use it to locate a definition, an example, a formula or a function before you read the range around it. Only useful when the lesson has material.',
+  search_library:
+    "Search the learner's library: the articles, videos, books, papers, courses and notes they keep across lessons (listed in your instructions when there are any). Matches titles, tags, notes and the fetched text. Returns entries with a snippet and the part it was found in. Search it before you plan, and when the learner asks for something to read or watch.",
+  read_resource:
+    "Read a range of parts of one library entry (an article's body, a paper's PDF, a video's description). About ten parts per call, with a marker before each. Pass the entry's id (from the catalog or a search hit) or its title. An entry with nothing fetched returns its URL and note; use WebFetch on the URL then.",
+  suggest_resource:
+    "Point the learner at one entry of their library, as a card in the lesson: which entry, why it is worth their time now, and where to look (a chapter, a section, a timestamp). Use it when a node locks and the entry deepens it, when the learner wants more, or when a source explains a step better than chat can. One at a time, only when it earns its place. Only entries in the library or ones you just saved with add_resource.",
+  add_resource:
+    "Save a source to the learner's library for later: a URL you found with WebSearch or read with WebFetch (the page is fetched and its text kept), with a one-sentence note on why and a few tags. Sparingly: one or two per lesson, and only sources you actually read. A URL already on the shelf is not duplicated; your note and tags are merged in.",
 };
 
 function buildTools(lessonId: string) {
@@ -73,6 +82,7 @@ function buildTools(lessonId: string) {
       correct: z.array(z.number().int().min(0)).min(1).describe('0-based indices of the correct option(s). Usually exactly one.'),
       explanation: z.string().describe('Why the correct answer is correct, and what each distractor gets wrong. Shown only after answering.'),
       node_id: z.string().optional().describe('The plan node this question checks. Always pass it in the teach phase.'),
+      purpose: z.enum(['probe', 'pretest', 'check', 'review']).optional().describe('"pretest": the attempt before teaching a node (not recorded against the learner, never locks). "check": the question that locks a node. Default: "probe" in the probe phase, "review" in a review session, else "check".'),
     },
     async (a) => text(await actions.quiz(lessonId, a)),
   );
@@ -143,18 +153,72 @@ function buildTools(lessonId: string) {
     async (a) => text(actions.searchMaterial(lessonId, a)),
   );
 
-  // The material tools are always registered: material can be attached while
-  // a card is pending, and the tutor should be able to read it in that same
-  // turn. Without material they return a clear error.
+  const search_library = tool(
+    'search_library',
+    TOOL_DESCRIPTIONS.search_library,
+    {
+      query: z.string().describe('A few words: the topic, a term, an author. Empty lists the shelf.'),
+      kind: z.enum(['article', 'video', 'book', 'paper', 'course', 'note']).optional().describe('Restrict to one kind.'),
+      tag: z.string().optional().describe('Restrict to one tag.'),
+      limit: z.number().int().min(1).max(20).optional(),
+    },
+    async (a) => text(actions.searchLibrary(lessonId, a)),
+  );
+
+  const read_resource = tool(
+    'read_resource',
+    TOOL_DESCRIPTIONS.read_resource,
+    {
+      id: z.string().optional().describe('The entry id, or the first characters of it.'),
+      title: z.string().optional().describe('Or the entry title (or part of it).'),
+      from: z.number().int().min(1).optional().describe('First part, 1-based. Default 1.'),
+      to: z.number().int().min(1).optional().describe('Last part, inclusive. Default from + 9.'),
+    },
+    async (a) => text(actions.readResource(lessonId, a)),
+  );
+
+  const suggest_resource = tool(
+    'suggest_resource',
+    TOOL_DESCRIPTIONS.suggest_resource,
+    {
+      id: z.string().optional().describe('The entry id, or the first characters of it.'),
+      title: z.string().optional().describe('Or the entry title (or part of it).'),
+      why: z.string().describe('One or two sentences, to the learner: what this gives them that the lesson did not.'),
+      where: z.string().optional().describe('Where to look: "chapter 3", "from 12:40", "the section on invariants".'),
+      node_id: z.string().optional().describe('The plan node it deepens, if any.'),
+    },
+    async (a) => text(actions.suggestResource(lessonId, a)),
+  );
+
+  const add_resource = tool(
+    'add_resource',
+    TOOL_DESCRIPTIONS.add_resource,
+    {
+      url: z.string().describe('The page, video, paper or book to save.'),
+      title: z.string().optional().describe('Override the fetched title.'),
+      kind: z.enum(['article', 'video', 'book', 'paper', 'course', 'note']).optional().describe('Guessed from the URL when omitted.'),
+      author: z.string().optional(),
+      note: z.string().describe('One sentence, to the learner: why this is worth keeping.'),
+      tags: z.array(z.string()).max(8).optional().describe('A few lowercase tags, e.g. ["calculus", "visual"].'),
+    },
+    async (a) => text(await actions.saveResource(lessonId, a)),
+  );
+
+  // The material and library tools are always registered: material can be
+  // attached while a card is pending, and the tutor should be able to read
+  // it in that same turn. Without material they return a clear error.
   return createSdkMcpServer({
     name: 'derive',
     version: '0.2.0',
     alwaysLoad: true,
-    tools: [quiz, ask, set_plan, node_status, set_phase, explain_back, remember, read_material, search_material],
+    tools: [quiz, ask, set_plan, node_status, set_phase, explain_back, remember, read_material, search_material, search_library, read_resource, suggest_resource, add_resource],
   });
 }
 
-export const DERIVE_TOOL_NAMES = ['quiz', 'ask', 'set_plan', 'node_status', 'set_phase', 'explain_back', 'remember', 'read_material', 'search_material'] as const;
+export const DERIVE_TOOL_NAMES = [
+  'quiz', 'ask', 'set_plan', 'node_status', 'set_phase', 'explain_back', 'remember', 'read_material', 'search_material',
+  'search_library', 'read_resource', 'suggest_resource', 'add_resource',
+] as const;
 
 // ---------- running a turn ----------
 
@@ -170,6 +234,10 @@ const TOOL_LABELS: Record<string, string> = {
   mcp__derive__remember: 'Taking a note',
   mcp__derive__read_material: 'Reading your material',
   mcp__derive__search_material: 'Searching your material',
+  mcp__derive__search_library: 'Searching your library',
+  mcp__derive__read_resource: 'Reading from your library',
+  mcp__derive__suggest_resource: 'Picking a resource for you',
+  mcp__derive__add_resource: 'Saving a source to your library',
 };
 
 export async function runTurn(lessonId: string, prompt: string, opts: { echoUser?: string } = {}) {
@@ -186,7 +254,7 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   const q = query({
     prompt,
     options: {
-      systemPrompt: SYSTEM_PROMPT + materialsSection(lessonId) + learnerProfile(lesson.learner_id, lessonId),
+      systemPrompt: SYSTEM_PROMPT + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId),
       cwd: DATA_DIR,
       settingSources: [],
       mcpServers: { derive: buildTools(lessonId) },
