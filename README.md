@@ -14,10 +14,9 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#your-first-lesson">First lesson</a> ·
   <a href="#your-library">Library</a> ·
+  <a href="#how-you-learn">How you learn</a> ·
   <a href="#inside-claude-code">Inside Claude Code</a> ·
-  <a href="#how-a-lesson-works">How a lesson works</a> ·
-  <a href="#what-makes-it-smart">What makes it smart</a> ·
-  <a href="#architecture">Architecture</a>
+  <a href="#what-makes-it-smart">What makes it smart</a>
 </p>
 
 ---
@@ -97,7 +96,18 @@ Click *voice* in a lesson's header. The tutor's prose and every card are read al
 
 The name in the top right of the home page is who is learning. Add a learner, and they get their own lessons, library, Atlas, misconceptions, tutor notes and review queue; the tutor never mixes two people's memories. The choice is kept per browser. In the vault, the first learner's notes sit at the root and every other learner gets a folder. The plugin follows `DERIVE_LEARNER` or `--learner <name>` on the command.
 
-### Settings
+## How you learn
+
+The method this comes from was written for one person. Derive has many, so each learner writes their own version. *How you learn* (in the header, or from the learner menu) is a page the tutor reads before every lesson:
+
+- **Language.** Be taught in Spanish, Portuguese, whatever you write in. Prose, quiz options, the plan, the cards.
+- **Style.** Adaptive, Socratic (questions first, the click is yours) or narrated (told cleanly, then tested).
+- **Pace.** Brisk, standard or thorough.
+- **Background, how you learn, examples from.** Free text, in your words: what you already hold, what works for you and what does not, and the domains to pull analogies from.
+
+The method does not bend to any of it: it still probes, still makes you try first, still checks every node and hints before re-deriving. The delivery does. You can also just tell the tutor mid-lesson (*en español por favor*, *stop quizzing me through every step, just explain it*, *I'm a musician, use music*) and it saves it for next time. The page also shows the notes the tutor kept about you; what you write wins over them.
+
+## Settings
 
 All optional. Put them in `.env` in the repo root (see [`.env.example`](.env.example)); `pnpm start`, `pnpm dev` and `pnpm check` read it.
 
@@ -116,9 +126,9 @@ All optional. Put them in `.env` in the repo root (see [`.env.example`](.env.exa
 The `plugin/` directory is a Claude Code plugin. It ships:
 
 - **`/derive:learn <topic>`** and **`/derive:review`** commands
-- the **`teach` skill**: the full method (below), written for Claude Code
-- an **MCP server** exposing the tutor's tools: `quiz` (with a `purpose`: pretest, check, review), `ask`, `set_plan`, `node_status`, `explain_back`, `remember`, `learner_profile`, `learners`, `answer` / `answer_in` for terminal answers, `start_lesson` (also starts a review with `review: true`), `read_material` / `search_material` / `attach_material` for course material, and `search_library` / `read_resource` / `suggest_resource` / `add_resource` / `library` for the learner's library
-- **hooks** that mirror every terminal turn into the lesson log, so the browser companion shows the prose, the cards and the graph as one record
+- the **`teach` skill**: the full method, written for Claude Code
+- an **MCP server** with the tutor's tools: the cards (`quiz`, `ask`, `set_plan`, `explain_back`), the graph, the learner's memory and preferences, course material, and the library
+- **hooks** that mirror every terminal turn into the lesson log, so the browser shows the prose, the cards and the graph as one record
 
 Three steps, from the derive folder:
 
@@ -172,15 +182,6 @@ claude mcp add derive -- node /absolute/path/to/derive/server/dist/mcp.js
 
 ## How a lesson works
 
-```mermaid
-flowchart LR
-  A[Probe] --> B[Plan] --> C[Teach] --> D{Quiz}
-  D -->|pass| E[Lock]
-  D -->|miss| C
-  E -->|next node| C
-  E -->|goal locked| G[The click]
-```
-
 1. **Probe.** The tutor asks what you actually want (an open question), then quizzes you, adapting each question to the last answer, until it can say concretely what you have and where it ends. All-correct means the questions were too easy; it escalates.
 2. **Plan.** It writes a short paragraph on the approach and submits the dependency map. You approve it or send it back with one line of feedback.
 3. **Teach.** For every node: motivate it, make you *attempt* it before it is explained (a pretest, where a miss is expected and never counts against you), establish it from its dependencies, connect it explicitly, then check it with a different question. You say how sure you are before the reveal. A miss gets a hint and a fresh question before any re-derivation; a confident miss gets the belief you held named and taken apart. Miss twice and the node goes shaky and the tutor backs up to what it depends on.
@@ -203,6 +204,7 @@ flowchart LR
 - **A codebase as a course.** Import a repo (a folder, a GitHub URL, a git URL) and the tutor reads it file by file, cites paths, treats the invariants as ground truths and the design decisions as derived nodes, and quizzes you on what a change would break.
 - **Voice.** The tutor is read aloud and listens for your reply, so a Socratic exchange can happen away from the keyboard. Quiz options are picked by letter, plans approved with a word.
 - **One install, several learners.** Each learner has their own lessons, memory, misconceptions, Atlas and review queue. The tutor is told whose lesson it is and builds only on that person's floors.
+- **Taught your way.** Each learner tells the tutor, once, how they learn: the language, how Socratic, how long, their background, where to take examples from. The method stays fixed; the delivery follows it, and a request made mid-lesson is kept for the next one.
 - **Renders properly.** KaTeX math, Mermaid diagrams, and inline SVG for geometry, all streaming. Export any lesson as an Obsidian note with callouts, or point `DERIVE_VAULT_DIR` at your vault and every lesson is written there live, paragraph by paragraph, while it happens.
 - **Keyboard first.** `1` `2` `3` pick an option, `Enter` answers or approves the plan, `Shift+Enter` answers as unsure, `?` is "I don't know". In the terminal, `B` answers, `B?` answers as unsure. A lesson never needs the mouse; from the terminal it never needs the browser.
 
@@ -234,26 +236,6 @@ The mechanics inside a lesson borrow from the memory literature directly:
 - **Faded guidance.** Worked examples help novices and hurt learners past them (the expertise-reversal effect), so the tutor works the first example on strands you missed in the probe and skips it on strands you already hold.
 
 The method comes from [amosblomqvist/learn](https://github.com/amosblomqvist/learn) and the talk [How I Use AI to Learn Things](https://www.youtube.com/watch?v=kzcI5F4tGiU). Derive turns that terminal workflow into a product and keeps the terminal.
-
-## Architecture
-
-```
-derive/
-├── server/   Node 22 · Hono · node:sqlite · Claude Agent SDK · MCP stdio server
-├── web/      Vite · React 19 · Tailwind 4 · React Flow · KaTeX · Mermaid
-├── plugin/   Claude Code plugin: commands, teach skill, hooks, .mcp.json
-└── design/   Claude Design canvas the UI was built from
-```
-
-- **One set of tutor actions, two drivers.** `server/src/actions.ts` implements `quiz`, `ask`, `set_plan`, `node_status`, `explain_back`, `remember`, `read_material`, `search_material` and the library actions (`search_library`, `read_resource`, `suggest_resource`, `add_resource`). The in-process agent calls them through an SDK MCP server; a Claude Code session calls them through the HTTP API via `server/src/mcp.ts`.
-- **Course material is text, segmented.** `server/src/materials.ts` reduces a PDF (via `unpdf`), a PPTX or DOCX (unzipped, XML runs joined per slide or paragraph, speaker notes included) or Markdown to a list of segments in SQLite. `server/src/repo.ts` does the same for a repository: one segment per file, from `git ls-files` for a local checkout, from the tarball for a GitHub URL (no git needed), from a shallow clone otherwise. The tutor's system prompt carries the full text when it is short and an outline otherwise; the material tools address segments by page, slide or file path.
-- **The library is fetched text, per learner.** `server/src/library.ts` normalises a URL, guesses its kind, fetches it (HTML through a readability pass that drops navigation and sidebars, PDFs through `unpdf`, arXiv abstracts through their PDF, YouTube and Vimeo through oEmbed plus the description) and stores the text in segments. The tutor's system prompt carries the entries relevant to the topic; the tools search across titles, tags, notes and text.
-- **Tools block on you, or hold for you.** A `quiz` call emits a card to the browser and waits until you answer. The server grades it, records it, and only then returns to the model. In a terminal-answered lesson the same call opens the card as *held*, returns it as text, and the model's `answer` call settles it with your reply; a held card survives the end of a turn, and a browser answer to it is delivered on the next prompt by the hook. Grading never moves to the model.
-- **Voice is a browser feature.** `web/src/lib/voice.ts` wraps `speechSynthesis` and `SpeechRecognition`; `useVoiceMode` reads new prose and cards as they land and opens the microphone when the tutor goes quiet. The server only hears that voice is on, so the tutor can write for the ear.
-- **Learners are a column.** Every lesson belongs to a learner; memory, misconceptions, nodes and the review queue are joined through it. The web app sends its selected learner in a header, the plugin by name; an install starts with one learner named after your OS user, and old lessons belong to it.
-- **Event-sourced lessons.** Every turn is a stream of typed events appended to SQLite and fanned out over Server-Sent Events. The UI is a reducer over that stream, so reloads, reconnects, the Obsidian export and the terminal mirror all replay the same log.
-- **Conversation continuity** uses Agent SDK session resume: one SDK session per lesson, resumed on every turn.
-- **The mirror hook** (`plugin/hooks/mirror.mjs`) reads the Claude Code transcript on each turn and posts new prose to the active lesson, tracking what it has already sent per session.
 
 ## License
 
