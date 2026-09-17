@@ -1,0 +1,8 @@
+interface:
+  display_name: "Derive: learn"
+  short_description: "Learn a topic from first principles, with quizzes graded in the browser"
+  default_prompt: "$derive-learn why does gradient descent work"
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "derive"

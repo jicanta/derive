@@ -122,6 +122,8 @@ for (const ddl of [
   'ALTER TABLE misconceptions ADD COLUMN confidence TEXT',
   // How the learner wants to be taught, in their own words (JSON, see LearnerPrefs).
   'ALTER TABLE learners ADD COLUMN prefs TEXT',
+  // Companion lessons: which terminal drives it ('claude-code' or 'codex').
+  'ALTER TABLE lessons ADD COLUMN driver TEXT',
 ]) {
   try {
     db.exec(ddl);
@@ -152,6 +154,8 @@ export type Lesson = {
   learner_id: string;
   /** Companion lessons only: where the learner answers cards. 'terminal' makes blocking tools return at once. */
   answer_in: 'browser' | 'terminal';
+  /** Companion lessons only: the terminal that drives it, 'claude-code' or 'codex'. */
+  driver: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -206,7 +210,7 @@ export type StoredEvent = { seq: number; type: string; payload: unknown; ts: num
 
 const q = {
   insertLesson: db.prepare(
-    'INSERT INTO lessons (id, topic, mode, learner_id, answer_in, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO lessons (id, topic, mode, learner_id, answer_in, driver, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   ),
   lastExternal: db.prepare("SELECT * FROM lessons WHERE mode = 'external' ORDER BY created_at DESC LIMIT 1"),
   setAnswerIn: db.prepare('UPDATE lessons SET answer_in = ?, updated_at = ? WHERE id = ?'),
@@ -421,10 +425,10 @@ export function deleteLearner(id: string) {
 export function createLesson(
   id: string,
   topic: string,
-  opts: { mode?: 'agent' | 'external'; learnerId?: string; answerIn?: 'browser' | 'terminal' } = {},
+  opts: { mode?: 'agent' | 'external'; learnerId?: string; answerIn?: 'browser' | 'terminal'; driver?: string | null } = {},
 ): Lesson {
   const now = Date.now();
-  q.insertLesson.run(id, topic, opts.mode ?? 'agent', opts.learnerId ?? DEFAULT_LEARNER_ID, opts.answerIn ?? 'browser', now, now);
+  q.insertLesson.run(id, topic, opts.mode ?? 'agent', opts.learnerId ?? DEFAULT_LEARNER_ID, opts.answerIn ?? 'browser', opts.driver ?? null, now, now);
   return getLesson(id)!;
 }
 

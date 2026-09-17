@@ -525,10 +525,10 @@ export function readResource(learnerId: string, a: { id?: string | null; title?:
       total: 0,
       text: '',
       note_for_tutor: r.fetch_error
-        ? `Nothing was fetched from this entry (${r.fetch_error}). Its URL is ${r.url}; use WebFetch to read it, and the learner's note above for what it is good for.`
+        ? `Nothing was fetched from this entry (${r.fetch_error}). Its URL is ${r.url}; use a fetch of the page to read it, and the learner's note above for what it is good for.`
         : r.kind === 'note'
           ? 'This is a plain note; the note field above is all of it.'
-          : `This entry has metadata only (a ${r.kind}); use WebFetch on its URL if you need the content, or go by the learner's note.`,
+          : `This entry has metadata only (a ${r.kind}); use a fetch of the page on its URL if you need the content, or go by the learner's note.`,
     };
   }
   const from = Math.max(1, Math.min(segs.length, Math.floor(a.from ?? 1)));

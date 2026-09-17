@@ -1,32 +1,61 @@
 #!/usr/bin/env node
 /**
- * Derive as an MCP server for Claude Code (stdio).
+ * Derive as an MCP server (stdio), for Claude Code, Codex, or the app's own
+ * Codex backend.
  *
- * Exposes the tutor's tools to a Claude Code session and proxies them to a
+ * Exposes the tutor's tools to a coding-agent session and proxies them to a
  * running Derive server, which renders the cards and the graph in the
  * browser. A lesson is answered either in the browser (the blocking tools
  * wait there) or in the terminal (they return the card at once and the
  * learner's next message settles it through `answer`). Configure with:
  *
  *   claude mcp add derive -- node /path/to/derive/server/dist/mcp.js
+ *   pnpm codex:setup            (writes the Codex config, links the skills)
  *
- * or install the plugin in ./plugin, which wires this plus the teach skill.
+ * or install the Claude Code plugin in ./plugin, which wires this plus the
+ * teach skill.
  *
  * Environment: DERIVE_URL (default http://localhost:4310), DERIVE_LEARNER
  * (a learner name or id; default the first learner), DERIVE_ANSWER_IN
- * ("browser" or "terminal"; default browser).
+ * ("browser" or "terminal"; default browser), DERIVE_DRIVER ("claude-code",
+ * the default; "codex", which also mirrors the Codex session log into the
+ * lesson, since Codex has no transcript hooks; or "app", the Derive server
+ * running a lesson on Codex itself), DERIVE_LESSON_ID (bind to one lesson).
  */
 import { exec } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, extname, join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { RolloutMirror } from './codex-mirror.js';
 
 const BASE = (process.env.DERIVE_URL ?? 'http://localhost:4310').replace(/\/$/, '');
 const LEARNER = process.env.DERIVE_LEARNER?.trim() || undefined;
 const ANSWER_IN = process.env.DERIVE_ANSWER_IN === 'terminal' ? 'terminal' : 'browser';
 let lessonId: string | null = process.env.DERIVE_LESSON_ID ?? null;
+const DRIVER = process.env.DERIVE_DRIVER === 'codex' ? 'codex' : process.env.DERIVE_DRIVER === 'app' ? 'app' : 'claude-code';
+const CODEX_HOME = resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex'));
+
+/**
+ * Under Codex the session log is tailed into the lesson (see codex-mirror).
+ * Card tools flush it first, so the prose written before a check has reached
+ * the server when the server decides whether the check may run.
+ */
+let mirror: RolloutMirror | null = null;
+function watchCodexSession(lesson: string) {
+  mirror?.stop();
+  if (DRIVER !== 'codex') return;
+  mirror = new RolloutMirror(CODEX_HOME, lesson, {
+    post: (item) => api(`/api/external/lessons/${lesson}/mirror`, item).then(() => undefined),
+    turnEnd: () => api(`/api/external/lessons/${lesson}/end`, {}).then(() => undefined),
+  });
+  mirror.start();
+}
+const flushed = async () => {
+  await mirror?.flush().catch(() => undefined);
+};
 
 async function api<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -49,7 +78,7 @@ async function api<T>(path: string, body?: unknown, method = body === undefined 
 async function ensureLesson(): Promise<string> {
   if (lessonId) return lessonId;
   const l = await api<{ id: string }>('/api/external/active').catch(() => null);
-  if (!l) throw new Error('No active lesson. Call start_lesson first (or run /learn <topic>).');
+  if (!l) throw new Error('No active lesson. Call start_lesson first.');
   lessonId = l.id;
   return lessonId;
 }
@@ -128,7 +157,7 @@ function openBrowser(url: string) {
   exec(cmd, () => undefined);
 }
 
-const server = new McpServer({ name: 'derive', version: '0.3.0' });
+const server = new McpServer({ name: 'derive', version: '0.4.0' });
 
 const nodeSchema = z.object({
   id: z.string().describe('Short stable id, e.g. "packets".'),
@@ -145,7 +174,7 @@ server.registerTool(
   'start_lesson',
   {
     description:
-      'Start a Derive lesson for a topic. Opens the companion view in the browser, where quizzes, the plan and the dependency graph are rendered. Call once at the start of /learn, before any quiz. Returns the lesson id, the URL, where the learner answers cards (browser or terminal), what is already known about this learner, and, when `files` were given, a brief of the course material (its outline, or its full text when short) with instructions on how to use it.',
+      'Start a Derive lesson for a topic. Opens the companion view in the browser, where quizzes, the plan and the dependency graph are rendered. Call once at the start of a lesson, before any quiz. Returns the lesson id, the URL, where the learner answers cards (browser or terminal), what is already known about this learner, and, when `files` were given, a brief of the course material (its outline, or its full text when short) with instructions on how to use it.',
     inputSchema: {
       topic: z.string(),
       files: z
@@ -166,9 +195,10 @@ server.registerTool(
   },
   async ({ topic, files, answer_in, learner, open_browser, review }) => {
     const where = answer_in ?? ANSWER_IN;
-    const l = await api<{ id: string; url: string; learner_id: string; review?: unknown; library?: string }>('/api/external/lessons', { topic, answer_in: where, learner: learner ?? LEARNER, review: !!review });
+    const l = await api<{ id: string; url: string; learner_id: string; review?: unknown; library?: string }>('/api/external/lessons', { topic, answer_in: where, learner: learner ?? LEARNER, review: !!review, driver: DRIVER });
     lessonId = l.id;
-    if (open_browser !== false) openBrowser(l.url);
+    watchCodexSession(l.id);
+    if (open_browser !== false && DRIVER !== 'app') openBrowser(l.url);
     const profile = await api<{ profile: string; learner?: { name: string } }>(`/api/profile?learner=${encodeURIComponent(l.learner_id)}`).catch(() => ({ profile: '', learner: undefined }));
     let material: (Attached & { brief?: string }) | undefined;
     if (files?.length) {
@@ -251,7 +281,7 @@ server.registerTool(
   'read_resource',
   {
     description:
-      "Read a range of parts of one library entry (an article's body, a paper's PDF, a video's description), about ten parts per call with a marker before each. Pass the entry id (from the catalog or a search hit) or its title. An entry with nothing fetched returns its URL and the learner's note; use WebFetch on the URL then.",
+      "Read a range of parts of one library entry (an article's body, a paper's PDF, a video's description), about ten parts per call with a marker before each. Pass the entry id (from the catalog or a search hit) or its title. An entry with nothing fetched returns its URL and the learner's note; read the URL yourself then.",
     inputSchema: {
       id: z.string().optional().describe('The entry id, or its first characters.'),
       title: z.string().optional().describe('Or the title (or part of it).'),
@@ -282,7 +312,7 @@ server.registerTool(
   'add_resource',
   {
     description:
-      "Save a source to the learner's library: a URL you found with WebSearch or read with WebFetch (the server fetches it and keeps its text), with a one-sentence note on why and a few tags. Sparingly: one or two per lesson, only sources you actually read. A URL already on the shelf is not duplicated; the note and tags are merged in.",
+      "Save a source to the learner's library: a URL you found with a web search or read (the server fetches it and keeps its text), with a one-sentence note on why and a few tags. Sparingly: one or two per lesson, only sources you actually read. A URL already on the shelf is not duplicated; the note and tags are merged in.",
     inputSchema: {
       url: z.string(),
       title: z.string().optional(),
@@ -324,7 +354,7 @@ server.registerTool(
       already_held: z.boolean().optional().describe('Set true only when the probe already showed the learner holds this node and you are confirming rather than teaching it. Say so to the learner in one sentence.'),
     },
   },
-  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/quiz`, a)),
+  async (a) => (await flushed(), text(await api(`/api/external/lessons/${await ensureLesson()}/quiz`, a))),
 );
 
 server.registerTool(
@@ -333,7 +363,7 @@ server.registerTool(
     description: 'Ask the learner a question with no right answer (goal, preference, what next). Optional suggested answers. In a browser-answered lesson this blocks until they answer.' + TERMINAL_NOTE,
     inputSchema: { question: z.string(), options: z.array(z.string()).max(4).optional() },
   },
-  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/ask`, a)),
+  async (a) => (await flushed(), text(await api(`/api/external/lessons/${await ensureLesson()}/ask`, a))),
 );
 
 server.registerTool(
@@ -343,7 +373,7 @@ server.registerTool(
       'Submit the lesson plan as a dependency DAG (truth roots, derived steps, one goal sink). Drawn in the browser; in a browser-answered lesson this blocks until the learner approves or asks for changes.' + TERMINAL_NOTE,
     inputSchema: { goal: z.string(), nodes: z.array(nodeSchema).min(3).max(12) },
   },
-  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/set_plan`, a)),
+  async (a) => (await flushed(), text(await api(`/api/external/lessons/${await ensureLesson()}/set_plan`, a))),
 );
 
 server.registerTool(
@@ -353,7 +383,7 @@ server.registerTool(
       'Teach-back: ask the learner to explain a node in their own words. Write the rubric first (what a correct explanation must contain). Returns their text for you to grade. In a browser-answered lesson this blocks until they write.' + TERMINAL_NOTE,
     inputSchema: { prompt: z.string(), rubric: z.string(), node_id: z.string().optional() },
   },
-  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/explain_back`, a)),
+  async (a) => (await flushed(), text(await api(`/api/external/lessons/${await ensureLesson()}/explain_back`, a))),
 );
 
 server.registerTool(
@@ -366,7 +396,7 @@ server.registerTool(
       prompt_id: z.string().optional().describe('The card, from the tool that opened it. Optional: the open card is the default.'),
     },
   },
-  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/answer`, a)),
+  async (a) => (await flushed(), text(await api(`/api/external/lessons/${await ensureLesson()}/answer`, a))),
 );
 
 server.registerTool(
@@ -384,7 +414,7 @@ server.registerTool(
     description: 'Mark a plan node "teaching", "locked" (a confident check confirmed it; the node is scheduled for review by how well the check went, and the reply says in how many days) or "shaky" (it did not land after two checks). Lights the graph up.',
     inputSchema: { id: z.string(), status: z.enum(['teaching', 'locked', 'shaky']) },
   },
-  async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/node_status`, a)),
+  async (a) => (await flushed(), text(await api(`/api/external/lessons/${await ensureLesson()}/node_status`, a))),
 );
 
 server.registerTool(
@@ -455,7 +485,7 @@ server.registerTool(
 server.registerTool(
   'end_lesson',
   { description: 'Mark the current lesson turn as finished in the companion view.', inputSchema: {} },
-  async () => text(await api(`/api/external/lessons/${await ensureLesson()}/end`, {})),
+  async () => (await flushed(), text(await api(`/api/external/lessons/${await ensureLesson()}/end`, {}))),
 );
 
 await server.connect(new StdioServerTransport());

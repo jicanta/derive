@@ -103,7 +103,7 @@ export function HomePage() {
             <Link to="/atlas" className="hidden md:inline hover:text-ink-50">atlas</Link>
             <Link to="/library" className="hidden md:inline hover:text-ink-50">library</Link>
             <Link to="/you" className="hidden md:inline hover:text-ink-50">how you learn</Link>
-            <a href="https://github.com/jicanta/derive#inside-claude-code" className="hidden md:inline hover:text-ink-50">claude code plugin</a>
+            <a href="https://github.com/jicanta/derive#in-your-terminal" className="hidden md:inline hover:text-ink-50">claude code · codex</a>
             <a href="https://github.com/jicanta/derive" className="hidden md:inline hover:text-ink-50">github</a>
             <LearnerMenu onChange={refresh} />
           </nav>
@@ -288,7 +288,7 @@ export function HomePage() {
                     <span className="font-serif text-[1.3rem] text-ink-50 group-hover:text-gold-400 transition-colors">{l.topic}</span>
                     <span className="font-mono text-[10.5px] text-ink-500">
                       {l.phase} · {timeAgo(l.updated_at)}
-                      {l.mode === 'external' && ' · claude code'}
+                      {l.mode === 'external' && (l.driver === 'codex' ? ' · codex' : ' · claude code')}
                       {l.busy && <span className="text-teal-400"> · live</span>}
                       {l.shaky > 0 && <span className="text-rust-400"> · {l.shaky} shaky</span>}
                     </span>

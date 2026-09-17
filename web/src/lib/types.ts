@@ -8,6 +8,8 @@ export type Lesson = {
   learner_id: string;
   /** Companion lessons: where cards are answered. */
   answer_in: 'browser' | 'terminal';
+  /** Companion lessons: the terminal that drives it. */
+  driver?: 'claude-code' | 'codex' | null;
   created_at: number;
   updated_at: number;
 };

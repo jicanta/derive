@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { createSdkMcpServer, query, tool, type Query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { createSdkMcpServer, query, tool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import * as actions from './actions.js';
+import { backend } from './backend.js';
+import { runCodexTurn, type Active } from './codex.js';
 import { DATA_DIR, EFFORT, MODEL } from './config.js';
 import { getLesson, learnerProfile, setSessionId, type GraphNodeInput } from './db.js';
 import { checkpoint, emit, emitEphemeral, emitUpdate } from './events.js';
@@ -9,13 +11,17 @@ import { librarySection } from './library.js';
 import { materialsSection } from './materials.js';
 import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
-import { SYSTEM_PROMPT } from './prompt.js';
+import { systemPrompt } from './prompt.js';
+import { DERIVE_TOOL_NAMES, TOOL_LABELS } from './tools.js';
+
+export { DERIVE_TOOL_NAMES } from './tools.js';
 
 export { answerPrompt, hasPending } from './prompts.js';
 
 // ---------- active turns ----------
 
-const active = new Map<string, Query>();
+/** The turn in flight per lesson, whichever backend runs it. */
+const active = new Map<string, Active>();
 /** Lessons whose current turn the learner stopped; their result is not an error. */
 const stopping = new Set<string>();
 
@@ -24,10 +30,10 @@ export function isBusy(lessonId: string) {
 }
 
 export async function interrupt(lessonId: string) {
-  const q = active.get(lessonId);
-  if (q) {
+  const turn = active.get(lessonId);
+  if (turn) {
     stopping.add(lessonId);
-    await q.interrupt().catch(() => undefined);
+    await turn.interrupt().catch(() => undefined);
   }
   cancelPending(lessonId);
 }
@@ -67,11 +73,11 @@ export const TOOL_DESCRIPTIONS = {
   search_library:
     "Search the learner's library: the articles, videos, books, papers, courses and notes they keep across lessons (listed in your instructions when there are any). Matches titles, tags, notes and the fetched text. Returns entries with a snippet and the part it was found in. Search it before you plan, and when the learner asks for something to read or watch.",
   read_resource:
-    "Read a range of parts of one library entry (an article's body, a paper's PDF, a video's description). About ten parts per call, with a marker before each. Pass the entry's id (from the catalog or a search hit) or its title. An entry with nothing fetched returns its URL and note; use WebFetch on the URL then.",
+    "Read a range of parts of one library entry (an article's body, a paper's PDF, a video's description). About ten parts per call, with a marker before each. Pass the entry's id (from the catalog or a search hit) or its title. An entry with nothing fetched returns its URL and note; fetch the URL yourself then.",
   suggest_resource:
     "Point the learner at one entry of their library, as a card in the lesson: which entry, why it is worth their time now, and where to look (a chapter, a section, a timestamp). Use it when a node locks and the entry deepens it, when the learner wants more, or when a source explains a step better than chat can. One at a time, only when it earns its place. Only entries in the library or ones you just saved with add_resource.",
   add_resource:
-    "Save a source to the learner's library for later: a URL you found with WebSearch or read with WebFetch (the page is fetched and its text kept), with a one-sentence note on why and a few tags. Sparingly: one or two per lesson, and only sources you actually read. A URL already on the shelf is not duplicated; your note and tags are merged in.",
+    "Save a source to the learner's library for later: a URL you found with a web search or read (the page is fetched and its text kept), with a one-sentence note on why and a few tags. Sparingly: one or two per lesson, and only sources you actually read. A URL already on the shelf is not duplicated; your note and tags are merged in.",
 };
 
 function buildTools(lessonId: string) {
@@ -231,31 +237,7 @@ function buildTools(lessonId: string) {
   });
 }
 
-export const DERIVE_TOOL_NAMES = [
-  'quiz', 'ask', 'set_plan', 'node_status', 'set_phase', 'explain_back', 'remember', 'set_preferences', 'read_material', 'search_material',
-  'search_library', 'read_resource', 'suggest_resource', 'add_resource',
-] as const;
-
 // ---------- running a turn ----------
-
-const TOOL_LABELS: Record<string, string> = {
-  WebSearch: 'Verifying with a web search',
-  WebFetch: 'Reading a source',
-  mcp__derive__quiz: 'Writing a question',
-  mcp__derive__ask: 'Asking',
-  mcp__derive__set_plan: 'Drawing the plan',
-  mcp__derive__node_status: 'Updating the graph',
-  mcp__derive__set_phase: 'Changing phase',
-  mcp__derive__explain_back: 'Preparing a teach-back',
-  mcp__derive__remember: 'Taking a note',
-  mcp__derive__set_preferences: 'Updating how you learn',
-  mcp__derive__read_material: 'Reading your material',
-  mcp__derive__search_material: 'Searching your material',
-  mcp__derive__search_library: 'Searching your library',
-  mcp__derive__read_resource: 'Reading from your library',
-  mcp__derive__suggest_resource: 'Picking a resource for you',
-  mcp__derive__add_resource: 'Saving a source to your library',
-};
 
 export async function runTurn(lessonId: string, prompt: string, opts: { echoUser?: string } = {}) {
   const lesson = getLesson(lessonId);
@@ -268,10 +250,22 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   const pendingNotices = takeNotices(lessonId);
   if (pendingNotices.length) prompt = `${pendingNotices.join('\n\n')}\n\nThen, the learner's message:\n${prompt}`;
 
+  const instructions = systemPrompt(backend()) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
+  if (backend() === 'codex') {
+    try {
+      await runCodexTurn(lessonId, prompt, instructions, active, stopping);
+    } finally {
+      active.delete(lessonId);
+      stopping.delete(lessonId);
+      cancelPending(lessonId);
+    }
+    return;
+  }
+
   const q = query({
     prompt,
     options: {
-      systemPrompt: SYSTEM_PROMPT + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId),
+      systemPrompt: instructions,
       cwd: DATA_DIR,
       settingSources: [],
       mcpServers: { derive: buildTools(lessonId) },
@@ -286,7 +280,11 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
       env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'derive/0.2.0' },
     },
   });
-  active.set(lessonId, q);
+  active.set(lessonId, {
+    interrupt: async () => {
+      await q.interrupt();
+    },
+  });
 
   // A text block is persisted the moment it starts and rewritten in place as
   // it grows (checkpointed every ~1.5 s, finalised at block end), so the
@@ -329,7 +327,7 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
             } else if (cb.type === 'tool_use') {
               flushBlock();
               if (cb.name === 'WebSearch' || cb.name === 'WebFetch') verified += 1;
-              emitEphemeral(lessonId, 'status', { text: TOOL_LABELS[cb.name] ?? `Using ${cb.name}` });
+              emitEphemeral(lessonId, 'status', { text: cb.name === 'WebSearch' ? 'Verifying with a web search' : cb.name === 'WebFetch' ? 'Reading a source' : TOOL_LABELS[cb.name.replace(/^mcp__derive__/, '')] ?? `Using ${cb.name}` });
             } else if (cb.type === 'thinking') {
               emitEphemeral(lessonId, 'status', { text: 'Thinking' });
             }

@@ -28,6 +28,7 @@ export function LessonPage() {
   const [vault, setVault] = useState(false);
   const external = state.lesson?.mode === 'external';
   const terminal = external && state.lesson?.answer_in === 'terminal';
+  const driver = state.lesson?.driver === 'codex' ? 'codex' : 'claude code';
 
   useEffect(() => {
     api.stats().then((s) => setVault(s.vault)).catch(() => undefined);
@@ -116,7 +117,7 @@ export function LessonPage() {
             title={terminal ? 'Cards are answered in your terminal; answering here works too' : 'Cards are answered here in the browser'}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${state.connected ? 'bg-moss-400' : 'bg-ink-600'}`} />
-            companion · claude code
+            companion · {driver}
             {terminal && (
               <>
                 <span className="text-ink-600">·</span>

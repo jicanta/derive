@@ -9,6 +9,7 @@ import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
 import * as actions from './actions.js';
 import { interrupt, isBusy, runTurn } from './agent.js';
+import { backend, backendSource } from './backend.js';
 import { PORT, VAULT_DIR } from './config.js';
 import {
   allNodes,
@@ -92,10 +93,10 @@ const lessonView = (id: string) => {
 
 sweepOrphanMaterials();
 
-app.get('/api/health', (c) => c.json({ ok: true, version: '0.3.0' }));
+app.get('/api/health', (c) => c.json({ ok: true, version: '0.4.0', backend: backend(), backend_source: backendSource() }));
 app.get('/api/stats', (c) => {
   const learner = learnerOf(c);
-  return c.json({ ...stats(learner), due: dueNodes(learner).length, vault: !!VAULT_DIR, library: listResources(learner).length, learner: getLearner(learner) });
+  return c.json({ ...stats(learner), due: dueNodes(learner).length, vault: !!VAULT_DIR, library: listResources(learner).length, learner: getLearner(learner), backend: backend() });
 });
 
 // ---------- learners ----------
@@ -451,12 +452,12 @@ app.get('/api/review', (c) => c.json(dueNodes(learnerOf(c))));
  * original. The tutor gets the due nodes interleaved across topics and
  * their dependencies, so a miss is re-derived rather than re-told.
  */
-function startReview(learner: string, opts: { mode?: 'agent' | 'external'; answerIn?: 'browser' | 'terminal' } = {}) {
+function startReview(learner: string, opts: { mode?: 'agent' | 'external'; answerIn?: 'browser' | 'terminal'; driver?: string } = {}) {
   if (!dueNodes(learner).length) return null;
   const id = randomUUID();
   const graph = buildReviewGraph(id, learner);
   // The topic names the due nodes, so the graph is built before the lesson row (no key constraint between them).
-  const lesson = createLesson(id, `Review · ${graph.due.map((n) => n.label).join(', ')}`, { learnerId: learner, mode: opts.mode, answerIn: opts.answerIn });
+  const lesson = createLesson(id, `Review · ${graph.due.map((n) => n.label).join(', ')}`, { learnerId: learner, mode: opts.mode, answerIn: opts.answerIn, driver: opts.driver ?? null });
   return { lesson, graph };
 }
 
@@ -503,14 +504,18 @@ app.patch('/api/preferences', async (c) => {
   }
 });
 
-// ---------- external lessons (Claude Code plugin) ----------
+// ---------- external lessons (the Claude Code plugin, the Codex skills) ----------
+
+/** Which terminal drives a companion lesson, from the MCP server's DERIVE_DRIVER. */
+const driverOf = (raw: unknown): 'claude-code' | 'codex' => (raw === 'codex' ? 'codex' : 'claude-code');
 
 app.post('/api/external/lessons', async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { topic?: string; materials?: string[]; learner?: string; answer_in?: string; review?: boolean };
+  const body = (await c.req.json().catch(() => ({}))) as { topic?: string; materials?: string[]; learner?: string; answer_in?: string; review?: boolean; driver?: string };
+  const driver = driverOf(body.driver);
   if (body.review) {
-    const started = startReview(learnerOf(c, body.learner), { mode: 'external', answerIn: body.answer_in === 'terminal' ? 'terminal' : 'browser' });
+    const started = startReview(learnerOf(c, body.learner), { mode: 'external', answerIn: body.answer_in === 'terminal' ? 'terminal' : 'browser', driver });
     if (!started) return c.json({ error: 'Nothing is due for review for this learner.' }, 400);
-    emit(started.lesson.id, 'turn_start', { source: 'claude-code' });
+    emit(started.lesson.id, 'turn_start', { source: driver });
     const due = started.graph.due.map((n) => ({
       id: n.review_id,
       label: n.label,
@@ -527,10 +532,11 @@ app.post('/api/external/lessons', async (c) => {
     mode: 'external',
     learnerId: learnerOf(c, body.learner),
     answerIn: body.answer_in === 'terminal' ? 'terminal' : 'browser',
+    driver,
   });
   const materials = Array.isArray(body.materials) && body.materials.length ? bindMaterials(lesson.id, body.materials) : [];
   for (const m of materials) emit(lesson.id, 'material', materialEvent(m));
-  emit(lesson.id, 'turn_start', { source: 'claude-code' });
+  emit(lesson.id, 'turn_start', { source: driver });
   return c.json({ ...lesson, materials, url: `${baseUrl(c.req.url)}/lesson/${lesson.id}`, library: librarySection(lesson.learner_id, topic) }, 201);
 });
 
@@ -635,7 +641,12 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         const args = a as unknown as actions.QuizArgs;
         if (args.purpose != null && !actions.QUIZ_PURPOSES.includes(args.purpose)) return c.json({ error: `purpose must be one of ${actions.QUIZ_PURPOSES.join(', ')}` }, 400);
         // A pretest comes before the teaching by design; only the check that locks a node needs prose before it.
-        const gap = args.purpose === 'pretest' ? null : teachingGap(id, a as { node_id?: string; already_held?: boolean });
+        let gap = args.purpose === 'pretest' ? null : teachingGap(id, a as { node_id?: string; already_held?: boolean });
+        if (gap) {
+          // The prose that precedes this call may still be in flight (Codex mirrors messages whole, and the tool call can arrive first). One short grace period.
+          await new Promise((r) => setTimeout(r, 600));
+          gap = teachingGap(id, a as { node_id?: string; already_held?: boolean });
+        }
         if (gap) return c.json({ error: gap }, 400);
         if (!Array.isArray(args.options) || args.options.length < 2 || !Array.isArray(args.correct) || !args.correct.length) return c.json({ error: 'quiz needs 2 or 3 options and at least one correct index' }, 400);
         if (terminal) {
@@ -743,7 +754,7 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         // a held card stays open for the learner's next message.
         cancelPending(id);
         const h = held.get(id);
-        emit(id, 'turn_end', { ok: true, source: 'claude-code', held: h && !h.settled ? h.id : null });
+        emit(id, 'turn_end', { ok: true, source: lesson.driver ?? 'claude-code', held: h && !h.settled ? h.id : null });
         return c.json({ ok: true });
       }
       default:
@@ -805,4 +816,5 @@ if (existsSync(distDir)) {
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`derive server on http://localhost:${info.port}${existsSync(distDir) ? '' : ' (API only; run the web dev server too)'}`);
+  console.log(`tutor runs on ${backend() === 'codex' ? 'Codex (your ChatGPT login)' : 'Claude (your Claude Code login)'}${backendSource() === 'auto' ? ', picked automatically; set DERIVE_BACKEND to choose' : ''}`);
 });
