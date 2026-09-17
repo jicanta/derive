@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 8 plans, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening)
 
 Plans:
-- [ ] 01-01-PLAN.md — One registry for all 21 tools, plus the committed wire-surface snapshot (wave 1)
+- [ ] 01-01-PLAN.md — One registry for all 22 tools on the MCP wire, plus the committed wire-surface snapshot (wave 1)
 - [ ] 01-02-PLAN.md — MCP server and HTTP action validation driven by the registry; stdio smoke test (wave 2)
 - [ ] 01-03-PLAN.md — The method text written once under `method/`, rendered to five targets, CI failing on drift (wave 2)
 - [ ] 01-04-PLAN.md — `Driver.runTurn(ctx, sink)`, one event sink, and a fake driver as the proof (wave 3)
@@ -46,7 +46,7 @@ Plans:
 - [ ] 01-06-PLAN.md — The `turns` and `usage` tables: honest per-request usage for every turn (wave 5)
 - [ ] 01-07-PLAN.md — Loopback bind, Host and Origin checks, per-install token, one version string (wave 6)
 - [ ] 01-08-PLAN.md — Redaction chokepoint, SSRF and path guards, and the plugin/Codex parity run (wave 7)
-**Research**: Not needed — standard patterns (zod raw shapes accepted by all three tool APIs, Hono middleware, `PRAGMA user_version`, 0600 files). Internal order matters: contract and method first with no behaviour change (existing API suite, snapshot fixture and MCP smoke test as the net), then seam, sink, ledger, migrations and hardening. Pin the Claude Agent SDK to a caret range; version string from `package.json`; decide deliberately which wording wins where `prompt.ts` and `SKILL.md` disagree.
+**Research**: Not needed — standard patterns (zod raw shapes accepted by all three tool APIs, Hono middleware, `PRAGMA user_version`, 0600 files). Internal order matters: contract and method first with no behaviour change (existing API suite, snapshot fixture and MCP smoke test as the net), then seam, sink, migrations, ledger and hardening. (Migrations before ledger: the `turns` and `usage` tables of 01-06 are authored as migrations under 01-05's runner, so the runner has to exist first. This matches the Plans list above; an earlier draft of this note had the two transposed.) Pin the Claude Agent SDK to a caret range; version string from `package.json`; decide deliberately which wording wins where `prompt.ts` and `SKILL.md` disagree.
 
 ### Phase 2: Settings and Secrets
 **Goal**: The learner chooses provider and model in the app, sees what the machine already offers, stores keys safely, tests the connection, and always knows which model is teaching.
