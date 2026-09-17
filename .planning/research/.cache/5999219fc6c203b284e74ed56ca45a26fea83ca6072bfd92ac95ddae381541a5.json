@@ -1,0 +1,1 @@
+{"content":"OpenAI strict tool schemas: additionalProperties:false on every object, every key in required (optional fields must be nullable unions), no default, no min/max on numbers/arrays, no format; violation is a 400 at request time.","source":"web","provider":"websearch","confidence":"LOW","fetched_at":"2026-09-17T17:38:30.186Z","ttl":86400000,"kind":"web"}

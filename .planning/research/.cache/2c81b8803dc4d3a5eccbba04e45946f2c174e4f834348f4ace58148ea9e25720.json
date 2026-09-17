@@ -1,0 +1,1 @@
+{"content":"Anthropic prompt caching: prefix order tools->system->messages; any byte change in tools invalidates all; 4 breakpoints; 20-block lookback so agentic turns adding >20 blocks silently miss cache; writes cost 1.25x, hits 0.1x.","source":"web","provider":"websearch","confidence":"LOW","fetched_at":"2026-09-17T17:38:30.780Z","ttl":86400000,"kind":"web"}

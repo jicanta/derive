@@ -1,0 +1,1 @@
+{"content":"npx runners: native addons (better-sqlite3) fail with ERR_DLOPEN_FAILED when npx cache Node differs; node:sqlite has no ABI issue but emits ExperimentalWarning (filter at bin entry) and needs Node >=22.5; Bun shebangs break Node-only machines.","source":"web","provider":"websearch","confidence":"LOW","fetched_at":"2026-09-17T17:38:31.461Z","ttl":86400000,"kind":"web"}

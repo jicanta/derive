@@ -1,0 +1,1 @@
+{"content":"llama.cpp server: tools need --jinja and a tool-capable chat template (check /props chat_template), parallel_tool_calls off by default, some templates crash on tool-role messages, arguments sometimes returned as object not string.","source":"web","provider":"websearch","confidence":"LOW","fetched_at":"2026-09-17T17:38:30.460Z","ttl":86400000,"kind":"web"}

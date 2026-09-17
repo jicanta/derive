@@ -1,0 +1,1 @@
+{"content":"AI SDK 5/6: agent loop via stopWhen default 20 steps; provider differences leak through (structured output, streaming details); repeated tool-call loops reported; own loop over generateText/streamText gives full control.","source":"web","provider":"websearch","confidence":"LOW","fetched_at":"2026-09-17T17:38:32.054Z","ttl":86400000,"kind":"web"}
