@@ -13,6 +13,7 @@
     "build": "pnpm --filter web build && pnpm --filter server build",
     "start": "pnpm --filter server start",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter server test",
     "check": "node --env-file-if-exists=.env scripts/doctor.mjs"
   },
   "engines": {

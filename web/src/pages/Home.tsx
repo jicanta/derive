@@ -97,7 +97,7 @@ export function HomePage() {
         <header className="flex items-baseline justify-between pb-4 border-b border-ink-100/14">
           <div className="flex items-baseline gap-3.5">
             <span className="font-serif text-[26px] tracking-[-0.01em] text-ink-50">Derive</span>
-            <span className="font-mono text-[11px] text-ink-500">v0.3</span>
+            <span className="font-mono text-[11px] text-ink-500">v0.4</span>
           </div>
           <nav className="flex items-center gap-5 md:gap-8 font-mono text-[11px] tracking-[0.06em] text-ink-400">
             <Link to="/atlas" className="hidden md:inline hover:text-ink-50">atlas</Link>

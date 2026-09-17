@@ -174,7 +174,7 @@ server.registerTool(
   'start_lesson',
   {
     description:
-      'Start a Derive lesson for a topic. Opens the companion view in the browser, where quizzes, the plan and the dependency graph are rendered. Call once at the start of a lesson, before any quiz. Returns the lesson id, the URL, where the learner answers cards (browser or terminal), what is already known about this learner, and, when `files` were given, a brief of the course material (its outline, or its full text when short) with instructions on how to use it.',
+      'Start a Derive lesson for a topic. Opens the companion view in the browser, where quizzes, the plan and the dependency graph are rendered. Call once at the start of a lesson, before any quiz. Returns the lesson id, the URL, where the learner answers cards (browser or terminal), what is already known about this learner, a `warmup` (nodes from earlier lessons that are due, to be retrieved before the probe) when there is one, and, when `files` were given, a brief of the course material (its outline, or its full text when short) with instructions on how to use it.',
     inputSchema: {
       topic: z.string(),
       files: z
@@ -195,7 +195,7 @@ server.registerTool(
   },
   async ({ topic, files, answer_in, learner, open_browser, review }) => {
     const where = answer_in ?? ANSWER_IN;
-    const l = await api<{ id: string; url: string; learner_id: string; review?: unknown; library?: string }>('/api/external/lessons', { topic, answer_in: where, learner: learner ?? LEARNER, review: !!review, driver: DRIVER });
+    const l = await api<{ id: string; url: string; learner_id: string; review?: unknown; library?: string; warmup?: string }>('/api/external/lessons', { topic, answer_in: where, learner: learner ?? LEARNER, review: !!review, driver: DRIVER });
     lessonId = l.id;
     watchCodexSession(l.id);
     if (open_browser !== false && DRIVER !== 'app') openBrowser(l.url);
@@ -216,6 +216,7 @@ server.registerTool(
           : 'The learner answers in the browser. quiz, ask, set_plan and explain_back block until they do and return the result. If they ask to answer here in the terminal instead, call `answer_in` with "terminal".',
       learner_profile: profile.profile,
       ...(l.review ? { review: l.review } : {}),
+      ...(l.warmup ? { warmup: l.warmup } : {}),
       ...(material ? { course_material: material } : {}),
       ...(l.library ? { library: l.library } : {}),
     });
@@ -342,7 +343,7 @@ server.registerTool(
   'quiz',
   {
     description:
-      'Ask the learner ONE graded multiple-choice question with a known correct answer. The server grades it and returns what they picked, whether it was correct, how sure they were, and what to do next; you never grade it yourself. Never leak the answer in the question or options. Options are 2 or 3 bare claims; the app adds "I don\'t know". Set `purpose`: "pretest" for the attempt you ask for BEFORE teaching a derived node (a miss is expected, not recorded against them, never locks), "check" for the question that locks a node. In the teach phase a check for a node is refused until you have actually written the teaching for that node in the terminal (several paragraphs: motivate, establish, connect), so teach first, then check; a pretest is allowed before the teaching. In a browser-answered lesson this blocks until they answer.' +
+      'Ask the learner ONE graded multiple-choice question with a known correct answer. The server grades it and returns what they picked, whether it was correct, how sure they were, and what to do next; you never grade it yourself. Never leak the answer in the question or options. Options are 2 or 3 bare claims; the app adds "I don\'t know". Set `purpose`: "pretest" for the attempt you ask for BEFORE teaching a derived node (a miss is expected, not recorded against them, never locks), "check" for the question that locks a node, "cumulative" for the end-of-lesson quiz after the goal locks. Set `tests` to what the question tests: a derived node locks only after a correct "intuition" or "transfer" question on it. In the teach phase a check for a node is refused until you have actually written the teaching for that node in the terminal (several paragraphs: motivate, establish, connect), so teach first, then check; a pretest is allowed before the teaching. In a browser-answered lesson this blocks until they answer.' +
       TERMINAL_NOTE,
     inputSchema: {
       question: z.string(),
@@ -350,7 +351,8 @@ server.registerTool(
       correct: z.array(z.number().int().min(0)).min(1),
       explanation: z.string(),
       node_id: z.string().optional(),
-      purpose: z.enum(['probe', 'pretest', 'check', 'review']).optional().describe('Default: "probe" in the probe phase, "review" in a review session, else "check".'),
+      purpose: z.enum(['probe', 'pretest', 'check', 'cumulative', 'review']).optional().describe('Default: "review" on a node copied from an earlier lesson (a warm-up node, a review session), "probe" in the probe phase, else "check".'),
+      tests: z.enum(['intuition', 'procedure', 'transfer']).optional().describe('"intuition": why the claim must be so, what breaks if a premise changes, which picture is right, an estimate before computing. "procedure": carry out the steps. "transfer": a problem of a kind this lesson has not shown. Always set it in the teach phase.'),
       already_held: z.boolean().optional().describe('Set true only when the probe already showed the learner holds this node and you are confirming rather than teaching it. Say so to the learner in one sentence.'),
     },
   },
@@ -411,7 +413,7 @@ server.registerTool(
 server.registerTool(
   'node_status',
   {
-    description: 'Mark a plan node "teaching", "locked" (a confident check confirmed it; the node is scheduled for review by how well the check went, and the reply says in how many days) or "shaky" (it did not land after two checks). Lights the graph up.',
+    description: 'Mark a plan node "teaching", "locked" (a confident check confirmed it; the node is scheduled for review by how well the check went, the reply says in how many days and which nodes below it earned implicit review credit) or "shaky" (it did not land after two checks; the reply names the nodes it rests on and what the checks on each showed, for targeted remediation). Locking a derived node is refused until a correct intuition or transfer question on it exists; locking the goal returns the instructions for the cumulative quiz. Lights the graph up.',
     inputSchema: { id: z.string(), status: z.enum(['teaching', 'locked', 'shaky']) },
   },
   async (a) => (await flushed(), text(await api(`/api/external/lessons/${await ensureLesson()}/node_status`, a))),

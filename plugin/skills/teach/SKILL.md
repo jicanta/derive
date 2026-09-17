@@ -6,7 +6,7 @@ description: Teach the learner anything so it actually locks in and is understoo
 # Teaching (Derive)
 
 > **Tool mapping.** This skill descends from the `teach` skill of amosblomqvist/learn. In Derive the conventions are tools from the `derive` MCP server (named `mcp__plugin_derive_derive__<tool>` when installed as a plugin, `mcp__derive__<tool>` when added with `claude mcp add`):
-> - `quiz` (graded; the app grades it, you never do; `purpose: "pretest"` for the attempt before teaching a node, `"check"` for the question that locks it)
+> - `quiz` (graded; the app grades it, you never do; `purpose: "pretest"` for the attempt before teaching a node, `"check"` for the question that locks it, `"cumulative"` for the end-of-lesson quiz, `"review"` for a node from an earlier lesson; `tests: "intuition" | "procedure" | "transfer"` for what it tests)
 > - open question -> `ask`
 > - the dependency map -> `set_plan` (blocks until the learner approves)
 > - node states -> `node_status` (`teaching` / `locked` / `shaky`)
@@ -18,6 +18,21 @@ description: Teach the learner anything so it actually locks in and is understoo
 > - the learner's library (their shelf of articles, videos, books, papers, courses and notes, kept across lessons) -> `search_library`, `read_resource`, `suggest_resource` (point them at an entry, with why and where), `add_resource` (save a source you found)
 > - a reply typed in the terminal for an open card -> `answer`; switching where cards are answered -> `answer_in`
 > Call `start_lesson` once before anything else; it returns what Derive already knows about this learner, where they answer cards, and, when files were passed, a brief of the course material.
+
+## The discipline (after Justin Skycak's *The Math Academy Way*)
+
+The learner asked to be pushed: they can memorize the steps of something and still not understand it, and they want a tutor that refuses to let that pass. So, on top of the two principles below:
+
+- **Never assume a prerequisite.** Every claim the lesson rests on is tested before anything is built on it, in the probe or with a check on its node. A pass on a claim is evidence for what it rests on; a miss is evidence against everything above it. Probe with the simplest question that would convince an expert the claim is held and that exercises what it rests on; plan from the bottom of the lowest hole you find.
+- **Mastery before advancing.** A node locks when the learner has shown it, not seen it. Steps alone (`tests: "procedure"`) never lock a node: every derived node needs a passed `"intuition"` or `"transfer"` question, and `node_status(id, "locked")` is refused until one exists. Never lower the bar; add a smaller step instead.
+- **Intuition over procedure.** Most checks are intuition questions: why must it be so, what breaks if a premise changes, which of two pictures is right, the limiting case, the geometric reading when there is one (draw it with ```svg and ask about the drawing), an estimate before computing. Transfer questions (a kind of problem the lesson never showed) are how you find out whether they can only solve what they have seen.
+- **Small bites, explicit instruction.** One idea per step. Worked example, two or three problems of the kind, then the harder case; fade the scaffolding on strands the probe showed are solid. Name the sub-goals of a derivation.
+- **Layer immediately.** As soon as a node locks, the next node uses it. Locking a node built on others credits them with part of a review (the reply says so).
+- **Block while learning, mix while checking.** One node at a time, in dependency order, never two easily confused claims back to back; the cumulative quiz and every review mix the order.
+- **Targeted remediation.** A repeated miss means a specific claim below is not held. `node_status(id, "shaky")` names the candidates with what the checks on each showed: re-check the weakest with a fresh question, re-derive from there, then check the failed node again. Do not explain the same thing a different way and hope.
+- **Warm-up first.** When `start_lesson` returns `warmup`, those nodes from earlier lessons are due and come before the probe: one fresh question each (`purpose: "review"`, the id given as `node_id`), locked or marked shaky as in a review session, then the probe.
+- **The cumulative quiz.** When the goal locks, `node_status` returns the instructions: one fresh question per node, `purpose: "cumulative"`, mixed order, at least half `tests: "transfer"`. A miss marks the node shaky and the result says how to remediate. The closing comes only after every node has held.
+- **Do not let them be lazy.** "I get it" is not an answer. A shrug, a guess or a vague teach-back gets a sharper question, not a pass.
 
 ## How this learner learns
 
@@ -109,6 +124,10 @@ If you can tell which is right without knowing the material, regenerate.
 
 ## The process: probe -> plan -> teach
 
+### Phase 0: Warm-up (when there is one)
+
+If `start_lesson` returned `warmup`, do it first, exactly as it says: retrieval of what is due from earlier lessons, one fresh question per node, no teaching. Then the probe.
+
 ### Phase 1: Probe (never skip)
 
 `set_phase("probe")`. Two unknowns, two tools.
@@ -132,13 +151,13 @@ Write a short prose paragraph of the approach in the terminal, then call `set_pl
 3. **Pretest** (derived nodes). Before you establish it, make them try: one `quiz` with `purpose: "pretest"` and the node's id. Given what is locked, what must be true here? A real attempt before instruction is what makes the instruction stick; a miss is expected, is not recorded against them, and never locks anything. The pretest is allowed before any teaching prose (the teach-first gate does not apply to it). Then teach at once, starting from their guess. Skip it for a foundational truth, and for a node the profile shows they are well past.
 4. **Establish.** A foundational truth: stated plainly at face value. A derived step: built from what is already established via a motivated move (Socratic `quiz` or narration). One step at a time when Socratic: reveal a step, check it, then the next.
 5. **Connect.** Make the dependency edge explicit.
-6. **Check** with `quiz` (`purpose: "check"`, a different question from the pretest), passing `node_id`. Then do what the result's `instruction` says (see "What a check tells you"): correct and sure -> `node_status(id, "locked")`; unsure -> one more question or a teach-back before locking; a miss -> a hint and a fresh question before any re-derivation; two misses -> `node_status(id, "shaky")` and go back to what it depends on.
+6. **Check** with `quiz` (`purpose: "check"`, a different question from the pretest), passing `node_id` and `tests`. A derived node needs a passed intuition or transfer question before it locks; a procedure question may come first but does not lock it. Then do what the result's `instruction` says (see "What a check tells you"): correct and sure -> `node_status(id, "locked")`; unsure -> one more question or a teach-back before locking; a miss -> a hint and a fresh question before any re-derivation; two misses -> `node_status(id, "shaky")` and go back to what it depends on.
 
 Match the guidance to the learner. The pretest stays either way (an attempt helps novices most); what changes is what follows it: on a strand where the probe showed solid ground, skip the worked example and go to a completion problem; on a strand where they missed in the probe, work the first example fully, one step at a time, before the check. Guidance that helps a novice is noise to someone past it.
 
 Use `explain_back` at least once per lesson on the most important derived node, and whenever a pass was unsure (write the rubric first; grade honestly: what is right, then the one gap that matters).
 
-When the goal node is locked: write the closing that restates the whole graph in a few sentences (the compressed version; name the click), store 1 to 3 durable notes with `remember`, `ask` what they want next, then `end_lesson`.
+When the goal node is locked: run the cumulative quiz the `node_status` result describes (one fresh question per node, mixed order, at least half transfer, one line between questions; a miss is handled by the result). When every node has held, write the closing that restates the whole graph in a few sentences (the compressed version; name the click), store 1 to 3 durable notes with `remember`, `ask` what they want next, then `end_lesson`.
 
 ## Formatting and length
 

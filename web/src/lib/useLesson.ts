@@ -142,6 +142,8 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
       };
     case 'phase':
       return { ...s, phase: ev.payload.phase, items: [...items, { kind: 'phase', seq: ev.seq, phase: ev.payload.phase }] };
+    case 'warmup':
+      return { ...s, items: [...items, { kind: 'warmup', seq: ev.seq, nodes: ev.payload.nodes ?? [] }] };
     case 'node_status': {
       const status = ev.payload.status as NodeStatus;
       const nodes = s.nodes.map((n) => (n.id === ev.payload.id ? { ...n, status } : n));
@@ -233,7 +235,7 @@ function reducer(s: LessonState, a: Action): LessonState {
 
 const EVENT_TYPES = [
   'ready', 'turn_start', 'turn_end', 'status', 'user', 'block_start', 'delta', 'assistant', 'quiz', 'quiz_result', 'ask', 'ask_result',
-  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'node_status', 'memory', 'preferences', 'material', 'material_removed', 'answer_in', 'resource',
+  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'warmup', 'node_status', 'memory', 'preferences', 'material', 'material_removed', 'answer_in', 'resource',
 ];
 
 export function useLesson(id: string | undefined) {

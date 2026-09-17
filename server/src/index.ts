@@ -15,6 +15,7 @@ import {
   allNodes,
   bindMaterials,
   buildReviewGraph,
+  buildWarmup,
   createLearner,
   createLesson,
   DEFAULT_LEARNER_ID,
@@ -46,7 +47,7 @@ import { exportToVault, renderMarkdown } from './export.js';
 import { addResource, deleteResource, editResource, getResource, isKind, librarySection, listResources, publicRow, refetchResource, RESOURCE_KINDS, segmentsOf, tagCounts } from './library.js';
 import { ACCEPTED, describe, ingestMaterial, ingestRepo, materialsSection, MAX_FILE_BYTES } from './materials.js';
 import { addNotice, takeNotices } from './notices.js';
-import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt } from './prompt.js';
+import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief } from './prompt.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
 
 /**
@@ -165,8 +166,11 @@ app.post('/api/lessons', async (c) => {
   const lesson = createLesson(randomUUID(), topic, { learnerId: learnerOf(c, body.learner) });
   const materials = Array.isArray(body.materials) && body.materials.length ? bindMaterials(lesson.id, body.materials) : [];
   for (const m of materials) emit(lesson.id, 'material', materialEvent(m));
-  void runTurn(lesson.id, firstTurnPrompt(topic, materials.map(describe))).catch((e) => console.error('[turn]', e));
-  return c.json({ ...lesson, materials }, 201);
+  // Review before new work: the due nodes most likely forgotten come first, as copies whose lock reschedules the original.
+  const warmup = buildWarmup(lesson.id, lesson.learner_id);
+  if (warmup.length) emit(lesson.id, 'warmup', { nodes: warmup.map((n) => ({ id: n.review_id, label: n.label, topic: n.topic })) });
+  void runTurn(lesson.id, firstTurnPrompt(topic, materials.map(describe), warmup)).catch((e) => console.error('[turn]', e));
+  return c.json({ ...lesson, materials, warmup: warmup.length }, 201);
 });
 
 app.get('/api/lessons/:id', (c) => {
@@ -536,8 +540,19 @@ app.post('/api/external/lessons', async (c) => {
   });
   const materials = Array.isArray(body.materials) && body.materials.length ? bindMaterials(lesson.id, body.materials) : [];
   for (const m of materials) emit(lesson.id, 'material', materialEvent(m));
+  const warmup = buildWarmup(lesson.id, lesson.learner_id);
+  if (warmup.length) emit(lesson.id, 'warmup', { nodes: warmup.map((n) => ({ id: n.review_id, label: n.label, topic: n.topic })) });
   emit(lesson.id, 'turn_start', { source: driver });
-  return c.json({ ...lesson, materials, url: `${baseUrl(c.req.url)}/lesson/${lesson.id}`, library: librarySection(lesson.learner_id, topic) }, 201);
+  return c.json(
+    {
+      ...lesson,
+      materials,
+      url: `${baseUrl(c.req.url)}/lesson/${lesson.id}`,
+      library: librarySection(lesson.learner_id, topic),
+      ...(warmup.length ? { warmup: warmupBrief(warmup) } : {}),
+    },
+    201,
+  );
 });
 
 /** The system-prompt section about a learner's library, for a driver that builds its own context (the plugin). */
@@ -640,6 +655,7 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
       case 'quiz': {
         const args = a as unknown as actions.QuizArgs;
         if (args.purpose != null && !actions.QUIZ_PURPOSES.includes(args.purpose)) return c.json({ error: `purpose must be one of ${actions.QUIZ_PURPOSES.join(', ')}` }, 400);
+        if (args.tests != null && !actions.QUIZ_TESTS.includes(args.tests)) return c.json({ error: `tests must be one of ${actions.QUIZ_TESTS.join(', ')}` }, 400);
         // A pretest comes before the teaching by design; only the check that locks a node needs prose before it.
         let gap = args.purpose === 'pretest' ? null : teachingGap(id, a as { node_id?: string; already_held?: boolean });
         if (gap) {
@@ -651,7 +667,7 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         if (!Array.isArray(args.options) || args.options.length < 2 || !Array.isArray(args.correct) || !args.correct.length) return c.json({ error: 'quiz needs 2 or 3 options and at least one correct index' }, 400);
         if (terminal) {
           const open = actions.openQuiz(id, args, { hold: true });
-          return c.json(withNotices(id, holdCard(id, 'quiz', open, { question: args.question, options: args.options, multi: args.correct.length > 1, purpose: args.purpose ?? undefined }, args.options.length, nodeLabelOf(id, args.node_id))));
+          return c.json(withNotices(id, holdCard(id, 'quiz', open, { question: args.question, options: args.options, multi: args.correct.length > 1, purpose: args.purpose ?? undefined, tests: args.tests ?? undefined }, args.options.length, nodeLabelOf(id, args.node_id))));
         }
         return c.json(withNotices(id, await actions.quiz(id, args)));
       }
@@ -714,8 +730,10 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         emit(id, 'answer_in', { where });
         return c.json({ ok: true, answer_in: where });
       }
-      case 'node_status':
-        return c.json(withNotices(id, actions.nodeStatus(id, a as { id: string; status: 'teaching' | 'locked' | 'shaky' })));
+      case 'node_status': {
+        const r = actions.nodeStatus(id, a as { id: string; status: 'teaching' | 'locked' | 'shaky' });
+        return c.json(withNotices(id, r), r.refused ? 400 : 200);
+      }
       case 'set_phase':
         return c.json(withNotices(id, actions.phase(id, a as { phase: 'probe' | 'plan' | 'teach' })));
       case 'remember':

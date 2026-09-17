@@ -1,6 +1,6 @@
 {
   "name": "derive",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Learn anything from first principles inside Claude Code. /learn <topic> runs a probe -> plan -> teach lesson in your terminal; answer the quizzes right there or in the Derive companion, which renders the cards, the plan and the live dependency graph. Attach slides, a PDF, notes or a whole repository as the course.",
   "author": {
     "name": "Ignacio Cantarella",

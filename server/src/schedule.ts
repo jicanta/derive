@@ -79,3 +79,55 @@ export function retrievability(node: Parameters<typeof cardOf>[0], now = Date.no
   if (node.stability == null || node.difficulty == null) return 1;
   return scheduler.get_retrievability(cardOf(node, now), new Date(now), false);
 }
+
+/**
+ * Fractional implicit repetition, after Math Academy's FIRe model (Skycak,
+ * The Math Academy Way, ch. 18 and 29): using a claim to derive something
+ * built on top of it is itself a retrieval of that claim. When a node is
+ * locked with a confident check, the nodes it was derived from get part of
+ * the credit a full review would have earned, decaying with distance in
+ * the graph. `credit` is that fraction (1 would be a full Good review).
+ */
+export function implicitRepetition(node: Parameters<typeof cardOf>[0], credit: number, now = Date.now()): Scheduled | null {
+  if (node.stability == null || node.difficulty == null) return null;
+  const c = Math.max(0, Math.min(1, credit));
+  const card = cardOf(node, now);
+  const full = scheduler.next(card, new Date(now), Rating.Good).card;
+  const stability = card.stability + c * (full.stability - card.stability);
+  const interval = Math.max(1, scheduler.next_interval(stability, 0));
+  const reviewAt = now + interval * DAY;
+  return {
+    stability,
+    difficulty: card.difficulty,
+    reps: node.reps,
+    lapses: node.lapses,
+    interval_days: interval,
+    review_at: reviewAt,
+    last_review: now,
+  };
+}
+
+/**
+ * The other direction of the same model: a miss on a node built from this
+ * one is weak evidence that this one is not held either. The dependency
+ * loses part of the stability a lapse would cost it, and its review is
+ * pulled forward accordingly; nothing else changes.
+ */
+export function implicitLapse(node: Parameters<typeof cardOf>[0], credit: number, now = Date.now()): Scheduled | null {
+  if (node.stability == null || node.difficulty == null) return null;
+  const c = Math.max(0, Math.min(1, credit));
+  const card = cardOf(node, now);
+  const lapsed = scheduler.next(card, new Date(now), Rating.Again).card;
+  const stability = card.stability - c * (card.stability - lapsed.stability);
+  const interval = Math.max(1, scheduler.next_interval(stability, card.elapsed_days));
+  const reviewAt = Math.min(node.review_at ?? Infinity, (node.last_review ?? now) + interval * DAY, now + interval * DAY);
+  return {
+    stability,
+    difficulty: card.difficulty,
+    reps: node.reps,
+    lapses: node.lapses,
+    interval_days: Math.max(1, Math.round((reviewAt - now) / DAY)),
+    review_at: Math.max(reviewAt, now + DAY),
+    last_review: node.last_review ?? now,
+  };
+}

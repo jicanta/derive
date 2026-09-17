@@ -13,9 +13,11 @@
 import {
   addMemory,
   addMisconception,
+  cumulativeStatus,
   dueNodes,
   getLesson,
   getNode,
+  hasUnderstandingPass,
   learnerProfile,
   updateLearnerPrefs,
   getLearner,
@@ -23,6 +25,8 @@ import {
   listNodes,
   listMisconceptions,
   listMemory,
+  nodeRecord,
+  QUIZ_TESTS,
   recordQuiz,
   replaceGraph,
   resolveMisconceptions,
@@ -31,6 +35,7 @@ import {
   setPhase,
   type GraphNodeInput,
   type QuizPurpose,
+  type QuizTests,
 } from './db.js';
 import type { Confidence } from './schedule.js';
 import { emit } from './events.js';
@@ -57,21 +62,29 @@ export type QuizArgs = {
   correct: number[];
   explanation: string;
   node_id?: string | null;
-  /** What the question is for. Default: 'probe' in the probe phase, 'review' in a review session, else 'check'. */
+  /** What the question is for. Default: 'review' on a node copied from an earlier lesson, 'probe' in the probe phase, else 'check'. */
   purpose?: QuizPurpose | null;
+  /** What the question tests: intuition (why it must be so), procedure (the steps), transfer (a problem type not seen in the lesson). */
+  tests?: QuizTests | null;
 };
 
-export const QUIZ_PURPOSES: QuizPurpose[] = ['probe', 'pretest', 'check', 'review'];
+export const QUIZ_PURPOSES: QuizPurpose[] = ['probe', 'pretest', 'check', 'cumulative', 'review'];
+export { QUIZ_TESTS };
 
 /** A question's purpose, defaulted from where the lesson is. */
-function purposeOf(lessonId: string, given?: QuizPurpose | null): QuizPurpose {
+function purposeOf(lessonId: string, nodeId: string | null | undefined, given?: QuizPurpose | null): QuizPurpose {
   if (given && QUIZ_PURPOSES.includes(given)) return given;
-  // A review lesson's graph is made of copies of other lessons' nodes; its phase is irrelevant.
-  if (listNodes(lessonId).some((n) => n.source_lesson)) return 'review';
+  // A node copied from an earlier lesson (a warm-up, or a review session's graph) is being reviewed whatever the phase says.
+  const nodes = listNodes(lessonId);
+  if (nodeId && nodes.find((n) => n.node_id === nodeId)?.source_lesson) return 'review';
+  if (nodes.length && nodes.every((n) => n.source_lesson)) return 'review';
   const lesson = getLesson(lessonId);
   if (lesson?.phase === 'probe') return 'probe';
   return 'check';
 }
+
+/** Sanity: a question's `tests` field, or null when absent or unknown. */
+const testsOf = (given?: QuizTests | null): QuizTests | null => (given && QUIZ_TESTS.includes(given) ? given : null);
 
 /**
  * What the tutor should do with the result. Confidence is what makes a
@@ -81,7 +94,13 @@ function purposeOf(lessonId: string, given?: QuizPurpose | null): QuizPurpose {
  * learner. Hints come before re-derivations, and answers are never handed
  * over.
  */
-function afterQuiz(result: 'correct' | 'incorrect' | 'dont_know', confidence: Confidence | null, purpose: QuizPurpose): string | undefined {
+function afterQuiz(
+  result: 'correct' | 'incorrect' | 'dont_know',
+  confidence: Confidence | null,
+  purpose: QuizPurpose,
+  ctx: { lessonId: string; nodeId: string | null; tests: QuizTests | null },
+): string | undefined {
+  if (purpose === 'cumulative') return afterCumulative(result, confidence, ctx);
   if (purpose === 'pretest') {
     return result === 'correct'
       ? 'Pretest: they reached it before being taught. Do not lock the node on this. Say what their reasoning got right, establish the node properly but briefly (they are close), then check it with a fresh quiz.'
@@ -93,11 +112,17 @@ function afterQuiz(result: 'correct' | 'incorrect' | 'dont_know', confidence: Co
       : undefined;
   }
   if (result === 'correct') {
-    return confidence === 'unsure'
-      ? 'Correct, but they said they were unsure, so this is not yet knowledge. Do not lock the node on this alone: have them say why the answer must be so (explain_back with a two-line rubric) or ask one more fresh quiz on the same claim, and lock only after that.'
-      : purpose === 'review'
-        ? 'Correct and confident. Call node_status(id, "locked") to reschedule it, then move to the next node with at most one line in between.'
-        : 'Correct and confident. Lock the node if this was its check, then move on.';
+    if (confidence === 'unsure') {
+      return 'Correct, but they said they were unsure, so this is not yet knowledge. Do not lock the node on this alone: have them say why the answer must be so (explain_back with a two-line rubric) or ask one more fresh quiz on the same claim, and lock only after that.';
+    }
+    if (purpose === 'review') return 'Correct and confident. Call node_status(id, "locked") to reschedule it, then move to the next node with at most one line in between.';
+    if (ctx.nodeId && needsUnderstanding(ctx.lessonId, ctx.nodeId)) {
+      return (
+        `Correct and confident, but so far this node has only been tested on ${ctx.tests === 'procedure' ? 'procedure' : 'recall'} (${nodeRecord(ctx.lessonId, ctx.nodeId)}). ` +
+        'Knowing the steps is not understanding them: before you lock it, ask ONE fresh quiz with tests: "intuition" (why this must be so, what breaks if a premise changes, which picture or geometric reading is right, an estimate before any computation) or tests: "transfer" (a problem of a kind this lesson has not shown). Lock only after that passes.'
+      );
+    }
+    return 'Correct and confident. Lock the node if this was its check, then move on.';
   }
   if (result === 'dont_know') {
     return 'They did not know. Do not reveal the derivation yet: give one hint that points at the node this rests on, then a fresh quiz on the same claim. If that misses too, re-derive it from its dependencies step by step and mark the node shaky.';
@@ -107,13 +132,60 @@ function afterQuiz(result: 'correct' | 'incorrect' | 'dont_know', confidence: Co
     : 'A miss, and they knew they were unsure. Give one hint that points at the dependency that decides it (not the answer) and let them try a fresh quiz on the same claim. If that misses too, re-derive it from its dependencies and mark the node shaky.';
 }
 
+/** A derived node is locked on understanding, not on steps: it needs a correct intuition or transfer question after the teaching. */
+function needsUnderstanding(lessonId: string, nodeId: string): boolean {
+  const node = getNode(lessonId, nodeId);
+  if (!node || node.kind === 'truth' || node.source_lesson) return false;
+  return !hasUnderstandingPass(lessonId, nodeId);
+}
+
+/**
+ * The end-of-lesson quiz. Every node was locked minutes ago; a miss now is
+ * the honest signal that it did not stay locked, so the server marks it
+ * shaky at once (a lapse for its schedule) and sends the tutor back to the
+ * nodes it rests on, not to the answer.
+ */
+function afterCumulative(result: 'correct' | 'incorrect' | 'dont_know', confidence: Confidence | null, ctx: { lessonId: string; nodeId: string | null }): string {
+  const remaining = () => {
+    const { pending, missed } = cumulativeStatus(ctx.lessonId);
+    const left = [...pending, ...missed].map((n) => `${n.label} [${n.node_id}]`);
+    return left.length ? `Still to cover in this quiz: ${left.join('; ')}.` : 'That was the last one: every node held. Write the closing now (the compressed version of the whole graph, the click named), then store 1 to 3 notes with remember and ask what they want next.';
+  };
+  if (result === 'correct') {
+    if (confidence === 'unsure') return `Correct but unsure. One more fresh question on this node before moving on (a different angle: if this was procedure, ask for the why). ${remaining()}`;
+    return `Held. Next question, at most one line between. ${remaining()}`;
+  }
+  if (!ctx.nodeId) return `A miss. Re-ask the claim with a hint that names the node it rests on. ${remaining()}`;
+  const node = getNode(ctx.lessonId, ctx.nodeId);
+  if (node && node.status === 'locked') {
+    const next = setNodeStatus(ctx.lessonId, ctx.nodeId, 'shaky');
+    emit(ctx.lessonId, 'node_status', { id: ctx.nodeId, status: 'shaky', ...(next ? { review_at: next.review_at, interval_days: next.interval_days, implicit: next.implicit } : {}) });
+  }
+  const deps = dependencyRecord(ctx.lessonId, ctx.nodeId);
+  const held = confidence === 'sure' ? 'They were sure of the wrong claim: name the exact claim they held and what breaks it, from the nodes below, before anything else. ' : '';
+  return (
+    `A miss on the cumulative quiz: "${node?.label ?? ctx.nodeId}" did not stay locked, so it is now marked shaky (its review moved closer). ${held}` +
+    `Targeted remediation, not a re-explanation: ${deps} Re-check the weakest of those with one fresh quiz (tests: "intuition"); once it holds, re-derive this node from it in two or three sentences and ask a fresh question on this node again (purpose "cumulative"). It locks again only when that passes. ${remaining()}`
+  );
+}
+
+/** The nodes a node rests on and what the checks on each have shown, for a remediation instruction. */
+function dependencyRecord(lessonId: string, nodeId: string): string {
+  const node = getNode(lessonId, nodeId);
+  const nodes = new Map(listNodes(lessonId).map((n) => [n.node_id, n]));
+  const deps = (JSON.parse(node?.depends_on || '[]') as string[]).map((d) => nodes.get(d)).filter((d): d is NonNullable<typeof d> => !!d);
+  if (!deps.length) return 'It is a ground truth: nothing below it, so re-state it and ask a fresh question on it directly.';
+  return `it rests on ${deps.map((d) => `"${d.label}" [${d.node_id}] (${d.status}; ${nodeRecord(lessonId, d.node_id)})`).join(', ')}.`;
+}
+
 type Open<T> = { id: string; done: Promise<T> };
 type OpenOpts = { hold?: boolean };
 
 export function openQuiz(lessonId: string, a: QuizArgs, opts: OpenOpts = {}): Open<Record<string, unknown>> {
   const multi = a.correct.length > 1;
-  const purpose = purposeOf(lessonId, a.purpose);
-  const { id, wait } = openPrompt(lessonId, 'quiz', { question: a.question, options: a.options, multi, node_id: a.node_id ?? null, purpose }, opts);
+  const purpose = purposeOf(lessonId, a.node_id, a.purpose);
+  const tests = testsOf(a.tests);
+  const { id, wait } = openPrompt(lessonId, 'quiz', { question: a.question, options: a.options, multi, node_id: a.node_id ?? null, purpose, tests }, opts);
   const done = wait.then((raw) => {
     const ans = raw as { selected?: number[]; idk?: boolean; sure?: boolean; note?: string; interrupted?: boolean; steer?: string };
     if (ans.interrupted) return { result: 'interrupted', note: 'The learner stopped the turn.' };
@@ -132,8 +204,8 @@ export function openQuiz(lessonId: string, a: QuizArgs, opts: OpenOpts = {}): Op
     const result = ans.idk ? 'dont_know' : isCorrect ? 'correct' : 'incorrect';
     // The learner commits to how sure they are before the reveal. Default is sure: an unsure answer is a deliberate flag.
     const confidence: Confidence | null = ans.idk ? null : ans.sure === false ? 'unsure' : 'sure';
-    emit(lessonId, 'quiz_result', { id, selected, correct: a.correct, explanation: a.explanation, result, note: ans.note ?? null, confidence, purpose });
-    recordQuiz(lessonId, a.node_id ?? null, isCorrect, { confidence, purpose });
+    emit(lessonId, 'quiz_result', { id, selected, correct: a.correct, explanation: a.explanation, result, note: ans.note ?? null, confidence, purpose, tests });
+    recordQuiz(lessonId, a.node_id ?? null, isCorrect, { confidence, purpose, tests });
     // A pretest miss is the learner's honest guess before instruction, not a belief they hold.
     if (result === 'incorrect' && purpose !== 'pretest') {
       addMisconception({
@@ -146,11 +218,12 @@ export function openQuiz(lessonId: string, a: QuizArgs, opts: OpenOpts = {}): Op
         confidence,
       });
     }
-    const instruction = afterQuiz(result, confidence, purpose);
+    const instruction = afterQuiz(result, confidence, purpose, { lessonId, nodeId: a.node_id ?? null, tests });
     return withNotice(lessonId, {
       result,
       confidence,
       purpose,
+      tests,
       selected_options: selected.map((i) => a.options[i]),
       correct_options: a.correct.map((i) => a.options[i]),
       note: ans.note ?? null,
@@ -194,12 +267,52 @@ export function openPlan(lessonId: string, a: { goal: string; nodes: GraphNodeIn
 
 export const setPlan = (lessonId: string, a: { goal: string; nodes: GraphNodeInput[] }) => openPlan(lessonId, a).done;
 
+/**
+ * A node's state change. Locking is refused for a derived node that has
+ * only ever been tested on its steps: mastery here means the learner can
+ * say why the claim must be so or use it where the lesson did not show it,
+ * so the tutor is sent back for one intuition or transfer question first.
+ * Locking the goal opens the cumulative quiz; marking a node shaky names
+ * the nodes below it and what the checks on each have shown, so the
+ * remediation is targeted at the weakest one instead of re-telling.
+ */
 export function nodeStatus(lessonId: string, a: { id: string; status: 'teaching' | 'locked' | 'shaky' }) {
+  const node = getNode(lessonId, a.id);
+  if (!node) return { ok: false, refused: true, error: `No node "${a.id}" in this lesson's graph.` };
+  if (a.status === 'locked' && needsUnderstanding(lessonId, a.id)) {
+    return {
+      ok: false,
+      refused: true,
+      error:
+        `Not locked. "${node.label}" is a derived claim and the checks on it so far (${nodeRecord(lessonId, a.id)}) only show recall or procedure. ` +
+        'A node locks on understanding: ask one fresh quiz on it with tests: "intuition" (why it must be so, what breaks if a premise changes, the right picture, an estimate before computing) or tests: "transfer" (a problem of a kind this lesson has not shown), passing node_id and purpose "check". Then call node_status again. This is the method, not an error to investigate.',
+    };
+  }
   const next = setNodeStatus(lessonId, a.id, a.status);
   if (a.status === 'locked') resolveMisconceptions(lessonId, a.id);
-  const when = next ? { review_at: next.review_at, interval_days: next.interval_days } : {};
+  const when = next ? { review_at: next.review_at, interval_days: next.interval_days, implicit: next.implicit } : {};
   emit(lessonId, 'node_status', { id: a.id, status: a.status, ...when });
-  return { ok: true, ...(next && a.status === 'locked' ? { next_review_in_days: next.interval_days } : {}), ...libraryHint(lessonId, a) };
+  const credited = next?.implicit.filter((c) => c.kind === 'credit') ?? [];
+  const extra: Record<string, unknown> = {};
+  if (a.status === 'locked' && next) {
+    extra.next_review_in_days = next.interval_days;
+    if (credited.length) extra.implicit_review = `Locking this counted as a partial review of ${credited.map((c) => `"${c.label}" (now due in ${c.interval_days} days)`).join(', ')}.`;
+  }
+  if (a.status === 'shaky') {
+    extra.instruction =
+      `Shaky. Targeted remediation, not a re-explanation: ${dependencyRecord(lessonId, a.id)} ` +
+      'Re-check the weakest of those with one fresh quiz (tests: "intuition"); once it holds, re-derive this node from it, one step at a time, and check this node again with a fresh question. Lock it only when that passes.';
+  }
+  if (a.status === 'locked' && node.kind === 'goal') {
+    const { pending } = cumulativeStatus(lessonId);
+    const left = pending.filter((n) => n.node_id !== a.id);
+    if (left.length) {
+      extra.instruction =
+        `The goal is locked, and the lesson is not over: run the cumulative quiz now. One fresh quiz per node, purpose "cumulative", each with its node_id, in a mixed order (never the order they were taught, never two neighbours in the graph back to back), at least half of them tests: "transfer" (a problem of a kind the lesson has not shown) and the rest tests: "intuition". Nodes to cover: ${left.map((n) => `${n.label} [${n.node_id}]`).join('; ')}; then the goal itself [${a.id}]. ` +
+        'Say in one sentence that this is the last pass over everything, then ask the first question. Keep prose between questions to one line. A miss there is handled by the result you get back. The closing (the compressed version of the whole graph) comes only after every node has held.';
+    }
+  }
+  return { ok: true, ...extra, ...libraryHint(lessonId, a) };
 }
 
 const suggestedIds = (lessonId: string) =>

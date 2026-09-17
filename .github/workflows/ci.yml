@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # The version comes from packageManager in package.json.
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      # The tests drive the built server over HTTP with no model behind it:
+      # the learning mechanics (warm-up, the understanding gate, the
+      # cumulative quiz, implicit repetition) are all server-side.
+      - name: Test
+        run: pnpm test
+        env:
+          CI: 'true'
+
+      - name: Doctor script runs
+        run: node scripts/doctor.mjs || true

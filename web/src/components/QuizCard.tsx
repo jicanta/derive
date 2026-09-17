@@ -33,6 +33,13 @@ export function QuizCard({
   const answered = !!result;
   const skipped = result?.result === 'skipped';
   const pretest = quiz.purpose === 'pretest';
+  const heading =
+    quiz.purpose === 'cumulative'
+      ? `Cumulative quiz${nodeLabel ? ` · ${nodeLabel}` : ''}`
+      : quiz.purpose === 'review'
+        ? `Review${nodeLabel ? ` · ${nodeLabel}` : ''}`
+        : `Quiz${nodeLabel ? ` · checks ${nodeLabel}` : ''}`;
+  const testsLabel = quiz.tests === 'intuition' ? 'why, not how' : quiz.tests === 'transfer' ? 'new kind of problem' : quiz.tests === 'procedure' ? 'the steps' : null;
 
   const toggle = (i: number) => {
     if (answered || sending) return;
@@ -114,8 +121,16 @@ export function QuizCard({
       <div className="flex items-center gap-2.5 mb-4">
         <span className={`h-1.5 w-1.5 rounded-full ${pretest ? 'bg-ink-400' : 'bg-gold-500'}`} />
         <span className="eyebrow">
-          {pretest ? `Before the explanation${nodeLabel ? ` · ${nodeLabel}` : ''}` : `Quiz${nodeLabel ? ` · checks ${nodeLabel}` : ''}`}
+          {pretest ? `Before the explanation${nodeLabel ? ` · ${nodeLabel}` : ''}` : heading}
         </span>
+        {testsLabel && !pretest && (
+          <span
+            className={`hidden sm:inline font-mono text-[10px] tracking-[0.12em] uppercase ${quiz.tests === 'procedure' ? 'text-ink-500' : 'text-teal-400/90'}`}
+            title={quiz.tests === 'intuition' ? 'Tests understanding: why it must be so' : quiz.tests === 'transfer' ? 'Tests transfer: a kind of problem the lesson did not show' : 'Tests the procedure'}
+          >
+            {testsLabel}
+          </span>
+        )}
         {result && (
           <span className={`ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] uppercase ${verdictTone}`}>
             {result.result === 'correct' ? <Check size={12} /> : result.result === 'incorrect' && !pretest ? <X size={12} /> : null}

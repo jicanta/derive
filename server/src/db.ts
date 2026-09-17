@@ -1,4 +1,4 @@
-import { grade, schedule, type Confidence, type Grade, type Scheduled } from './schedule.js';
+import { grade, implicitLapse, implicitRepetition, retrievability, schedule, type Confidence, type Grade, type Scheduled } from './schedule.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -124,6 +124,8 @@ for (const ddl of [
   'ALTER TABLE learners ADD COLUMN prefs TEXT',
   // Companion lessons: which terminal drives it ('claude-code' or 'codex').
   'ALTER TABLE lessons ADD COLUMN driver TEXT',
+  // What a question tests: 'intuition' (why it must be so), 'procedure' (carry out the steps), 'transfer' (a problem type not seen in the lesson).
+  'ALTER TABLE quiz_results ADD COLUMN tests TEXT',
 ]) {
   try {
     db.exec(ddl);
@@ -297,9 +299,10 @@ const q = {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   insertQuiz: db.prepare(
-    'INSERT INTO quiz_results (lesson_id, node_id, correct, confidence, purpose, ts) VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO quiz_results (lesson_id, node_id, correct, confidence, purpose, tests, ts) VALUES (?, ?, ?, ?, ?, ?, ?)',
   ),
   lastQuiz: db.prepare('SELECT * FROM quiz_results WHERE lesson_id = ? AND node_id = ? ORDER BY ts DESC, id DESC LIMIT 1'),
+  quizzesOn: db.prepare('SELECT * FROM quiz_results WHERE lesson_id = ? AND node_id = ? ORDER BY ts, id'),
   dueNodes: db.prepare(`
     SELECT n.*, l.topic FROM nodes n JOIN lessons l ON l.id = n.lesson_id
     WHERE l.learner_id = ? AND n.source_lesson IS NULL AND n.status = 'locked' AND n.review_at IS NOT NULL AND n.review_at <= ?
@@ -520,8 +523,26 @@ export function getNode(lessonId: string, nodeId: string): NodeRow | undefined {
 
 const DAY = 86_400_000;
 
-export type QuizPurpose = 'probe' | 'pretest' | 'check' | 'review';
-export type QuizResultRow = { id: number; lesson_id: string; node_id: string | null; correct: number; confidence: Confidence | null; purpose: QuizPurpose | null; ts: number };
+/**
+ * What a question is for. 'probe' maps the learner before the plan, 'pretest'
+ * is the attempt before a node is taught, 'check' is the question that locks
+ * it, 'cumulative' is the end-of-lesson quiz over every node, 'review' is
+ * spaced retrieval of a node locked earlier (a warm-up or a review session).
+ */
+export type QuizPurpose = 'probe' | 'pretest' | 'check' | 'cumulative' | 'review';
+/** What a question tests: the reason a claim must be so, the steps that use it, or a problem type the lesson never showed. */
+export type QuizTests = 'intuition' | 'procedure' | 'transfer';
+export const QUIZ_TESTS: QuizTests[] = ['intuition', 'procedure', 'transfer'];
+export type QuizResultRow = {
+  id: number;
+  lesson_id: string;
+  node_id: string | null;
+  correct: number;
+  confidence: Confidence | null;
+  purpose: QuizPurpose | null;
+  tests: QuizTests | null;
+  ts: number;
+};
 
 /**
  * A node's state change, with its memory schedule. Locking grades the node
@@ -530,7 +551,7 @@ export type QuizResultRow = { id: number; lesson_id: string; node_id: string | n
  * lesson's copy of a node forwards the change to the node it stands for,
  * so reviewing reschedules the original and the Atlas sees one node.
  */
-export function setNodeStatus(lessonId: string, nodeId: string, status: string): Scheduled | null {
+export function setNodeStatus(lessonId: string, nodeId: string, status: string): (Scheduled & { implicit: ImplicitChange[] }) | null {
   const node = getNode(lessonId, nodeId);
   if (!node) return null;
   if (status !== 'locked' && status !== 'shaky') {
@@ -547,19 +568,151 @@ export function setNodeStatus(lessonId: string, nodeId: string, status: string):
   const lockedAt = status === 'locked' ? now : memory.locked_at;
   apply(lessonId, nodeId, lockedAt);
   if (memory !== node) apply(memory.lesson_id, memory.node_id, lockedAt);
-  return next;
+  // A confident lock is a retrieval of everything it was derived from; a lapse is weak evidence against it.
+  const implicit = g === 'good' ? propagate(lessonId, nodeId, 'credit', now) : g === 'again' ? propagate(lessonId, nodeId, 'penalty', now) : [];
+  return { ...next, implicit };
 }
 
-export function recordQuiz(lessonId: string, nodeId: string | null, correct: boolean, opts: { confidence?: Confidence | null; purpose?: QuizPurpose | null } = {}) {
-  q.insertQuiz.run(lessonId, nodeId, correct ? 1 : 0, opts.confidence ?? null, opts.purpose ?? null, Date.now());
+/** How much of a full review a dependency earns when a node built on it locks, by distance in the graph (Skycak's FIRe: credit fades with distance). */
+const IMPLICIT_CREDIT = [0, 0.5, 0.25];
+/** How much of a lapse a node built directly on a claim takes when that claim goes shaky. */
+const IMPLICIT_PENALTY = [0, 0.5];
+
+export type ImplicitChange = { id: string; label: string; kind: 'credit' | 'penalty'; interval_days: number; review_at: number };
+
+/**
+ * Fractional implicit repetition (Math Academy's FIRe model, ch. 29).
+ * Credit flows down: locking a node with a confident check is a retrieval
+ * of the nodes it was derived from, to two levels, each earning part of a
+ * review. Penalty flows up: a node that goes shaky makes everything built
+ * directly on it suspect, and those lose part of a lapse. A review copy
+ * forwards the change to the node it stands for.
+ */
+function propagate(lessonId: string, nodeId: string, kind: 'credit' | 'penalty', now: number): ImplicitChange[] {
+  const nodes = new Map(listNodes(lessonId).map((n) => [n.node_id, n]));
+  const dependentsOf = (id: string) => [...nodes.values()].filter((n) => (JSON.parse(n.depends_on || '[]') as string[]).includes(id)).map((n) => n.node_id);
+  const neighbours = (id: string) => (kind === 'credit' ? (JSON.parse(nodes.get(id)?.depends_on || '[]') as string[]) : dependentsOf(id));
+  const weights = kind === 'credit' ? IMPLICIT_CREDIT : IMPLICIT_PENALTY;
+  const seen = new Set([nodeId]);
+  const changes: ImplicitChange[] = [];
+  let frontier = [nodeId];
+  for (let depth = 1; depth < weights.length && frontier.length; depth++) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const d of neighbours(id)) {
+        if (seen.has(d)) continue;
+        seen.add(d);
+        next.push(d);
+        const dep = nodes.get(d);
+        if (!dep) continue;
+        const memory = dep.source_lesson && dep.source_node ? (getNode(dep.source_lesson, dep.source_node) ?? dep) : dep;
+        if (memory.status !== 'locked') continue;
+        const upd = kind === 'credit' ? implicitRepetition(memory, weights[depth], now) : implicitLapse(memory, weights[depth], now);
+        if (!upd) continue;
+        const write = (l: string, nid: string) =>
+          q.scheduleNode.run('locked', memory.locked_at, upd.review_at, upd.interval_days, upd.reps, upd.stability, upd.difficulty, upd.lapses, upd.last_review, l, nid);
+        write(memory.lesson_id, memory.node_id);
+        if (memory !== dep) write(dep.lesson_id, dep.node_id);
+        changes.push({ id: d, label: dep.label, kind, interval_days: upd.interval_days, review_at: upd.review_at });
+      }
+    }
+    frontier = next;
+  }
+  return changes;
+}
+
+export function recordQuiz(
+  lessonId: string,
+  nodeId: string | null,
+  correct: boolean,
+  opts: { confidence?: Confidence | null; purpose?: QuizPurpose | null; tests?: QuizTests | null } = {},
+) {
+  q.insertQuiz.run(lessonId, nodeId, correct ? 1 : 0, opts.confidence ?? null, opts.purpose ?? null, opts.tests ?? null, Date.now());
 }
 
 export function lastQuizFor(lessonId: string, nodeId: string): QuizResultRow | undefined {
   return q.lastQuiz.get(lessonId, nodeId) as QuizResultRow | undefined;
 }
 
+export function quizzesOn(lessonId: string, nodeId: string): QuizResultRow[] {
+  return q.quizzesOn.all(lessonId, nodeId) as QuizResultRow[];
+}
+
+/**
+ * Whether the learner has shown they understand a node, not only that they
+ * can run its steps: a correct answer, after the teaching, to a question
+ * that tests intuition (why the claim must be so, what breaks without it,
+ * what it looks like) or transfer (a problem type the lesson never showed).
+ */
+export function hasUnderstandingPass(lessonId: string, nodeId: string): boolean {
+  return quizzesOn(lessonId, nodeId).some((r) => r.correct === 1 && r.purpose !== 'pretest' && (r.tests === 'intuition' || r.tests === 'transfer'));
+}
+
+/** What the checks on a node have shown so far, for the tutor's next decision. */
+export function nodeRecord(lessonId: string, nodeId: string): string {
+  const rows = quizzesOn(lessonId, nodeId).filter((r) => r.purpose !== 'pretest');
+  if (!rows.length) return 'no check yet';
+  return rows.map((r) => `${r.correct ? 'pass' : 'miss'}${r.tests ? ` (${r.tests})` : ''}${r.confidence === 'unsure' ? ', unsure' : ''}`).join(', ');
+}
+
+/**
+ * The end-of-lesson quiz. Every derived node and the goal, once locked,
+ * must be retrieved once more in a mixed order before the lesson closes:
+ * which ones still have no correct cumulative answer.
+ */
+export function cumulativeStatus(lessonId: string): { pending: NodeRow[]; done: NodeRow[]; missed: NodeRow[] } {
+  const pending: NodeRow[] = [];
+  const done: NodeRow[] = [];
+  const missed: NodeRow[] = [];
+  for (const n of listNodes(lessonId)) {
+    if (n.kind === 'truth' || n.source_lesson) continue;
+    const rows = quizzesOn(lessonId, n.node_id).filter((r) => r.purpose === 'cumulative');
+    if (rows.some((r) => r.correct === 1)) done.push(n);
+    else if (rows.length) missed.push(n);
+    else pending.push(n);
+  }
+  return { pending, done, missed };
+}
+
 export function dueNodes(learnerId: string, now = Date.now()) {
   return q.dueNodes.all(learnerId, now) as (NodeRow & { topic: string })[];
+}
+
+export type WarmupNode = NodeRow & { topic: string; review_id: string; retrievability: number; deps: { label: string }[] };
+
+/**
+ * The warm-up of a new lesson: the nodes from earlier lessons that are due
+ * and most likely forgotten, checked before anything new is taught (review
+ * before new work, and the forgetting curve decides the order). Each is a
+ * copy that points back at its source, so locking it reschedules the
+ * original; the copies leave the graph when the plan replaces it.
+ */
+export function buildWarmup(lessonId: string, learnerId: string, limit = 3, now = Date.now()): WarmupNode[] {
+  const due = dueNodes(learnerId, now)
+    .map((n) => ({ ...n, retrievability: retrievability(n, now) }))
+    .sort((a, b) => a.retrievability - b.retrievability || (a.review_at ?? 0) - (b.review_at ?? 0));
+  // Lowest retrievability first, but two from the same lesson are not adjacent when it can be helped.
+  const picked: typeof due = [];
+  const rest = [...due];
+  while (picked.length < limit && rest.length) {
+    const last = picked.at(-1);
+    const i = last ? rest.findIndex((n) => n.lesson_id !== last.lesson_id) : 0;
+    picked.push(...rest.splice(i < 0 ? 0 : i, 1));
+  }
+  const taken = new Set<string>();
+  return picked.map((n) => {
+    let id = `warmup-${n.node_id}`;
+    for (let i = 2; taken.has(id); i++) id = `warmup-${n.node_id}-${i}`;
+    taken.add(id);
+    q.insertNodeCopy.run(
+      lessonId, id, n.label, n.kind, n.summary, '[]',
+      'pending', n.locked_at, n.review_at, n.interval_days, n.reps,
+      n.stability, n.difficulty, n.lapses, n.last_review, n.lesson_id, n.node_id,
+    );
+    const source = new Map(listNodes(n.lesson_id).map((m) => [m.node_id, m]));
+    const deps = (JSON.parse(n.depends_on || '[]') as string[]).map((d) => source.get(d)).filter((d): d is NodeRow => !!d).map((d) => ({ label: d.label }));
+    return { ...n, review_id: id, deps };
+  });
 }
 
 export type ReviewNode = NodeRow & { topic: string };

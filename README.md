@@ -13,10 +13,15 @@
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
   <a href="#your-first-lesson">First lesson</a> ·
+  <a href="#the-math-academy-way-inside-derive">The Math Academy way</a> ·
   <a href="#your-library">Library</a> ·
   <a href="#how-you-learn">How you learn</a> ·
   <a href="#inside-claude-code">Inside Claude Code</a> ·
   <a href="#what-makes-it-smart">What makes it smart</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/jicanta/derive/actions/workflows/ci.yml"><img src="https://github.com/jicanta/derive/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
 </p>
 
 ---
@@ -56,12 +61,33 @@ Optional settings live in a `.env` file in the repo root; copy [`.env.example`](
 ## Your first lesson
 
 1. Open [http://localhost:4310](http://localhost:4310), type what you want to understand (*why does gradient descent work*, *what is a monad, really*), press Enter.
-2. **Probe.** The tutor asks what you are after, then quizzes you until it finds where your understanding ends. Pick an option with `1` `2` `3`, confirm with `Enter`, or `Shift+Enter` if you are not sure. `?` is "I don't know". Wrong answers here are the point: they tell it where to start.
-3. **Plan.** It shows the dependency map, ground truths at the bottom and your goal at the top. `Enter` approves it, or type one line of what should change.
-4. **Teach.** One node at a time: you guess first, it explains, it checks with a fresh question, and the graph on the right lights up as nodes lock. When the goal locks you get the compressed version of the whole thing and a first review date.
-5. Come back when the home page says nodes are due. A review asks a new question on each one; a miss is re-derived, not re-told.
+2. **Warm-up.** If nodes from earlier lessons are due, the ones you are most likely to have forgotten come first: a fresh question each, before anything new. A miss sends the node back to the review queue; it is not re-taught here.
+3. **Probe.** The tutor asks what you are after, then quizzes you until it finds where your understanding ends. Pick an option with `1` `2` `3`, confirm with `Enter`, or `Shift+Enter` if you are not sure. `?` is "I don't know". Wrong answers here are the point: they tell it where to start.
+4. **Plan.** It shows the dependency map, ground truths at the bottom and your goal at the top. `Enter` approves it, or type one line of what should change.
+5. **Teach.** One node at a time: you guess first, it explains, it checks with a fresh question, and the graph on the right lights up as nodes lock. A node does not lock on the steps alone: you also have to pass a question on *why* it must be so, or use it on a kind of problem the lesson never showed.
+6. **Cumulative quiz.** When the goal locks, every node comes back once more in a mixed order, most of them as problems you have not seen. Only when all of them hold do you get the compressed version of the whole thing and a first review date.
+7. Come back when the home page says nodes are due. A review asks a new question on each one; a miss is re-derived, not re-told.
 
 Type in the box at any time to ask something, push back, or steer. Attach course material with the paperclip, or switch on *voice* in the header to be talked through it.
+
+## The Math Academy way, inside Derive
+
+Derive's teaching discipline follows [Justin Skycak](https://www.justinmath.com)'s **[The Math Academy Way](https://www.justinmath.com/files/the-math-academy-way.pdf)**, the book behind [Math Academy](https://www.mathacademy.com): a knowledge graph, mastery learning at the edge of what you know, tiny scaffolded steps, spaced repetition with credit that flows through the graph, interleaved review, and remediation aimed at the exact prerequisite that failed. Derive keeps its derivation-graph essence and adds these mechanics on top, one per rule:
+
+| Skycak's principle | What Derive does |
+|---|---|
+| **Knowledge frontier.** Only ever teach a topic whose prerequisites are mastered; never assume one. | The probe finds a floor and a ceiling on every strand the lesson rests on, prerequisites included, and the plan starts at the bottom of the lowest hole. A pass on a claim counts as evidence for what it rests on; a miss, against everything above it. |
+| **Mastery learning.** Prove proficiency before advancing; never lower the bar, add scaffolding instead. | Every quiz says what it tests: `intuition` (why it must be so), `procedure` (the steps) or `transfer` (a kind of problem the lesson never showed). The server refuses to lock a derived node until an intuition or transfer question on it has passed. Steps alone never lock anything. |
+| **Minimal cognitive load, explicit instruction.** One idea per step, worked example then problems, fade the scaffolding. | One node at a time, a pretest attempt then the explanation, a worked example on strands the probe showed were weak and a bare problem on strands it showed were solid. |
+| **Layering.** Build on a skill the moment it is mastered; building on it is the best rehearsal of it. | Nodes are taught in dependency order, and locking a node credits the nodes it was derived from with part of a review. |
+| **Fractional implicit repetition (FIRe).** Practising an advanced topic is partial practice of its prerequisites; a failure below makes everything above suspect. | A confident lock gives its direct dependencies half of a review's credit and their dependencies a quarter, discounted the way an early review is: a claim locked minutes ago gains almost nothing, a claim from a lesson weeks ago gains most of it. A node going shaky pulls the review of everything built directly on it closer. Reviews propagate to the original nodes across lessons. |
+| **Spaced repetition on the forgetting curve.** Review when memory is fuzzy, not when it is fresh. | FSRS schedules every node. A new lesson opens with a warm-up of the due nodes you are most likely to have forgotten (lowest retrievability first, topics interleaved), retrieved before anything new is taught. |
+| **Interleaving and non-interference.** Block while learning, mix while reviewing; keep confusable things apart. | The teach loop is blocked; the cumulative quiz and every review mix the order and the framing, and the tutor is told not to teach two confusable claims back to back. |
+| **Quizzes over everything learned.** Frequent, unscaffolded, covering all topics, with every miss triggering remediation. | Locking the goal opens the cumulative quiz: one fresh question per node, at least half transfer, mixed order. A miss marks the node shaky on the spot and reschedules it. |
+| **Targeted remediation.** On repeated failure, review the key prerequisites of the exact sticking point. | Marking a node shaky returns the nodes it rests on with the record of every check on each; the tutor re-checks the weakest one first and re-derives from there instead of explaining the same thing again. |
+| **Intuition and transfer, not pattern-matching.** You cannot teach jumping further, only build bridges to jump from. | Most checks are intuition questions, geometric where geometry applies, and transfer questions are how the tutor finds out whether you can only solve what you have seen. |
+
+Credit where it is due: the mechanics in this section are Skycak's, described in the book and in his [writing on the Math Academy blog](https://www.justinmath.com/); Derive is an independent open-source project that adopts them and is not affiliated with Math Academy. Read the book; it is free.
 
 ## Your library
 
@@ -190,6 +216,10 @@ claude mcp add derive -- node /absolute/path/to/derive/server/dist/mcp.js
 ## What makes it smart
 
 - **Honest grading.** Quizzes are a real tool, not a chat convention. The server grades your pick and reveals the explanation only afterwards. The model never grades its own questions and never sees your answer before the card is scored.
+- **Understanding is the lock.** Each question says whether it tests intuition, procedure or transfer, and a derived node cannot lock on procedure alone: the server refuses until you have passed a question on why the claim must be so or on a kind of problem the lesson never showed. Memorizing the steps gets you nowhere.
+- **Review first, on the forgetting curve.** A new lesson opens by retrieving the due nodes you are most likely to have forgotten, so old material is refreshed before new material is stacked on it.
+- **A cumulative quiz closes every lesson.** When the goal locks, every node comes back once, in a mixed order, mostly as transfer questions. A miss marks it shaky and sends the tutor to the prerequisite that failed.
+- **Credit flows through the graph.** Locking a node counts as part of a review of what it was derived from (Skycak's fractional implicit repetition), and a node going shaky brings the review of what was built on it closer.
 - **Try before you are told.** Every derived node opens with a pretest: your best guess, from what is already locked, before the explanation. A real attempt before instruction is one of the best-replicated effects in memory research, and a miss there is expected, so it is never stored as a misconception.
 - **You commit to how sure you are.** *Answer* or *Not sure* (Enter or Shift+Enter; `B?` in the terminal; "probably B" by voice). An unsure pass does not lock a node: the tutor asks for the why. A confident miss is a held belief, and the moment it can be replaced: the tutor names the claim you held and what breaks it, instead of restating the answer.
 - **Hints before answers.** On a miss the tutor points at the node the claim rests on and asks a fresh question. Only a second miss earns a step-by-step re-derivation. Answers are never handed over.
@@ -235,7 +265,18 @@ The mechanics inside a lesson borrow from the memory literature directly:
 - **Hints, not answers; one step at a time.** In the 2025 UK classroom RCT with a pedagogy-tuned model, interactive Socratic support beat static hints on the next attempt (93 versus 65 percent) and transferred to new problems, and the most common human correction was slowing the tutor's pacing ([Jurenka et al. 2025](https://arxiv.org/abs/2512.23633)). Kestin's tutor kept replies to a few sentences and revealed one step at a time. Derive's miss handling is a hint ladder, and the teach loop reveals one step per check.
 - **Faded guidance.** Worked examples help novices and hurt learners past them (the expertise-reversal effect), so the tutor works the first example on strands you missed in the probe and skips it on strands you already hold.
 
-The method comes from [amosblomqvist/learn](https://github.com/amosblomqvist/learn) and the talk [How I Use AI to Learn Things](https://www.youtube.com/watch?v=kzcI5F4tGiU). Derive turns that terminal workflow into a product and keeps the terminal.
+The method comes from [amosblomqvist/learn](https://github.com/amosblomqvist/learn) and the talk [How I Use AI to Learn Things](https://www.youtube.com/watch?v=kzcI5F4tGiU); the discipline around it (mastery, the knowledge frontier, implicit repetition, interleaving, targeted remediation, the cumulative quiz) is Justin Skycak's, from [The Math Academy Way](https://www.justinmath.com/files/the-math-academy-way.pdf). Derive turns that terminal workflow into a product, keeps the terminal, and holds itself to Skycak's bar.
+
+## Development
+
+```bash
+pnpm dev          # web on :5173 with hot reload, API on :4310
+pnpm typecheck    # both packages
+pnpm test         # the server's tests: scheduling, terminal replies, and the API driven end to end without a model
+pnpm build
+```
+
+CI runs typecheck, build and the tests on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). Pushing a tag `vX.Y.Z` builds a release with the plugin and the built server attached ([`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
 ## License
 

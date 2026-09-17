@@ -213,6 +213,22 @@ export function LessonPage() {
                         <span className="h-px flex-1 bg-ink-800" />
                       </div>
                     );
+                  case 'warmup':
+                    return (
+                      <div key={it.seq} className="animate-fade-up rounded-[14px] border border-teal-400/25 bg-teal-400/5 px-5 py-4">
+                        <span className="eyebrow text-teal-400">warm-up · due from earlier lessons</span>
+                        <p className="mt-1.5 text-[13.5px] leading-[1.5] text-ink-300 text-pretty max-w-[60ch]">
+                          Retrieval first, on the forgetting curve: {it.nodes.length === 1 ? 'one node is' : `${it.nodes.length} nodes are`} due and get a fresh question each before anything new.
+                        </p>
+                        <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-ink-400">
+                          {it.nodes.map((n) => (
+                            <li key={n.id}>
+                              <span className="text-ink-100">{n.label}</span> <span className="text-ink-500">· {n.topic}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
                   case 'node_start': {
                     const summary = state.nodes.find((n) => n.id === it.id)?.summary;
                     return (

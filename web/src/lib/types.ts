@@ -129,9 +129,11 @@ export type Atlas = {
 
 export type StoredEvent = { seq: number; type: string; payload: any; ts: number };
 
-/** What a question is for: 'pretest' is the attempt before teaching (a miss is expected), 'check' locks a node. */
-export type QuizPurpose = 'probe' | 'pretest' | 'check' | 'review';
-export type QuizPayload = { id: string; question: string; options: string[]; multi: boolean; node_id: string | null; purpose?: QuizPurpose };
+/** What a question is for: 'pretest' is the attempt before teaching (a miss is expected), 'check' locks a node, 'cumulative' is the end-of-lesson quiz, 'review' retrieves a node from an earlier lesson. */
+export type QuizPurpose = 'probe' | 'pretest' | 'check' | 'cumulative' | 'review';
+/** What a question tests: the reason a claim must be so, the steps that use it, or a problem type the lesson never showed. */
+export type QuizTests = 'intuition' | 'procedure' | 'transfer';
+export type QuizPayload = { id: string; question: string; options: string[]; multi: boolean; node_id: string | null; purpose?: QuizPurpose; tests?: QuizTests | null };
 export type QuizResultPayload = {
   id: string;
   selected: number[];
@@ -143,6 +145,7 @@ export type QuizResultPayload = {
   /** How sure the learner said they were, committed before the reveal. */
   confidence?: 'sure' | 'unsure' | null;
   purpose?: QuizPurpose;
+  tests?: QuizTests | null;
 };
 export type AskPayload = { id: string; question: string; options: string[] };
 export type PlanPayload = { id: string; goal: string; nodes: Omit<GraphNode, 'status'>[] };
@@ -158,6 +161,7 @@ export type TimelineItemBase =
   | { kind: 'plan'; seq: number; plan: PlanPayload; approved?: boolean; feedback?: string | null }
   | { kind: 'explain'; seq: number; explain: ExplainPayload; answer?: string }
   | { kind: 'phase'; seq: number; phase: string }
+  | { kind: 'warmup'; seq: number; nodes: { id: string; label: string; topic: string }[] }
   | { kind: 'node_start'; seq: number; id: string; label: string; index: number; total: number }
   | { kind: 'node'; seq: number; id: string; status: NodeStatus; label: string; reviewDays?: number }
   | { kind: 'memory'; seq: number; fact: string }
