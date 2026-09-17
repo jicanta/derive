@@ -10,6 +10,8 @@ This milestone opens Derive to any model and any way of paying for it (subscript
 
 A learner can sit down with any model they have access to and be taught the Derive way: the dependency graph, the understanding gate, the review loop, with nothing lost between providers.
 
+**Simplicity rule (binding on every phase):** one screen, one next step. The default UI shows the lesson and what to do next; everything else lives behind Settings. No feature ships without a one-sentence reason tied to learning better. Derive must not become cluttered; its essence, tips and workflow are the product.
+
 ## Requirements
 
 ### Validated
@@ -39,22 +41,22 @@ Provider layer
 - [ ] Learner can run the tutor on additional CLI subscriptions they already pay for (Gemini CLI, GitHub Copilot, other agent CLIs)
 - [ ] Learner picks provider and model on a settings page in the app: paste a key or detect a login, choose a model; persisted
 - [ ] Full parity across providers: the same tutor tools, the same method, web search via a pluggable search provider, on every path (Derive runs its own agent loop where the provider gives none)
-- [ ] Learner sees per-lesson token counts and estimated cost, plus a running total on a usage page, on pay-per-use providers
+- [ ] Learner sees per-lesson token counts and estimated cost, plus a running total on a usage page, on pay-per-use providers; nothing more elaborate than that
 - [ ] The tool contract (schemas, descriptions, HTTP action validation) and the teaching method text are each defined once and shared by every driver
 
 Learning experience
 
 - [ ] Method quality: better graphs, sharper quizzes, tighter remediation, stronger warm-ups and reviews
 - [ ] Less friction in the flow: fewer clicks, faster turns, clearer cards, less waiting, better voice mode
-- [ ] Progress and motivation: streaks, retention stats, an atlas that shows growth over time, review reminders
+- [ ] Progress: a due-review count, honest retention stats, and an atlas coloured by memory stability so growth is visible
 - [ ] The learner learns in the optimal way with the least effort; the tutor carries the workflow, not the learner
 
 Personalization (style only; the method is fixed)
 
 - [ ] Theme: light / dark / system plus accent palettes, per learner
 - [ ] Typography: font family and size, including a dyslexia-friendly option
-- [ ] Layout and density: card density, graph panel position, a focus mode that hides everything but the current card
-- [ ] Tutor voice and tone: terse vs chatty, language, voice-mode voice; the method does not change
+- [ ] A focus mode that hides everything but the current card
+- [ ] Tutor tone (plain, warm, dry) and language; the method does not change
 
 Adoption
 
@@ -69,6 +71,8 @@ Adoption
 - Changing the teaching method or its workflow to suit weaker models — parity means the method stays; a weak model simply teaches worse
 - Per-lesson model switching UI — one provider/model setting per install or learner is enough; tiered roles are a later refinement
 - Tiered roles (strong model plans, cheap model explains) — considered; deferred until the single-provider loop is solid
+- Copilot and Gemini CLI drivers — deferred to v2; API keys, gateways and local models cover most learners, and both SDKs are medium-confidence
+- Streaks, daily goals, reminders, budgets, cost-per-node analytics, capability badges, density and panel-position settings, voice picker — moved to v2 on 2026-09-17 under the simplicity rule; each read as a feature for its own sake
 
 ## Context
 
@@ -97,6 +101,9 @@ Adoption
 | Consolidate the tool contract and method text as part of the provider work | Every new driver would otherwise add a fourth copy | — Pending |
 | Clone-and-run install, no desktop app, no hosted version | Author's call: what they can clone is fine for now | — Pending |
 | Success = other people using it | Adoption is the measure, not the author's own use | — Pending |
+| In-app Claude runs on an API key; the plugin is the subscription route | Anthropic's terms forbid Pro/Max login tokens in third-party tools including the Agent SDK | — Pending |
+| Copilot and Gemini CLI drivers deferred to v2 | Riskiest drivers; the owned loop plus OpenAI-compatible covers most of their value | — Pending |
+| Simplicity rule: one screen, one next step; eight "just because" requirements moved to v2 | Owner's call on 2026-09-17: Derive must stay simple to use and understand | — Pending |
 
 ## Evolution
 
@@ -116,4 +123,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-17 after initialization*
+*Last updated: 2026-09-17 after requirements and simplicity trim*
