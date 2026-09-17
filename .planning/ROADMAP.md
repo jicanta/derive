@@ -35,7 +35,17 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A new driver is added by implementing one `Driver.runTurn(ctx, sink)` and reporting through the sink, with no change to the web UI, the SSE stream or the terminal mirrors (proven by a fake driver in tests)
   4. An existing `~/.derive` database opens on the new version and migrates forward under a numbered, transactional runner; an interrupted `replaceGraph` or `deleteLesson` leaves no partial state
   5. The server answers only on 127.0.0.1 with a per-install token, rejects foreign Host and Origin, and no secret appears in any error, log, event, export or vault-mirror path; every turn stores raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
-**Plans**: TBD
+**Plans**: 8 plans, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening)
+
+Plans:
+- [ ] 01-01-PLAN.md — One registry for all 21 tools, plus the committed wire-surface snapshot (wave 1)
+- [ ] 01-02-PLAN.md — MCP server and HTTP action validation driven by the registry; stdio smoke test (wave 2)
+- [ ] 01-03-PLAN.md — The method text written once under `method/`, rendered to five targets, CI failing on drift (wave 2)
+- [ ] 01-04-PLAN.md — `Driver.runTurn(ctx, sink)`, one event sink, and a fake driver as the proof (wave 3)
+- [ ] 01-05-PLAN.md — Numbered transactional migrations on `PRAGMA user_version`, and `withTx` (wave 4)
+- [ ] 01-06-PLAN.md — The `turns` and `usage` tables: honest per-request usage for every turn (wave 5)
+- [ ] 01-07-PLAN.md — Loopback bind, Host and Origin checks, per-install token, one version string (wave 6)
+- [ ] 01-08-PLAN.md — Redaction chokepoint, SSRF and path guards, and the plugin/Codex parity run (wave 7)
 **Research**: Not needed — standard patterns (zod raw shapes accepted by all three tool APIs, Hono middleware, `PRAGMA user_version`, 0600 files). Internal order matters: contract and method first with no behaviour change (existing API suite, snapshot fixture and MCP smoke test as the net), then seam, sink, ledger, migrations and hardening. Pin the Claude Agent SDK to a caret range; version string from `package.json`; decide deliberately which wording wins where `prompt.ts` and `SKILL.md` disagree.
 
 ### Phase 2: Settings and Secrets
@@ -135,7 +145,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/TBD | Not started | - |
+| 1. Foundation | 0/8 | Planned | - |
 | 2. Settings and Secrets | 0/TBD | Not started | - |
 | 3. Owned Loop: API Keys and Gateways | 0/TBD | Not started | - |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |
