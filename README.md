@@ -208,10 +208,14 @@ claude mcp add derive -- node /absolute/path/to/derive/server/dist/mcp.js
 
 ## How a lesson works
 
-1. **Probe.** The tutor asks what you actually want (an open question), then quizzes you, adapting each question to the last answer, until it can say concretely what you have and where it ends. All-correct means the questions were too easy; it escalates.
-2. **Plan.** It writes a short paragraph on the approach and submits the dependency map. You approve it or send it back with one line of feedback.
-3. **Teach.** For every node: motivate it, make you *attempt* it before it is explained (a pretest, where a miss is expected and never counts against you), establish it from its dependencies, connect it explicitly, then check it with a different question. You say how sure you are before the reveal. A miss gets a hint and a fresh question before any re-derivation; a confident miss gets the belief you held named and taken apart. Miss twice and the node goes shaky and the tutor backs up to what it depends on.
-4. **Review.** Locked nodes come back when due, mixed across topics, with a new question each time. A miss is re-derived from the node's dependencies, not re-told.
+The dependency graph is still the whole idea: ground truths at the roots, derived claims hanging off what they rest on, your goal at the top, nothing taught before its dependencies and nothing locked without a fresh question. The Math Academy mechanics sit on top of that loop; they do not replace it.
+
+1. **Warm-up.** If nodes from earlier lessons are due, the ones you are most likely to have forgotten come first, one fresh question each, before anything new. A lock reschedules the original; a miss sends it back to the review queue.
+2. **Probe.** The tutor asks what you actually want (an open question), then quizzes you, adapting each question to the last answer, until it can say concretely what you have and where it ends. Every strand the lesson rests on gets a floor and a ceiling; no prerequisite is assumed. All-correct means the questions were too easy; it escalates.
+3. **Plan.** It writes a short paragraph on the approach and submits the dependency map, starting from the lowest hole the probe found. You approve it or send it back with one line of feedback.
+4. **Teach.** For every node: motivate it, make you *attempt* it before it is explained (a pretest, where a miss is expected and never counts against you), establish it from its dependencies, connect it explicitly, then check it with a different question. Each check says what it tests: intuition, procedure or transfer, and a derived node locks only once an intuition or transfer question has passed. You say how sure you are before the reveal. A miss gets a hint and a fresh question before any re-derivation; a confident miss gets the belief you held named and taken apart. Miss twice and the node goes shaky and the tutor re-checks the weakest of the nodes it depends on before re-deriving.
+5. **Cumulative quiz.** When the goal locks, every node comes back once in a mixed order, mostly as problems the lesson never showed. A miss marks the node shaky and triggers the same targeted remediation. The closing comes only when everything has held.
+6. **Review.** Locked nodes come back when due, mixed across topics, with a new question each time. A miss is re-derived from the node's dependencies, not re-told. Locking a node built on others counts as part of a review of them.
 
 ## What makes it smart
 
