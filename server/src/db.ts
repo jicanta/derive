@@ -3,138 +3,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DATA_DIR, DB_PATH } from './config.js';
+import { runMigrations } from './migrations.js';
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 mkdirSync(DATA_DIR, { recursive: true });
 
 export const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS lessons (
-    id TEXT PRIMARY KEY,
-    topic TEXT NOT NULL,
-    goal TEXT,
-    session_id TEXT,
-    phase TEXT NOT NULL DEFAULT 'probe',
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS events (
-    lesson_id TEXT NOT NULL,
-    seq INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    ts INTEGER NOT NULL,
-    PRIMARY KEY (lesson_id, seq)
-  );
-  CREATE TABLE IF NOT EXISTS nodes (
-    lesson_id TEXT NOT NULL,
-    node_id TEXT NOT NULL,
-    label TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    summary TEXT,
-    depends_on TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    locked_at INTEGER,
-    review_at INTEGER,
-    interval_days REAL NOT NULL DEFAULT 1,
-    reps INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (lesson_id, node_id)
-  );
-  CREATE TABLE IF NOT EXISTS memory (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    fact TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'learner',
-    lesson_id TEXT,
-    ts INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS misconceptions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lesson_id TEXT NOT NULL,
-    node_id TEXT,
-    question TEXT NOT NULL,
-    picked TEXT NOT NULL,
-    correct TEXT NOT NULL,
-    explanation TEXT NOT NULL,
-    resolved INTEGER NOT NULL DEFAULT 0,
-    ts INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS quiz_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lesson_id TEXT NOT NULL,
-    node_id TEXT,
-    correct INTEGER NOT NULL,
-    ts INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS materials (
-    id TEXT PRIMARY KEY,
-    lesson_id TEXT,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    unit TEXT NOT NULL DEFAULT 'part',
-    pages INTEGER NOT NULL DEFAULT 0,
-    chars INTEGER NOT NULL DEFAULT 0,
-    text TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS materials_lesson ON materials (lesson_id);
-  CREATE TABLE IF NOT EXISTS learners (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS resources (
-    id TEXT PRIMARY KEY,
-    learner_id TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    title TEXT NOT NULL,
-    url TEXT,
-    author TEXT,
-    note TEXT,
-    tags TEXT NOT NULL DEFAULT '[]',
-    text TEXT,
-    chars INTEGER NOT NULL DEFAULT 0,
-    fetched_at INTEGER,
-    fetch_error TEXT,
-    added_by TEXT NOT NULL DEFAULT 'learner',
-    lesson_id TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS resources_learner ON resources (learner_id);
-`);
-
-/** Columns added after the first release; SQLite has no ADD COLUMN IF NOT EXISTS. */
-for (const ddl of [
-  "ALTER TABLE lessons ADD COLUMN mode TEXT NOT NULL DEFAULT 'agent'",
-  "ALTER TABLE lessons ADD COLUMN learner_id TEXT NOT NULL DEFAULT 'default'",
-  "ALTER TABLE lessons ADD COLUMN answer_in TEXT NOT NULL DEFAULT 'browser'",
-  // Memory state per node (FSRS), and where a review copy comes from.
-  'ALTER TABLE nodes ADD COLUMN stability REAL',
-  'ALTER TABLE nodes ADD COLUMN difficulty REAL',
-  'ALTER TABLE nodes ADD COLUMN lapses INTEGER NOT NULL DEFAULT 0',
-  'ALTER TABLE nodes ADD COLUMN last_review INTEGER',
-  'ALTER TABLE nodes ADD COLUMN source_lesson TEXT',
-  'ALTER TABLE nodes ADD COLUMN source_node TEXT',
-  // How sure the learner was, and what the question was for (probe, pretest, check, review).
-  'ALTER TABLE quiz_results ADD COLUMN confidence TEXT',
-  'ALTER TABLE quiz_results ADD COLUMN purpose TEXT',
-  'ALTER TABLE misconceptions ADD COLUMN confidence TEXT',
-  // How the learner wants to be taught, in their own words (JSON, see LearnerPrefs).
-  'ALTER TABLE learners ADD COLUMN prefs TEXT',
-  // Companion lessons: which terminal drives it ('claude-code' or 'codex').
-  'ALTER TABLE lessons ADD COLUMN driver TEXT',
-  // What a question tests: 'intuition' (why it must be so), 'procedure' (carry out the steps), 'transfer' (a problem type not seen in the lesson).
-  'ALTER TABLE quiz_results ADD COLUMN tests TEXT',
-]) {
-  try {
-    db.exec(ddl);
-  } catch {
-    /* column exists */
-  }
-}
-db.exec('CREATE INDEX IF NOT EXISTS lessons_learner ON lessons (learner_id)');
-db.exec('CREATE INDEX IF NOT EXISTS quiz_results_node ON quiz_results (lesson_id, node_id)');
+runMigrations(db);
 
 /** The first learner. Lessons from before profiles existed belong to it. */
 export const DEFAULT_LEARNER_ID = 'default';

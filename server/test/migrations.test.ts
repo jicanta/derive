@@ -1,0 +1,257 @@
+/**
+ * The migration runner, and the one thing it exists to guarantee: a database
+ * written by the code that shipped before it lands on exactly the schema a
+ * fresh one gets.
+ *
+ * Everything here runs against scratch directories from mkdtempSync. Nothing
+ * in this file may touch ~/.derive/derive.db — that file is a real learner's
+ * only record.
+ */
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { after, describe, it } from 'node:test';
+
+import { LATEST_VERSION, MIGRATIONS, runMigrations } from '../src/migrations.js';
+
+const dirs: string[] = [];
+const scratch = () => {
+  const dir = mkdtempSync(join(tmpdir(), 'derive-migrate-'));
+  dirs.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+});
+
+/**
+ * The schema exactly as server/src/db.ts ran it inline before this runner
+ * existed: `git show 9351172:server/src/db.ts` lines 12-137. Byte-identical on
+ * purpose — sqlite_master keeps the text a table was created with, so a
+ * whitespace change here would make an upgraded database differ from a fresh
+ * one for no reason but formatting, which is the failure this test catches.
+ */
+const LEGACY_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS lessons (
+    id TEXT PRIMARY KEY,
+    topic TEXT NOT NULL,
+    goal TEXT,
+    session_id TEXT,
+    phase TEXT NOT NULL DEFAULT 'probe',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS events (
+    lesson_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    PRIMARY KEY (lesson_id, seq)
+  );
+  CREATE TABLE IF NOT EXISTS nodes (
+    lesson_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    summary TEXT,
+    depends_on TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    locked_at INTEGER,
+    review_at INTEGER,
+    interval_days REAL NOT NULL DEFAULT 1,
+    reps INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (lesson_id, node_id)
+  );
+  CREATE TABLE IF NOT EXISTS memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fact TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'learner',
+    lesson_id TEXT,
+    ts INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS misconceptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lesson_id TEXT NOT NULL,
+    node_id TEXT,
+    question TEXT NOT NULL,
+    picked TEXT NOT NULL,
+    correct TEXT NOT NULL,
+    explanation TEXT NOT NULL,
+    resolved INTEGER NOT NULL DEFAULT 0,
+    ts INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS quiz_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lesson_id TEXT NOT NULL,
+    node_id TEXT,
+    correct INTEGER NOT NULL,
+    ts INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS materials (
+    id TEXT PRIMARY KEY,
+    lesson_id TEXT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    unit TEXT NOT NULL DEFAULT 'part',
+    pages INTEGER NOT NULL DEFAULT 0,
+    chars INTEGER NOT NULL DEFAULT 0,
+    text TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS materials_lesson ON materials (lesson_id);
+  CREATE TABLE IF NOT EXISTS learners (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS resources (
+    id TEXT PRIMARY KEY,
+    learner_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT,
+    author TEXT,
+    note TEXT,
+    tags TEXT NOT NULL DEFAULT '[]',
+    text TEXT,
+    chars INTEGER NOT NULL DEFAULT 0,
+    fetched_at INTEGER,
+    fetch_error TEXT,
+    added_by TEXT NOT NULL DEFAULT 'learner',
+    lesson_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS resources_learner ON resources (learner_id);
+`;
+
+/** The ALTER TABLE list from the same source, lines 109-128. Order matters: it is the order the columns land in. */
+const LEGACY_COLUMNS = [
+  "ALTER TABLE lessons ADD COLUMN mode TEXT NOT NULL DEFAULT 'agent'",
+  "ALTER TABLE lessons ADD COLUMN learner_id TEXT NOT NULL DEFAULT 'default'",
+  "ALTER TABLE lessons ADD COLUMN answer_in TEXT NOT NULL DEFAULT 'browser'",
+  // Memory state per node (FSRS), and where a review copy comes from.
+  'ALTER TABLE nodes ADD COLUMN stability REAL',
+  'ALTER TABLE nodes ADD COLUMN difficulty REAL',
+  'ALTER TABLE nodes ADD COLUMN lapses INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE nodes ADD COLUMN last_review INTEGER',
+  'ALTER TABLE nodes ADD COLUMN source_lesson TEXT',
+  'ALTER TABLE nodes ADD COLUMN source_node TEXT',
+  // How sure the learner was, and what the question was for (probe, pretest, check, review).
+  'ALTER TABLE quiz_results ADD COLUMN confidence TEXT',
+  'ALTER TABLE quiz_results ADD COLUMN purpose TEXT',
+  'ALTER TABLE misconceptions ADD COLUMN confidence TEXT',
+  // How the learner wants to be taught, in their own words (JSON, see LearnerPrefs).
+  'ALTER TABLE learners ADD COLUMN prefs TEXT',
+  // Companion lessons: which terminal drives it ('claude-code' or 'codex').
+  'ALTER TABLE lessons ADD COLUMN driver TEXT',
+  // What a question tests: 'intuition' (why it must be so), 'procedure' (carry out the steps), 'transfer' (a problem type not seen in the lesson).
+  'ALTER TABLE quiz_results ADD COLUMN tests TEXT',
+];
+
+/** Build a database the way the pre-runner code did, and leave user_version at 0 where it left it. */
+function legacyDatabase(dir: string): string {
+  const file = join(dir, 'derive.db');
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec(LEGACY_SCHEMA);
+  for (const ddl of LEGACY_COLUMNS) {
+    try {
+      db.exec(ddl);
+    } catch {
+      /* column exists */
+    }
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS lessons_learner ON lessons (learner_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS quiz_results_node ON quiz_results (lesson_id, node_id)');
+  db.close();
+  return file;
+}
+
+/** A learner's record, in miniature: a lesson, its graph, its events and a locked node with FSRS state. */
+function populate(file: string) {
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA journal_mode = WAL');
+  db.prepare('INSERT INTO learners (id, name, created_at) VALUES (?, ?, ?)').run('default', 'You', 1);
+  db.prepare('INSERT INTO lessons (id, topic, phase, learner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run('l1', 'Fourier series', 'teach', 'default', 1, 2);
+  db.prepare('INSERT INTO nodes (lesson_id, node_id, label, kind, depends_on, status, stability, reps) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('l1', 'orthogonality', 'Sines are orthogonal', 'truth', '[]', 'locked', 4.5, 2);
+  db.prepare('INSERT INTO events (lesson_id, seq, type, payload, ts) VALUES (?, ?, ?, ?, ?)').run('l1', 0, 'turn_start', '{}', 1);
+  db.prepare('INSERT INTO quiz_results (lesson_id, node_id, correct, confidence, purpose, tests, ts) VALUES (?, ?, ?, ?, ?, ?, ?)').run('l1', 'orthogonality', 1, 'sure', 'check', 'intuition', 2);
+  db.close();
+}
+
+/** Everything sqlite_master knows, plus the columns of every table, in a stable order. */
+function schemaOf(file: string) {
+  const db = new DatabaseSync(file);
+  const objects = db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").all() as { type: string; name: string; tbl_name: string; sql: string | null }[];
+  const columns: Record<string, unknown[]> = {};
+  for (const o of objects) {
+    if (o.type !== 'table') continue;
+    columns[o.name] = db.prepare('SELECT cid, name, type, "notnull", dflt_value, pk FROM pragma_table_info(?) ORDER BY cid').all(o.name);
+  }
+  db.close();
+  return { objects, columns };
+}
+
+function userVersion(file: string): number {
+  const db = new DatabaseSync(file);
+  const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
+  db.close();
+  return user_version;
+}
+
+/** Run the runner the way db.ts does: open, set WAL, migrate, close. */
+function migrate(file: string) {
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA journal_mode = WAL');
+  runMigrations(db);
+  db.close();
+}
+
+describe('the migration runner', () => {
+  it('lands an existing database on exactly the schema a fresh one gets', () => {
+    const old = legacyDatabase(scratch());
+    populate(old);
+    migrate(old);
+
+    const fresh = join(scratch(), 'derive.db');
+    migrate(fresh);
+
+    assert.deepEqual(schemaOf(old), schemaOf(fresh));
+    assert.equal(userVersion(old), LATEST_VERSION);
+    assert.equal(userVersion(fresh), LATEST_VERSION);
+  });
+
+  it('starts at migration 1, the baseline', () => {
+    assert.equal(MIGRATIONS[0].version, 1);
+    assert.equal(MIGRATIONS[0].name, 'baseline');
+    assert.equal(LATEST_VERSION, MIGRATIONS[MIGRATIONS.length - 1].version);
+  });
+
+  it('leaves the learner every row they had', () => {
+    const old = legacyDatabase(scratch());
+    populate(old);
+    migrate(old);
+
+    const db = new DatabaseSync(old);
+    // node:sqlite rows have a null prototype; spread them so deepEqual compares against a plain object.
+    assert.deepEqual(db.prepare('SELECT id, topic, phase, learner_id FROM lessons').all().map((r) => ({ ...r })), [{ id: 'l1', topic: 'Fourier series', phase: 'teach', learner_id: 'default' }]);
+    assert.deepEqual(db.prepare('SELECT node_id, status, stability, reps FROM nodes').all().map((r) => ({ ...r })), [{ node_id: 'orthogonality', status: 'locked', stability: 4.5, reps: 2 }]);
+    assert.equal((db.prepare('SELECT count(*) AS n FROM events').get() as { n: number }).n, 1);
+    assert.equal((db.prepare('SELECT count(*) AS n FROM quiz_results').get() as { n: number }).n, 1);
+    db.close();
+  });
+
+  it('is a no-op the second time', () => {
+    const old = legacyDatabase(scratch());
+    migrate(old);
+    const before = schemaOf(old);
+
+    migrate(old);
+    assert.deepEqual(schemaOf(old), before);
+    assert.equal(userVersion(old), LATEST_VERSION);
+  });
+});
