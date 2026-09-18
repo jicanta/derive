@@ -29,7 +29,19 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The sections of the method, in reading order. Every target gets all of them, and nothing else. */
-const BODY_SECTIONS = ['quiz-options'];
+const BODY_SECTIONS = [
+  'identity',
+  'philosophy',
+  'tools',
+  'quiz-options',
+  'discipline',
+  'checks',
+  'process',
+  'material',
+  'library',
+  'preferences',
+  'writing-style',
+];
 
 /** The generated span of a Markdown target opens here. */
 const BEGIN = '<!-- method:begin -->';
@@ -243,7 +255,7 @@ export function renderAll() {
     const applied = new Map(BODY_SECTIONS.map((id) => [id, forSurface(sections.get(id), target.surface)]));
     const body = BODY_SECTIONS.map((id) => applied.get(id)).join('\n\n');
     if (target.kind === 'module') rendered.push({ path: target.path, content: renderModule(preamble, applied) });
-    else rendered.push({ path: target.path, content: renderRegion(target.path, body) });
+    else rendered.push({ path: target.path, content: renderRegion(target.path, `${preamble}\n\n${body}`) });
   }
   return rendered;
 }
