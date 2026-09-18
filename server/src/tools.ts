@@ -196,6 +196,78 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
     surfaces: ['agent', 'mcp', 'http'],
     label: 'Saving a source to your library',
   },
+  // The driver tools below reach only the terminal drivers: they open and close
+  // a lesson, attach material to it, carry a terminal reply back to the card
+  // that is open, and read the learner's shelf outside a lesson. They are in the
+  // registry because `tools/list` returns them to the Claude Code plugin today,
+  // so a snapshot that skipped them would not describe what the plugin sees.
+  {
+    name: 'start_lesson',
+    description: 'Start a Derive lesson for a topic. Opens the companion view in the browser, where quizzes, the plan and the dependency graph are rendered. Call once at the start of a lesson, before any quiz. Returns the lesson id, the URL, where the learner answers cards (browser or terminal), what is already known about this learner, a `warmup` (nodes from earlier lessons that are due, to be retrieved before the probe) when there is one, and, when `files` were given, a brief of the course material (its outline, or its full text when short) with instructions on how to use it.',
+    shape: {
+      topic: z.string(),
+      files: z
+        .array(z.string())
+        .optional()
+        .describe('Course material to prepare for: local paths to .pdf, .pptx, .docx, .md or .txt files, a folder of them, a repository folder, or a GitHub / git URL. Pass everything the learner named.'),
+      answer_in: z
+        .enum(['browser', 'terminal'])
+        .optional()
+        .describe('Where the learner answers cards. "terminal": quiz, ask, set_plan and explain_back return at once and the learner replies in this conversation. Default: the DERIVE_ANSWER_IN environment variable, else "browser".'),
+      learner: z.string().optional().describe('Which learner profile this lesson belongs to, by name. Default: DERIVE_LEARNER, else the first learner.'),
+      open_browser: z.boolean().optional().describe('Default true.'),
+      review: z
+        .boolean()
+        .optional()
+        .describe('Start a spaced-repetition review session instead of a lesson: the server picks the nodes due (interleaved across topics, with the nodes they rest on) and returns them with instructions. The topic is then ignored.'),
+    },
+    surfaces: ['mcp'],
+  },
+  {
+    name: 'attach_material',
+    description: 'Attach course material to the current lesson: local .pdf, .pptx, .docx, .md or .txt files, a folder of them, a repository folder, or a GitHub / git URL. Returns a brief of it: read the relevant pages or files with read_material before changing the plan.',
+    shape: { files: z.array(z.string()).min(1).describe('Paths or URLs. A folder with a .git or a package manifest is imported as a repository.') },
+    surfaces: ['mcp'],
+  },
+  {
+    name: 'answer',
+    description: "Terminal-answered lessons only: hand the learner's reply to the card that is open (the last quiz, ask, set_plan or explain_back). Pass their message verbatim as `reply`: a letter or number picks a quiz option (\"B?\", \"B, not sure\" or \"I think B\" picks it as unsure), \"?\" or \"I don't know\" alone is the don't-know option, \"yes\" approves a plan, anything else is feedback or a message. The server parses and grades it and returns exactly what the blocking tool would have returned (result, correct_options, or the learner's text). If the learner answered in the browser instead, returns that result. Call it once per card, right after their reply, before anything else.",
+    shape: {
+      reply: z.string().describe("The learner's message, verbatim. May be empty to collect an answer they gave in the browser."),
+      prompt_id: z.string().optional().describe('The card, from the tool that opened it. Optional: the open card is the default.'),
+    },
+    surfaces: ['mcp', 'http'],
+  },
+  {
+    name: 'answer_in',
+    description: 'Switch where the learner answers cards for the rest of this lesson: "terminal" (cards return at once, replies come through `answer`) or "browser" (cards block until answered there). Use when the learner asks to answer in the other place.',
+    shape: { where: z.enum(['browser', 'terminal']) },
+    surfaces: ['mcp', 'http'],
+  },
+  {
+    name: 'learner_profile',
+    description: 'What Derive already knows about a learner: how they want to be taught (their own preferences), locked nodes by topic, shaky nodes, misconceptions (with whether they were held with confidence), notes, and the nodes due for review. Defaults to the learner of the current lesson.',
+    shape: { learner: z.string().optional().describe('A learner name or id. Default: the current lesson\'s learner.') },
+    surfaces: ['mcp'],
+  },
+  {
+    name: 'learners',
+    description: 'List the learner profiles Derive knows, or create one by name. Each learner has their own lessons, memory, misconceptions and review queue.',
+    shape: { create: z.string().optional().describe('A name to create (no-op if it exists).') },
+    surfaces: ['mcp'],
+  },
+  {
+    name: 'end_lesson',
+    description: 'Mark the current lesson turn as finished in the companion view.',
+    shape: {},
+    surfaces: ['mcp'],
+  },
+  {
+    name: 'library',
+    description: "The learner's library outside a lesson: the whole shelf as a catalog, or the entries matching a topic. Lessons get this automatically from start_lesson.",
+    shape: { topic: z.string().optional().describe('Rank entries by relevance to this.'), learner: z.string().optional() },
+    surfaces: ['mcp'],
+  },
 ];
 
 const byName = new Map<string, ToolSpec>();
@@ -223,6 +295,9 @@ export function toolsFor(surface: ToolSurface): ToolSpec[] {
 export function jsonSchemaOf(spec: ToolSpec) {
   return z.toJSONSchema(z.object(spec.shape));
 }
+
+/** Every tool in the registry, in declaration order: the whole surface a driver can see. */
+export const ALL_TOOL_NAMES: readonly string[] = TOOL_REGISTRY.map((s) => s.name);
 
 /** The fourteen tutor tools: the ones the in-process agent registers, in declaration order. */
 export const DERIVE_TOOL_NAMES: readonly string[] = toolsFor('agent').map((s) => s.name);

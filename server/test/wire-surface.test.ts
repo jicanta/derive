@@ -18,7 +18,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { DERIVE_TOOL_NAMES, jsonSchemaOf, TOOL_LABELS, toolsFor, TOOL_REGISTRY, type ToolSurface } from '../src/tools.js';
+import { z } from 'zod';
+import { ALL_TOOL_NAMES, DERIVE_TOOL_NAMES, jsonSchemaOf, TOOL_LABELS, toolsFor, TOOL_REGISTRY, type ToolSurface } from '../src/tools.js';
 
 const SURFACES: ToolSurface[] = ['agent', 'mcp', 'http'];
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'wire-surface.json');
@@ -100,6 +101,38 @@ describe('the wire surface', () => {
   it('still names the same fourteen tutor tools, in the same order, with the same status lines', () => {
     assert.deepEqual([...DERIVE_TOOL_NAMES], TUTOR_TOOLS_BEFORE);
     assert.deepEqual(TOOL_LABELS, TOOL_LABELS_BEFORE);
+  });
+
+  it('covers the whole surface a driver can see: 22 tools, of which 14 are the tutor tools', () => {
+    assert.equal(ALL_TOOL_NAMES.length, 22);
+    assert.equal(DERIVE_TOOL_NAMES.length, 14);
+    assert.equal(live.mcp.length, 22, 'the MCP server is what the Claude Code plugin sees; the snapshot must cover all of it');
+    assert.equal(live.http.length, 16, 'the fourteen tutor tools plus answer and answer_in');
+    for (const driverTool of ['start_lesson', 'attach_material', 'answer', 'answer_in', 'learner_profile', 'learners', 'end_lesson', 'library']) {
+      assert.ok(rowOf(live, driverTool, 'mcp'), `${driverTool} is missing from the MCP surface`);
+      assert.ok(!DERIVE_TOOL_NAMES.includes(driverTool), `${driverTool} is a driver tool, not one of the fourteen tutor tools`);
+    }
+  });
+
+  it('carries answer_in identically on the MCP and the HTTP surface', () => {
+    const mcp = rowOf(live, 'answer_in', 'mcp')!;
+    const http = rowOf(live, 'answer_in', 'http')!;
+    assert.equal(mcp.description, http.description);
+    assert.deepEqual(mcp.input_schema, http.input_schema);
+  });
+
+  it('projects a tool that takes no arguments to an empty properties object that parses an empty body', () => {
+    const endLesson = TOOL_REGISTRY.find((t) => t.name === 'end_lesson')!;
+    const schema = jsonSchemaOf(endLesson) as { properties: Record<string, unknown> };
+    assert.deepEqual(schema.properties, {});
+    assert.equal(z.object(endLesson.shape).safeParse({}).success, true);
+  });
+
+  it('refuses two entries under the same name', () => {
+    // The registry builds its lookup map at import time, so a duplicate fails the
+    // first test that imports the module rather than the first tool call.
+    const names = ALL_TOOL_NAMES;
+    assert.equal(new Set(names).size, names.length);
   });
 
   it('keeps the bounds the model is held to when a shape is projected', () => {
