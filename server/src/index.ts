@@ -50,7 +50,7 @@ import { ACCEPTED, describe, ingestMaterial, ingestRepo, materialsSection, MAX_F
 import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief } from './prompt.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
-import { toolsFor } from './tools.js';
+import { shapeFor, toolsFor } from './tools.js';
 
 /**
  * A restart kills in-flight turns without a turn_end. Close them on boot so
@@ -644,19 +644,25 @@ const nodeLabelOf = (lessonId: string, nodeId?: string | null) => (nodeId ? list
 /**
  * The registry's own shape decides what a valid body is, before any method
  * logic runs: a bad argument is a 400 naming the tool, the field and what was
- * wrong, not a half-applied write. The parse is not strict-mode rejection, so
- * the keys the route reads for itself (answer_in, already_held, prompt_id,
- * learner) still pass through untouched.
+ * wrong, not a half-applied write. Nothing is repaired on the way in — no
+ * default, no coercion, no trimming — because the tool rejection rate per
+ * provider is only worth measuring if the route rejects honestly.
+ *
+ * The parse is not strict-mode rejection: unknown keys are dropped from the
+ * validated value rather than refused, so the keys the route reads for itself
+ * (answer_in, already_held, prompt_id) still arrive and are read off the raw
+ * body, by name, where they are needed.
  */
-const ACTION_SCHEMAS = new Map(toolsFor('http').map((s) => [s.name, z.object(s.shape)]));
+const ACTION_SCHEMAS = new Map(toolsFor('http').map((s) => [s.name, z.object(shapeFor(s, 'http'))]));
 
-function invalidArgs(action: string, body: unknown): string | null {
+/** The body an action may act on, or the sentence to hand back as a 400. An action with no tool behind it validates to itself. */
+function validateAction(action: string, body: Record<string, unknown>): { error: string | null; value: Record<string, unknown> } {
   const schema = ACTION_SCHEMAS.get(action);
-  if (!schema) return null;
+  if (!schema) return { error: null, value: body };
   const parsed = schema.safeParse(body);
-  if (parsed.success) return null;
+  if (parsed.success) return { error: null, value: parsed.data as Record<string, unknown> };
   const issue = parsed.error.issues[0];
-  return `${action}: ${issue.path.join('.') || '(body)'}: ${issue.message}`;
+  return { error: `${action}: ${issue.path.join('.') || '(body)'}: ${issue.message}`, value: body };
 }
 
 /** Run a tutor action for an external lesson. Blocking actions long-poll until the learner answers, or return at once in terminal mode. */
@@ -666,8 +672,11 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
   const lesson = getLesson(id);
   if (!lesson) return c.json({ error: 'not found' }, 404);
   const a = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-  const bad = invalidArgs(action, a);
-  if (bad) return c.json({ error: bad }, 400);
+  // Before the held-card 409 and before the teach gate: a malformed body is not
+  // a method refusal and must not be dressed up as one. `v` is what the tool
+  // shape proved; `a` is still the place to read the route's own keys from.
+  const { error: invalid, value: v } = validateAction(action, a);
+  if (invalid) return c.json({ error: invalid }, 400);
   const terminal = a.answer_in === 'terminal' || (a.answer_in !== 'browser' && lesson.answer_in === 'terminal');
   try {
     if (terminal && (action === 'quiz' || action === 'ask' || action === 'set_plan' || action === 'explain_back') && held.get(id) && !held.get(id)!.settled) {
@@ -675,18 +684,18 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
     }
     switch (action) {
       case 'quiz': {
-        const args = a as unknown as actions.QuizArgs;
-        if (args.purpose != null && !actions.QUIZ_PURPOSES.includes(args.purpose)) return c.json({ error: `purpose must be one of ${actions.QUIZ_PURPOSES.join(', ')}` }, 400);
-        if (args.tests != null && !actions.QUIZ_TESTS.includes(args.tests)) return c.json({ error: `tests must be one of ${actions.QUIZ_TESTS.join(', ')}` }, 400);
+        // The cast names what the shape already proved; the enum, option-count
+        // and correct-index checks that used to live here are the schema's now.
+        const args = v as unknown as actions.QuizArgs;
+        const gate = { node_id: args.node_id ?? undefined, already_held: a.already_held === true };
         // A pretest comes before the teaching by design; only the check that locks a node needs prose before it.
-        let gap = args.purpose === 'pretest' ? null : teachingGap(id, a as { node_id?: string; already_held?: boolean });
+        let gap = args.purpose === 'pretest' ? null : teachingGap(id, gate);
         if (gap) {
           // The prose that precedes this call may still be in flight (Codex mirrors messages whole, and the tool call can arrive first). One short grace period.
           await new Promise((r) => setTimeout(r, 600));
-          gap = teachingGap(id, a as { node_id?: string; already_held?: boolean });
+          gap = teachingGap(id, gate);
         }
         if (gap) return c.json({ error: gap }, 400);
-        if (!Array.isArray(args.options) || args.options.length < 2 || !Array.isArray(args.correct) || !args.correct.length) return c.json({ error: 'quiz needs 2 or 3 options and at least one correct index' }, 400);
         if (terminal) {
           const open = actions.openQuiz(id, args, { hold: true });
           return c.json(withNotices(id, holdCard(id, 'quiz', open, { question: args.question, options: args.options, multi: args.correct.length > 1, purpose: args.purpose ?? undefined, tests: args.tests ?? undefined }, args.options.length, nodeLabelOf(id, args.node_id))));
@@ -694,7 +703,7 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         return c.json(withNotices(id, await actions.quiz(id, args)));
       }
       case 'ask': {
-        const args = a as { question: string; options?: string[] };
+        const args = v as { question: string; options?: string[] };
         if (terminal) {
           const open = actions.openAsk(id, args, { hold: true });
           return c.json(withNotices(id, holdCard(id, 'ask', open, { question: args.question, options: args.options ?? [] }, args.options?.length ?? 0)));
@@ -702,7 +711,7 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         return c.json(withNotices(id, await actions.ask(id, args)));
       }
       case 'set_plan': {
-        const args = a as { goal: string; nodes: GraphNodeInput[] };
+        const args = v as unknown as { goal: string; nodes: GraphNodeInput[] };
         if (terminal) {
           const open = actions.openPlan(id, args, { hold: true });
           return c.json(withNotices(id, holdCard(id, 'plan', open, { goal: args.goal, nodes: args.nodes }, 0)));
@@ -710,7 +719,7 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         return c.json(withNotices(id, await actions.setPlan(id, args)));
       }
       case 'explain_back': {
-        const args = a as { prompt: string; rubric: string; node_id?: string };
+        const args = v as { prompt: string; rubric: string; node_id?: string };
         if (terminal) {
           const open = actions.openExplain(id, args, { hold: true });
           return c.json(withNotices(id, holdCard(id, 'explain', open, { prompt: args.prompt }, 0, nodeLabelOf(id, args.node_id))));
@@ -720,8 +729,8 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
       case 'answer': {
         // The learner's terminal reply for the open card (or the result of a browser answer, once).
         const h = held.get(id);
-        const reply = String(a.reply ?? '').trim();
-        if (!h || (a.prompt_id && a.prompt_id !== h.id)) {
+        const reply = String(v.reply ?? '').trim();
+        if (!h || (v.prompt_id && v.prompt_id !== h.id)) {
           return c.json({ error: 'No card is waiting for a reply in this lesson (the server may have restarted). Ask again with a fresh quiz, ask, set_plan or explain_back.' }, 409);
         }
         if (h.settled) {
@@ -746,34 +755,34 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         return c.json({ settled: { kind: h.kind, ...h.settled } });
       }
       case 'answer_in': {
-        const where = a.where === 'terminal' ? 'terminal' : a.where === 'browser' ? 'browser' : null;
-        if (!where) return c.json({ error: 'where must be "terminal" or "browser"' }, 400);
+        // The enum in the tool's own shape is what rejects anything else, above.
+        const where = v.where as 'browser' | 'terminal';
         setAnswerIn(id, where);
         emit(id, 'answer_in', { where });
         return c.json({ ok: true, answer_in: where });
       }
       case 'node_status': {
-        const r = actions.nodeStatus(id, a as { id: string; status: 'teaching' | 'locked' | 'shaky' });
+        const r = actions.nodeStatus(id, v as { id: string; status: 'teaching' | 'locked' | 'shaky' });
         return c.json(withNotices(id, r), r.refused ? 400 : 200);
       }
       case 'set_phase':
-        return c.json(withNotices(id, actions.phase(id, a as { phase: 'probe' | 'plan' | 'teach' })));
+        return c.json(withNotices(id, actions.phase(id, v as { phase: 'probe' | 'plan' | 'teach' })));
       case 'remember':
-        return c.json(actions.remember(id, a as { fact: string; kind?: 'learner' | 'preference' | 'strength' | 'gap' }));
+        return c.json(actions.remember(id, v as { fact: string; kind?: 'learner' | 'preference' | 'strength' | 'gap' }));
       case 'set_preferences':
-        return c.json(actions.setPreferences(id, a as Parameters<typeof actions.setPreferences>[1]));
+        return c.json(actions.setPreferences(id, v as Parameters<typeof actions.setPreferences>[1]));
       case 'read_material':
-        return c.json(actions.readMaterial(id, a as { name?: string; path?: string; from?: number; to?: number }));
+        return c.json(actions.readMaterial(id, v as { name?: string; path?: string; from?: number; to?: number }));
       case 'search_material':
-        return c.json(actions.searchMaterial(id, a as { query: string; name?: string; limit?: number }));
+        return c.json(actions.searchMaterial(id, v as { query: string; name?: string; limit?: number }));
       case 'search_library':
-        return c.json(actions.searchLibrary(id, a as { query: string; kind?: string; tag?: string; limit?: number }));
+        return c.json(actions.searchLibrary(id, v as { query: string; kind?: string; tag?: string; limit?: number }));
       case 'read_resource':
-        return c.json(actions.readResource(id, a as { id?: string; title?: string; from?: number; to?: number }));
+        return c.json(actions.readResource(id, v as { id?: string; title?: string; from?: number; to?: number }));
       case 'suggest_resource':
-        return c.json(withNotices(id, actions.suggestResource(id, a as { id?: string; title?: string; why: string; where?: string; node_id?: string })));
+        return c.json(withNotices(id, actions.suggestResource(id, v as { id?: string; title?: string; why: string; where?: string; node_id?: string })));
       case 'add_resource':
-        return c.json(withNotices(id, await actions.saveResource(id, a as { url?: string; title?: string; kind?: string; author?: string; note?: string; tags?: unknown })));
+        return c.json(withNotices(id, await actions.saveResource(id, v as { url?: string; title?: string; kind?: string; author?: string; note?: string; tags?: unknown })));
       case 'mirror': {
         // The plugin's hooks post transcript text here.
         const { role, text, uid, at } = a as { role: 'assistant' | 'user'; text: string; uid?: string; at?: number };
