@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, extname, join, relative, resolve, sep } from 'node:path';
+import { basename, extname, join, parse, relative, resolve, sep } from 'node:path';
 import { gunzipSync } from 'fflate';
 import { DATA_DIR } from './config.js';
 
@@ -47,6 +47,18 @@ const isTextName = (path: string) => {
   if (SKIP_FILES.has(name) || /\.min\.(js|css)$/.test(name) || /\.(map|snap|lock)$/.test(name)) return false;
   const ext = extname(name).toLowerCase();
   return TEXT_EXTS.has(ext) || TEXT_NAMES.has(name) || (!ext && /^(readme|license|licence|changelog|dockerfile|makefile)/i.test(name));
+};
+
+/**
+ * Files that hold credentials rather than code. A repository import puts
+ * everything it collects where the tutor and the API can read it, so these
+ * are refused outright — both when the list is built and when the tree is
+ * walked, so a matching file is never even collected.
+ */
+export const isSecretName = (path: string) => {
+  const name = basename(path);
+  const ext = extname(name).toLowerCase();
+  return ext === '.pem' || ext === '.key' || name === 'credentials' || name === '.netrc' || name === '.npmrc' || name === 'auth.json' || name.startsWith('id_') || name.startsWith('.env');
 };
 
 const inSkippedDir = (path: string) => path.split('/').slice(0, -1).some((d) => SKIP_DIRS.has(d));
@@ -122,7 +134,7 @@ function walk(dir: string, root = dir, out: string[] = []): string[] {
     }
     if (st.isDirectory()) {
       if (!SKIP_DIRS.has(e)) walk(full, root, out);
-    } else if (st.isFile()) out.push(relative(root, full).split(sep).join('/'));
+    } else if (st.isFile() && !isSecretName(e)) out.push(relative(root, full).split(sep).join('/'));
     if (out.length > MAX_FILES * 4) break;
   }
   return out;
@@ -130,9 +142,11 @@ function walk(dir: string, root = dir, out: string[] = []): string[] {
 
 export function fromDirectory(rawPath: string): RepoSource {
   const dir = expandHome(rawPath);
+  // Importing a whole home directory or a whole disk is never what the learner meant, and both are full of things the tutor should not read.
+  if (dir === parse(dir).root || dir === homedir()) throw new Error('that is your home folder or the whole disk, not a project: name the project folder instead');
   const st = statSync(dir, { throwIfNoEntry: false });
   if (!st?.isDirectory()) throw new Error(`Not a directory: ${rawPath}`);
-  const all = (gitListFiles(dir) ?? walk(dir)).filter((p) => !inSkippedDir(p) && isTextName(p));
+  const all = (gitListFiles(dir) ?? walk(dir)).filter((p) => !inSkippedDir(p) && !isSecretName(p) && isTextName(p));
   const files: RepoFile[] = [];
   let skipped = 0;
   for (const path of orderFiles(all)) {
@@ -196,11 +210,36 @@ function* untar(buf: Uint8Array): Generator<{ path: string; data: Uint8Array }> 
   }
 }
 
+/** A repository archive is buffered and then decompressed in memory, so the cap here is what bounds both. */
+export const MAX_TARBALL_BYTES = 60 * 1024 * 1024;
+const TARBALL_TIMEOUT_MS = 60_000;
+const tooBig = (maxBytes: number) => new Error(`that repository's archive is larger than ${Math.round(maxBytes / 1024 / 1024)} MB; clone it and point derive at the folder instead`);
+
+/** The body, refused on a declared length over the cap and bounded while reading so a server that declares nothing cannot grow the buffer without limit. */
+export async function readCapped(res: Response, maxBytes: number): Promise<Uint8Array> {
+  if (Number(res.headers.get('content-length') ?? 0) > maxBytes) throw tooBig(maxBytes);
+  const reader = res.body?.getReader();
+  if (!reader) return new Uint8Array(0);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw tooBig(maxBytes);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
 async function fromGitHub(owner: string, repo: string, ref?: string, subdir?: string): Promise<RepoSource> {
   const url = `https://api.github.com/repos/${owner}/${repo}/tarball${ref ? `/${ref}` : ''}`;
-  const res = await fetch(url, { headers: { 'user-agent': 'derive', accept: 'application/vnd.github+json' }, redirect: 'follow' });
+  const res = await fetch(url, { headers: { 'user-agent': 'derive', accept: 'application/vnd.github+json' }, redirect: 'follow', signal: AbortSignal.timeout(TARBALL_TIMEOUT_MS) });
   if (!res.ok) throw new Error(res.status === 404 ? `GitHub has no repository ${owner}/${repo}${ref ? ` at ${ref}` : ''} (or it is private)` : `GitHub returned ${res.status} for ${owner}/${repo}`);
-  const tar = gunzipSync(new Uint8Array(await res.arrayBuffer()));
+  const tar = gunzipSync(await readCapped(res, MAX_TARBALL_BYTES));
   const files: RepoFile[] = [];
   const raw: { path: string; data: Uint8Array }[] = [];
   const sub = subdir ? subdir.replace(/\/+$/, '') + '/' : '';
@@ -230,6 +269,8 @@ async function fromGitHub(owner: string, repo: string, ref?: string, subdir?: st
 }
 
 function fromGitClone(url: string): RepoSource {
+  // Before the process is spawned, not inside a try around it: git over ssh would hand the learner's own keys to whatever the URL names.
+  if (!/^https:\/\//i.test(url.trim())) throw new Error(`derive only clones over https (got ${url.trim()}); an ssh or git URL would use your own keys`);
   const tmp = mkdtempSync(join(DATA_DIR, 'clone-'));
   try {
     execFileSync('git', ['clone', '--depth', '1', '--quiet', url, tmp], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000 });

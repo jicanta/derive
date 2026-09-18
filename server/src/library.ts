@@ -10,6 +10,8 @@
  * source of framing, examples and further reading, and the tutor is told so.
  */
 import { randomUUID } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { extractText } from 'unpdf';
 import { VERSION } from './config.js';
 import {
@@ -47,13 +49,16 @@ const USER_AGENT = `Mozilla/5.0 (compatible; Derive/${VERSION}; +https://github.
 export function normalizeUrl(raw: string): string {
   const s = raw.trim();
   if (!s) throw new Error('url required');
+  // Explicit rather than incidental: a file:, data: or javascript: URL is turned away by name, not left to fail as "not a URL" further down.
+  const scheme = /^([a-z][a-z0-9+.-]*):(?!\d)/i.exec(s);
+  if (scheme && !PUBLIC_SCHEMES.has(`${scheme[1].toLowerCase()}:`)) throw new Error(`only http(s) links can be saved (got ${scheme[1].toLowerCase()}:)`);
   let u: URL;
   try {
     u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`);
   } catch {
     throw new Error(`not a URL: ${raw}`);
   }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error(`only http(s) links can be saved (got ${u.protocol})`);
+  if (!PUBLIC_SCHEMES.has(u.protocol)) throw new Error(`only http(s) links can be saved (got ${u.protocol})`);
   for (const k of [...u.searchParams.keys()]) if (/^(utm_|fbclid|gclid|ref$|ref_|si$|feature$)/i.test(k)) u.searchParams.delete(k);
   u.hash = '';
   let out = u.toString();
@@ -69,6 +74,102 @@ export const hostOf = (url: string | null) => {
     return null;
   }
 };
+
+// ---------- where a fetch is actually going ----------
+
+/** The only two schemes Derive will follow. A file:, data: or gopher: URL is never a page the learner meant. */
+const PUBLIC_SCHEMES = new Set(['http:', 'https:']);
+
+/** How many hops a redirect chain may take before Derive gives up. Each one is checked; a chain this long is a loop or a trap. */
+const MAX_REDIRECTS = 5;
+
+/** The sixteen bytes of an IPv6 literal, expanding "::" and any trailing dotted-quad form, or null when it is not one. */
+function v6Bytes(ip: string): number[] | null {
+  let s = ip.toLowerCase().split('%')[0];
+  if (s.includes('.')) {
+    const cut = s.lastIndexOf(':');
+    const v4 = s.slice(cut + 1);
+    if (isIP(v4) !== 4) return null;
+    const [a, b, c, d] = v4.split('.').map(Number);
+    s = `${s.slice(0, cut + 1)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = 8 - head.length - tail.length;
+  if (halves.length === 1 ? head.length !== 8 : fill < 0) return null;
+  const groups = halves.length === 2 ? [...head, ...Array<string>(fill).fill('0'), ...tail] : head;
+  const bytes: number[] = [];
+  for (const g of groups) {
+    const n = parseInt(g || '0', 16);
+    if (!Number.isInteger(n) || n < 0 || n > 0xffff) return null;
+    bytes.push(n >> 8, n & 0xff);
+  }
+  return bytes.length === 16 ? bytes : null;
+}
+
+/**
+ * Whether an address belongs to this machine or this network rather than to
+ * the public internet: loopback, the unspecified range, link-local (which is
+ * where the cloud metadata service at 169.254.169.254 lives), the three
+ * RFC-1918 private blocks, carrier-grade NAT, multicast and reserved space,
+ * and their IPv6 equivalents including unique-local fc00::/7. Anything that
+ * is not an address at all is refused, because a guard that cannot tell
+ * where a request is going must not let it go.
+ */
+export function isPrivateAddress(ip: string): boolean {
+  const kind = isIP(ip);
+  if (kind === 4) {
+    const [a, b] = ip.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+  }
+  if (kind === 6) {
+    const b = v6Bytes(ip);
+    if (!b) return true;
+    // An IPv4-mapped address is an IPv4 address wearing a hat; judge the address inside.
+    if (b.slice(0, 10).every((x) => x === 0) && b[10] === 0xff && b[11] === 0xff) return isPrivateAddress(b.slice(12).join('.'));
+    if (b.every((x) => x === 0)) return true;
+    if (b.slice(0, 15).every((x) => x === 0) && b[15] === 1) return true;
+    if ((b[0] & 0xfe) === 0xfc) return true;
+    if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Refuse a URL that points at this machine or this network.
+ *
+ * A name check is not enough: `internal.example.com` can resolve to
+ * 10.0.0.1, so the host is resolved and every address it answers with is
+ * judged. A literal is judged directly, with no lookup. This runs before
+ * each hop of a fetch, redirects included, because the destination that
+ * matters is the one the request actually reaches — and because the tutor
+ * model itself can hand Derive a URL through `add_resource`.
+ */
+export async function assertPublicHost(url: string): Promise<void> {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new Error(`not a URL: ${url}`);
+  }
+  if (!PUBLIC_SCHEMES.has(u.protocol)) throw new Error(`only http(s) links can be fetched (got ${u.protocol})`);
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (!host) throw new Error(`not a URL: ${url}`);
+  let addresses: string[];
+  if (isIP(host)) addresses = [host];
+  else {
+    try {
+      addresses = (await lookup(host, { all: true, verbatim: true })).map((a) => a.address);
+    } catch {
+      throw new Error(`could not look up ${host}`);
+    }
+  }
+  if (!addresses.length) throw new Error(`could not look up ${host}`);
+  for (const a of addresses) if (isPrivateAddress(a)) throw new Error(`${host} is a private or local address, and derive only fetches public ones`);
+}
 
 const isYouTube = (h: string) => /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/.test(h);
 const isVimeo = (h: string) => /(^|\.)vimeo\.com$/.test(h);
@@ -215,14 +316,35 @@ export function htmlToText(html: string): string {
 
 type Fetched = { title: string | null; author: string | null; description: string | null; segments: string[] | null; error: string | null };
 
-async function get(url: string, accept: string, maxBytes: number): Promise<{ type: string; buf: Buffer; url: string }> {
-  const res = await fetch(url, { headers: { 'user-agent': USER_AGENT, accept, 'accept-language': 'en, *;q=0.5' }, redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const len = Number(res.headers.get('content-length') ?? 0);
-  if (len > maxBytes) throw new Error(`larger than ${Math.round(maxBytes / 1024 / 1024)} MB`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.byteLength > maxBytes) throw new Error(`larger than ${Math.round(maxBytes / 1024 / 1024)} MB`);
-  return { type: (res.headers.get('content-type') ?? '').toLowerCase(), buf, url: res.url || url };
+/**
+ * The one door every library fetch goes through, and therefore the one place
+ * the host guard has to hold. Redirects are followed by hand rather than by
+ * `fetch`, because a public URL is free to redirect to 127.0.0.1 and the
+ * only honest way to catch that is to check each hop before taking it.
+ *
+ * `guard` exists so the per-hop check can be proven against a fixture server
+ * on this machine, which would otherwise be refused at hop one; nothing in
+ * the server ever passes it.
+ */
+export async function fetchPublic(url: string, accept: string, maxBytes: number, guard?: (u: string) => Promise<void>): Promise<{ type: string; buf: Buffer; url: string }> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    await (guard ?? assertPublicHost)(current);
+    const res = await fetch(current, { headers: { 'user-agent': USER_AGENT, accept, 'accept-language': 'en, *;q=0.5' }, redirect: 'manual', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+    if (location) {
+      await res.body?.cancel().catch(() => undefined);
+      current = new URL(location, current).toString();
+      continue;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const len = Number(res.headers.get('content-length') ?? 0);
+    if (len > maxBytes) throw new Error(`larger than ${Math.round(maxBytes / 1024 / 1024)} MB`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength > maxBytes) throw new Error(`larger than ${Math.round(maxBytes / 1024 / 1024)} MB`);
+    return { type: (res.headers.get('content-type') ?? '').toLowerCase(), buf, url: res.url || current };
+  }
+  throw new Error(`too many redirects from ${url}`);
 }
 
 async function pdfSegments(buf: Buffer): Promise<string[]> {
@@ -237,7 +359,7 @@ async function fetchVideo(url: string): Promise<Fetched> {
   const oembed = isYouTube(h) ? `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json` : isVimeo(h) ? `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(url)}` : null;
   if (oembed) {
     try {
-      const { buf } = await get(oembed, 'application/json', 512 * 1024);
+      const { buf } = await fetchPublic(oembed, 'application/json', 512 * 1024);
       const j = JSON.parse(buf.toString('utf8')) as { title?: string; author_name?: string };
       out.title = j.title?.trim() || null;
       out.author = j.author_name?.trim() || null;
@@ -246,7 +368,7 @@ async function fetchVideo(url: string): Promise<Fetched> {
     }
   }
   try {
-    const { buf } = await get(url, 'text/html', MAX_HTML_BYTES);
+    const { buf } = await fetchPublic(url, 'text/html', MAX_HTML_BYTES);
     const html = buf.toString('utf8');
     out.title ??= meta(html, 'og:title', 'twitter:title') ?? titleTag(html);
     out.author ??= meta(html, 'author', 'og:video:tag');
@@ -282,7 +404,7 @@ const arxivPdf = (url: string) => {
 async function fetchPage(url: string): Promise<Fetched> {
   const out: Fetched = { title: null, author: null, description: null, segments: null, error: null };
   try {
-    const { type, buf, url: finalUrl } = await get(url, 'text/html,application/xhtml+xml,application/pdf;q=0.9,text/plain;q=0.8,*/*;q=0.5', MAX_PDF_BYTES);
+    const { type, buf, url: finalUrl } = await fetchPublic(url, 'text/html,application/xhtml+xml,application/pdf;q=0.9,text/plain;q=0.8,*/*;q=0.5', MAX_PDF_BYTES);
     if (type.includes('application/pdf') || (finalUrl.toLowerCase().endsWith('.pdf') && buf.subarray(0, 5).toString() === '%PDF-')) {
       out.segments = await pdfSegments(buf);
       out.title = titleOf(out.segments[0] ?? '') || null;
@@ -303,7 +425,7 @@ async function fetchPage(url: string): Promise<Fetched> {
     const pdf = arxivPdf(finalUrl) ?? arxivPdf(url);
     if (pdf) {
       try {
-        const p = await get(pdf, 'application/pdf', MAX_PDF_BYTES);
+        const p = await fetchPublic(pdf, 'application/pdf', MAX_PDF_BYTES);
         out.segments = await pdfSegments(p.buf);
         return out;
       } catch {
