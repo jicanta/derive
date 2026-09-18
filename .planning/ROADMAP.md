@@ -39,7 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. An existing `~/.derive` database opens on the new version and migrates forward under a numbered, transactional runner; an interrupted `replaceGraph` or `deleteLesson` leaves no partial state
   5. The server answers only on 127.0.0.1 with a per-install token, rejects foreign Host and Origin, and no secret appears in any error, log, event, export or vault-mirror path; every turn stores raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
 
-**Plans**: 3/8 plans executed, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening)
+**Plans**: 5/8 plans executed, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening)
 
 Plans:
 **Wave 1**
@@ -53,11 +53,11 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-04-PLAN.md — `Driver.runTurn(ctx, sink)`, one event sink, and a fake driver as the proof (wave 3)
+- [x] 01-04-PLAN.md — `Driver.runTurn(ctx, sink)`, one event sink, and a fake driver as the proof (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-05-PLAN.md — Numbered transactional migrations on `PRAGMA user_version`, and `withTx` (wave 4)
+- [x] 01-05-PLAN.md — Numbered transactional migrations on `PRAGMA user_version`, and `withTx` (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -192,7 +192,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 3/8 | In Progress|  |
+| 1. Foundation | 5/8 | In Progress|  |
 | 2. Settings and Secrets | 0/TBD | Not started | - |
 | 3. Owned Loop: API Keys and Gateways | 0/TBD | Not started | - |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |

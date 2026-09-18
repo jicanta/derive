@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-04-PLAN.md
-last_updated: "2026-09-18T11:57:07.106Z"
+stopped_at: Completed 01-05-PLAN.md
+last_updated: "2026-09-18T12:14:45.646Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 01 execution resumed (wave continue)
-state_head: ca954e4957de5947b53169c2112340d351cc1cef
+state_head: 4b08339df108aa0b96639a37c95e2d079eeca048
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 8
-  completed_plans: 3
+  completed_plans: 5
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 ## Current Position
 
 Phase: 01 (Foundation) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Status: Ready to execute
 Last activity: 2026-09-18 — Phase 01 execution resumed (wave continue)
 
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P02 | 45 min | 3 tasks | 5 files |
 | Phase 01 P03 | 70 min | 3 tasks | 26 files |
 | Phase 01 P04 | 14 min | 3 tasks | 5 files |
+| Phase 01 P05 | 17 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,9 @@ Recent decisions affecting current work:
 - [Phase 01]: plugin/commands allowed-tools are projected from the registry in declaration order; the tool sets are unchanged (21 in learn.md, 15 in review.md, 22 on the mcp wire) and library stays excluded by name and reason
 - [Phase 01]: Every driver runs behind Driver.runTurn(ctx, sink); the idempotent turn-end guard lives once in the sink (server/src/driver.ts), and a fake driver in server/src/drivers/fake.ts is the permanent proof that a new provider costs one runTurn and no change to the web app, the SSE stream or the terminal mirrors
 - [Phase 01]: External lessons (mode 'external') stay outside the driver seam: they are driven by a terminal through the HTTP action route and the mirrors, and never reach runTurn
+- [Phase 01]: Schema changes run through server/src/migrations.ts: numbered { version, name, up } entries on PRAGMA user_version, each applying inside a transaction that carries its own version bump; migration 1 is the old inline schema verbatim so an existing ~/.derive/derive.db and a fresh one converge on byte-identical DDL
+- [Phase 01]: An existing database is snapshotted with VACUUM INTO as derive.db.bak-v<version left behind> before the first pending migration (WAL makes a raw file copy unsafe); a fresh database is never snapshotted and an existing snapshot is never overwritten
+- [Phase 01]: withTx(fn) in server/src/db.ts is re-entrant via a depth counter, so deleteLearner looping over deleteLesson is one transaction; replaceGraph, deleteLesson and deleteLearner are now atomic
 
 ### Pending Todos
 
@@ -104,6 +108,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-18T11:56:56.695Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-09-18T12:14:45.580Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None
