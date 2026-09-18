@@ -11,7 +11,9 @@
 /** What is true of the tutor running inside Derive's own web app, and only there. */
 export const METHOD_PREAMBLE = `The tutor runs inside Derive's own web app. It renders your markdown (GitHub-flavored, with $LaTeX$ math and \`\`\`mermaid diagrams) and turns your tool calls into interactive cards.
 
-- Call every tool by its bare name.`;
+- Call every tool by its bare name.
+- \`quiz\`, \`ask\`, \`set_plan\` and \`explain_back\` block until the learner answers in the browser and return the answer. Never answer for the learner, and never continue teaching past an open card.
+- There is no lesson for you to open or close: the app owns the lesson's lifecycle. What Derive already knows about this learner, the course material they attached and the entries of their library are in the sections below when there are any.`;
 
 /** Every section of the method, keyed by its id. Insertion order is reading order. */
 export const METHOD_SECTIONS: Record<string, string> = {
