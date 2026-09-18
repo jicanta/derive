@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-09-18T11:15:10.553Z"
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-09-18T11:41:58.960Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 01 execution resumed (wave continue)
-state_head: 2457d83c03e301987d1ccede683d0ddc7375ac5e
+state_head: f5c70664a8139b266743b189c2d686eed1a32da5
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 8
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 ## Current Position
 
 Phase: 01 (Foundation) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
 Last activity: 2026-09-18 — Phase 01 execution resumed (wave continue)
 
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P02 | 45 min | 3 tasks | 5 files |
+| Phase 01 P03 | 70 min | 3 tasks | 26 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,9 @@ Recent decisions affecting current work:
 - [Roadmap revision]: Simplicity rule applied on 2026-09-17 — streaks, daily goals, reminders, budgets, cost-per-node units, cache-savings display, capability badges, density, panel position and the voice picker moved to v2 (COST-08..10, LEARN-16/17, PROV-18, STYLE-07/08); Phase 4 keeps the usage page as a running total only, Phase 5 keeps the due count and a stability-coloured Atlas, Phase 6 keeps theme, font, size, reduced motion, tone and language
 - [Phase 01]: Per-surface tool contract differences are declared in server/src/tools.ts under per_surface, and the wire-surface test asserts the declared set equals the shown set in both directions
 - [Phase 01]: tools/list now emits registry declaration order; order is not the MCP contract, the tool set and every description are, and both are asserted against the pre-phase binary
+- [Phase 01]: Method text: the canonical method is eleven Markdown sections under method/ plus four short per-surface preambles, rendered by pnpm method into six committed copies; pnpm method:check fails CI on any byte of drift
+- [Phase 01]: The app surface leaves {{WEB_TOOLS}} unsubstituted at render time because the app runs on either backend; systemPrompt(backend) still substitutes it at runtime, now with replaceAll
+- [Phase 01]: plugin/commands allowed-tools are projected from the registry in declaration order; the tool sets are unchanged (21 in learn.md, 15 in review.md, 22 on the mcp wire) and library stays excluded by name and reason
 
 ### Pending Todos
 
@@ -97,6 +101,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-18T11:15:02.306Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-09-18T11:41:47.826Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
