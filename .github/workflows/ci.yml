@@ -28,6 +28,14 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # The method is written once under method/ and rendered into the app's
+      # system prompt, the plugin skill, both Codex skills and the plugin
+      # commands' allowed-tools. Every copy is committed, and this fails rather
+      # than regenerating: a change to what a model is told must be seen in the
+      # diff of the pull request that makes it.
+      - name: Method text has not drifted
+        run: pnpm method:check
+
       - name: Typecheck
         run: pnpm typecheck
 

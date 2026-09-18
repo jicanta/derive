@@ -1,0 +1,1 @@
+> **Tool mapping.** This skill descends from the `teach` skill of amosblomqvist/learn. In Derive the conventions are tools from the `derive` MCP server, named `mcp__plugin_derive_derive__<tool>` when installed as a plugin and `mcp__derive__<tool>` when added with `claude mcp add`. Your prose renders in the terminal AND in the browser companion.
