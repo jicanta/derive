@@ -15,10 +15,12 @@ import { Codex, type ThreadEvent, type ThreadItem } from '@openai/codex-sdk';
 import { codexBinary, mcpCommand } from './backend.js';
 import { DATA_DIR, EFFORT, MODEL, PORT } from './config.js';
 import { getLesson, setSessionId } from './db.js';
+import { type Active } from './driver.js';
 import { emit, emitEphemeral } from './events.js';
 import { DERIVE_TOOL_NAMES, TOOL_LABELS } from './tools.js';
 
-export type Active = { interrupt: () => Promise<void> };
+/** The turn handle now belongs to the driver seam; re-exported here so no existing import breaks. */
+export type { Active };
 
 /** A TOML inline value for a `--config` override. */
 function toml(v: unknown): string {

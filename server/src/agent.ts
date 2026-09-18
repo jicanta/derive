@@ -5,6 +5,7 @@ import { backend } from './backend.js';
 import { runCodexTurn, type Active } from './codex.js';
 import { DATA_DIR, EFFORT, MODEL } from './config.js';
 import { getLesson, learnerProfile, setSessionId, type GraphNodeInput } from './db.js';
+import { driverOverride, sinkFor, type TurnContext } from './driver.js';
 import { checkpoint, emit, emitEphemeral, emitUpdate } from './events.js';
 import { librarySection } from './library.js';
 import { materialsSection } from './materials.js';
@@ -101,6 +102,35 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   if (pendingNotices.length) prompt = `${pendingNotices.join('\n\n')}\n\nThen, the learner's message:\n${prompt}`;
 
   const instructions = systemPrompt(backend()) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
+
+  const override = driverOverride();
+  if (override) {
+    const ctx: TurnContext = {
+      lessonId,
+      prompt,
+      instructions,
+      model: MODEL,
+      effort: EFFORT,
+      sessionId: lesson.session_id ?? null,
+      isStopping: () => stopping.has(lessonId),
+      onActive: (handle) => active.set(lessonId, handle),
+    };
+    const sink = sinkFor(lessonId);
+    try {
+      await override.runTurn(ctx, sink);
+    } catch (err) {
+      sink.endTurn({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      throw err;
+    } finally {
+      // A driver that reported nothing still owes the learner a finished turn.
+      sink.endTurn({ ok: true, interrupted: true });
+      active.delete(lessonId);
+      stopping.delete(lessonId);
+      cancelPending(lessonId);
+    }
+    return;
+  }
+
   if (backend() === 'codex') {
     try {
       await runCodexTurn(lessonId, prompt, instructions, active, stopping);
