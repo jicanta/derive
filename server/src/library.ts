@@ -11,6 +11,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { extractText } from 'unpdf';
+import { VERSION } from './config.js';
 import {
   deleteResource,
   getResource,
@@ -38,7 +39,7 @@ const MAX_CHARS = 400_000;
 const READ_CHARS = 14_000;
 /** How much of the catalog goes into the system prompt. */
 const CATALOG_ENTRIES = 14;
-const USER_AGENT = 'Mozilla/5.0 (compatible; Derive/0.3; +https://github.com/jicanta/derive)';
+const USER_AGENT = `Mozilla/5.0 (compatible; Derive/${VERSION}; +https://github.com/jicanta/derive)`;
 
 // ---------- urls and kinds ----------
 

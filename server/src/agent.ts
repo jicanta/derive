@@ -3,7 +3,7 @@ import { createSdkMcpServer, query, tool, type SDKMessage } from '@anthropic-ai/
 import * as actions from './actions.js';
 import { backend } from './backend.js';
 import { codexDriver, type Active } from './codex.js';
-import { DATA_DIR, EFFORT, MODEL } from './config.js';
+import { DATA_DIR, EFFORT, MODEL, VERSION } from './config.js';
 import { getLesson, learnerProfile, startTurn, type GraphNodeInput } from './db.js';
 import { driverOverride, sinkFor, type Driver, type EventSink, type TurnContext } from './driver.js';
 import { emit } from './events.js';
@@ -84,7 +84,7 @@ function buildTools(lessonId: string) {
   // it in that same turn. Without material they return a clear error.
   return createSdkMcpServer({
     name: 'derive',
-    version: '0.2.0',
+    version: VERSION,
     alwaysLoad: true,
     tools,
   });
@@ -167,7 +167,7 @@ export const claudeDriver: Driver = {
         model: ctx.model,
         effort: ctx.effort,
         resume: ctx.sessionId ?? undefined,
-        env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'derive/0.2.0' },
+        env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `derive/${VERSION}` },
       },
     });
     ctx.onActive({

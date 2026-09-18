@@ -1,5 +1,9 @@
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+
+/** This build's version, read once from server/package.json so the health route, the MCP server info, the SDK client app string and the library user-agent cannot disagree. createRequire rather than an import attribute, which would change the build output. */
+export const VERSION: string = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
 export const PORT = Number(process.env.PORT ?? 4310);
 export const DATA_DIR = resolve(process.env.DERIVE_DATA_DIR ?? join(homedir(), '.derive'));

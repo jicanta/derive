@@ -11,7 +11,7 @@ import { z } from 'zod';
 import * as actions from './actions.js';
 import { interrupt, isBusy, runTurn } from './agent.js';
 import { backend, backendSource } from './backend.js';
-import { ALLOWED_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, TOKEN_PATH, VAULT_DIR } from './config.js';
+import { ALLOWED_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, TOKEN_PATH, VAULT_DIR, VERSION } from './config.js';
 import {
   allNodes,
   bindMaterials,
@@ -183,7 +183,7 @@ const lessonView = (id: string) => {
 
 sweepOrphanMaterials();
 
-app.get('/api/health', (c) => c.json({ ok: true, version: '0.4.0', backend: backend(), backend_source: backendSource() }));
+app.get('/api/health', (c) => c.json({ ok: true, version: VERSION, backend: backend(), backend_source: backendSource() }));
 app.get('/api/stats', (c) => {
   const learner = learnerOf(c);
   return c.json({ ...stats(learner), due: dueNodes(learner).length, vault: !!VAULT_DIR, library: listResources(learner).length, learner: getLearner(learner), backend: backend() });

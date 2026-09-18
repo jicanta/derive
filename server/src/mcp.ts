@@ -37,7 +37,7 @@ import { basename, extname, join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { RolloutMirror } from './codex-mirror.js';
-import { TOKEN_PATH } from './config.js';
+import { TOKEN_PATH, VERSION } from './config.js';
 import { descriptionFor, shapeFor, toolsFor } from './tools.js';
 
 const BASE = (process.env.DERIVE_URL ?? 'http://localhost:4310').replace(/\/$/, '');
@@ -186,7 +186,7 @@ function openBrowser(url: string) {
   exec(cmd, () => undefined);
 }
 
-const server = new McpServer({ name: 'derive', version: '0.4.0' });
+const server = new McpServer({ name: 'derive', version: VERSION });
 
 /**
  * The only per-tool code left in this file: each tool's handler talks to a
