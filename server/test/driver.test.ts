@@ -11,7 +11,7 @@ const scratch = mkdtempSync(join(tmpdir(), 'derive-test-'));
 process.env.DERIVE_DATA_DIR = scratch;
 process.env.DERIVE_BACKEND = 'claude';
 
-const { createLesson, listEvents } = await import('../src/db.js');
+const { createLesson, lastTurn, listEvents } = await import('../src/db.js');
 const { runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
 const { subscribe } = await import('../src/events.js');
@@ -101,6 +101,24 @@ describe('a driver reports a whole turn through the one sink', () => {
 
     assert.deepEqual(types(stored), ['turn_start', 'turn_end']);
     assert.deepEqual(stored[1].payload, { ok: true, interrupted: true });
+  });
+
+  it('leaves one turn row, closed the way the turn ended', async () => {
+    const ok = await turnOn(fakeDriver, [{ kind: 'end', payload: { ok: true, verified: 0 } }]);
+    const row = lastTurn(ok.id)!;
+    assert.equal(row.status, 'ok');
+    assert.equal(row.driver, 'fake');
+    assert.ok(row.ended_at !== null && row.ended_at >= row.started_at);
+
+    const stopped = await turnOn(fakeDriver, [{ kind: 'end', payload: { ok: true, interrupted: true } }]);
+    assert.equal(lastTurn(stopped.id)!.status, 'interrupted');
+
+    const broken = await turnOn(fakeDriver, [{ kind: 'end', payload: { ok: false, error: 'the provider refused' } }]);
+    assert.equal(lastTurn(broken.id)!.status, 'error');
+
+    // A driver that reports nothing is still closed, by runTurn's own finally.
+    const silent = await turnOn(fakeDriver, []);
+    assert.equal(lastTurn(silent.id)!.status, 'interrupted');
   });
 
   it('adding a driver takes one runTurn and nothing else', async () => {

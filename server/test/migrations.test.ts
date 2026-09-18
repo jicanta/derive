@@ -315,6 +315,88 @@ describe('a migration that fails', () => {
   });
 });
 
+describe('the turns backfilled from the event log', () => {
+  /** A lesson whose log holds `starts` turn_start events and `ends` turn_end events, interleaved in that order. */
+  function withTurns(file: string, lessonId: string, mode: 'agent' | 'external', pairs: (string | null)[]) {
+    const db = new DatabaseSync(file);
+    db.prepare('INSERT INTO lessons (id, topic, phase, mode, learner_id, driver, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+      lessonId,
+      'Fourier series',
+      'teach',
+      mode,
+      'default',
+      mode === 'external' ? 'claude-code' : null,
+      1,
+      2,
+    );
+    let seq = 0;
+    const insert = db.prepare('INSERT INTO events (lesson_id, seq, type, payload, ts) VALUES (?, ?, ?, ?, ?)');
+    for (const end of pairs) {
+      insert.run(lessonId, seq, 'turn_start', '{}', seq + 1);
+      seq += 1;
+      if (end !== null) {
+        insert.run(lessonId, seq, 'turn_end', end, seq + 1);
+        seq += 1;
+      }
+    }
+    db.close();
+  }
+
+  const turns = (file: string) => {
+    const db = new DatabaseSync(file);
+    const rows = (db.prepare('SELECT lesson_id, learner_id, driver, model, started_at, ended_at, status FROM turns ORDER BY started_at, rowid').all() as Record<string, unknown>[]).map((r) => ({ ...r }));
+    db.close();
+    return rows;
+  };
+
+  it('opens one row per turn_start and closes the ones the log ended', () => {
+    const old = legacyDatabase(scratch());
+    withTurns(old, 'l1', 'external', ['{"ok":true}', '{"ok":true}', null]);
+    migrate(old);
+
+    const rows = turns(old);
+    assert.equal(rows.length, 3);
+    assert.equal(rows.filter((r) => r.status === 'running').length, 1);
+    assert.deepEqual(rows.map((r) => r.status), ['ok', 'ok', 'running']);
+    assert.equal(rows[2].ended_at, null);
+    assert.deepEqual(new Set(rows.map((r) => r.lesson_id)), new Set(['l1']));
+  });
+
+  it('carries the lesson\'s learner and terminal, and says "unknown" where nothing was recorded', () => {
+    const old = legacyDatabase(scratch());
+    withTurns(old, 'l1', 'external', ['{"ok":true}']);
+    withTurns(old, 'l2', 'agent', [null]);
+    migrate(old);
+
+    const rows = turns(old);
+    const external = rows.find((r) => r.lesson_id === 'l1')!;
+    const agent = rows.find((r) => r.lesson_id === 'l2')!;
+    assert.equal(external.driver, 'claude-code');
+    assert.equal(external.learner_id, 'default');
+    // Which backend ran an agent turn before this table existed was never written down.
+    assert.equal(agent.driver, 'unknown');
+    assert.equal(agent.model, null);
+    assert.equal(agent.status, 'running');
+  });
+
+  it('reads how a turn ended out of its payload', () => {
+    const old = legacyDatabase(scratch());
+    withTurns(old, 'l1', 'agent', ['{"ok":true,"interrupted":true}', '{"ok":false,"error":"boom"}', '{"ok":true}']);
+    migrate(old);
+
+    assert.deepEqual(turns(old).map((r) => r.status), ['interrupted', 'error', 'ok']);
+  });
+
+  it('leaves a database with no turns in its log with no rows at all', () => {
+    const old = legacyDatabase(scratch());
+    populate(old);
+    migrate(old);
+
+    // populate() writes a single turn_start, and nothing closed it.
+    assert.deepEqual(turns(old).map((r) => r.status), ['running']);
+  });
+});
+
 describe('the snapshot taken before migrating', () => {
   const backups = (dir: string) => readdirSync(dir).filter((f) => f.startsWith('derive.db.bak-'));
 

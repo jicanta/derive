@@ -238,5 +238,28 @@ describe('a lesson, end to end', () => {
       assert.equal(all.size, 3);
       assert.ok(![...all.values()].some((n) => n.source_lesson));
     });
+
+    it('is busy while its turn row is running, and idle once the terminal ends it', async () => {
+      // The turn opened when the lesson did: the terminal is mid-turn, and the
+      // browser must not be told this lesson is idle.
+      const before = await api<{ busy: boolean }>(`/api/lessons/${next}`);
+      assert.equal(before.json.busy, true);
+
+      const db = new DatabaseSync(join(dataDir, 'derive.db'));
+      const open = (db.prepare('SELECT status, driver, ended_at FROM turns WHERE lesson_id = ?').all(next) as { status: string; driver: string; ended_at: number | null }[]).map((r) => ({ ...r }));
+      db.close();
+      assert.deepEqual(open, [{ status: 'running', driver: 'claude-code', ended_at: null }]);
+
+      const ended = await act(next, 'end', {});
+      assert.equal(ended.status, 200);
+      const after = await api<{ busy: boolean }>(`/api/lessons/${next}`);
+      assert.equal(after.json.busy, false);
+
+      const db2 = new DatabaseSync(join(dataDir, 'derive.db'));
+      const closed = db2.prepare('SELECT status, ended_at FROM turns WHERE lesson_id = ?').get(next) as { status: string; ended_at: number | null };
+      db2.close();
+      assert.equal(closed.status, 'ok');
+      assert.ok(closed.ended_at !== null);
+    });
   });
 });

@@ -19,12 +19,13 @@
  * re-indent it, reorder it, or fold the added columns into the `CREATE`
  * statements.
  *
- * Adding migration 2 is one entry appended to `MIGRATIONS`: the next version
+ * Adding a migration is one entry appended to `MIGRATIONS`: the next version
  * number, a short name, and an `up` that does the work. Past the baseline the
  * runner guarantees which version a file is on, so a plain `CREATE TABLE` is
  * right there — the `IF NOT EXISTS` idiom would hide the very mistake the
  * version number exists to catch.
  */
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -175,7 +176,92 @@ export const MIGRATIONS: Migration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS quiz_results_node ON quiz_results (lesson_id, node_id)');
     },
   },
+  {
+    version: 2,
+    name: 'turns',
+    up(db) {
+      db.exec(`
+        CREATE TABLE turns (
+          id TEXT PRIMARY KEY,
+          lesson_id TEXT NOT NULL,
+          learner_id TEXT NOT NULL,
+          driver TEXT NOT NULL,
+          model TEXT,
+          started_at INTEGER NOT NULL,
+          ended_at INTEGER,
+          status TEXT NOT NULL
+        );
+        CREATE INDEX turns_lesson ON turns (lesson_id, started_at);
+      `);
+      backfillTurns(db);
+    },
+  },
 ];
+
+/**
+ * Every turn the event log already knows about, as a row.
+ *
+ * The log is the only record of turns from before this table existed, so it is
+ * read once here: each `turn_start` opens a turn, the next `turn_end` for that
+ * lesson closes it, and a `turn_start` with nothing after it stays `running`.
+ * That last case is the point of the pass rather than an edge of it — a
+ * companion lesson whose terminal was mid-turn when the upgrade ran would
+ * otherwise come back reported idle, and the browser would invite the learner
+ * to type into a lesson that is busy.
+ *
+ * This is the one-time O(events) walk that buys the removal of the O(events)
+ * scan `busy()` used to do on every request.
+ */
+function backfillTurns(db: DatabaseSync) {
+  const lessons = db.prepare('SELECT id, learner_id, driver FROM lessons').all() as { id: string; learner_id: string | null; driver: string | null }[];
+  if (lessons.length === 0) return;
+  const of = new Map(lessons.map((l) => [l.id, l]));
+  const insert = db.prepare('INSERT INTO turns (id, lesson_id, learner_id, driver, model, started_at, ended_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  const events = db.prepare("SELECT lesson_id, type, payload, ts FROM events WHERE type IN ('turn_start', 'turn_end') ORDER BY lesson_id, seq").all() as {
+    lesson_id: string;
+    type: string;
+    payload: string;
+    ts: number;
+  }[];
+
+  // The rule `turnStatusOf` applies in server/src/db.ts, written out again for
+  // the historical rows: this module cannot import that one, because db.ts
+  // imports this one to run the migrations at all.
+  const statusOf = (payload: string): string => {
+    try {
+      const p = JSON.parse(payload) as { ok?: unknown; interrupted?: unknown } | null;
+      if (p?.interrupted) return 'interrupted';
+      if (p?.ok === false) return 'error';
+    } catch {
+      /* unreadable payload */
+    }
+    return 'ok';
+  };
+
+  const open = new Map<string, number>();
+  const write = (lessonId: string, startedAt: number, endedAt: number | null, status: string) => {
+    const lesson = of.get(lessonId)!;
+    // Which backend ran an agent-mode turn was never written down, so it is
+    // 'unknown' rather than a guess; a companion lesson has always carried the
+    // terminal that drives it.
+    insert.run(randomUUID(), lessonId, lesson.learner_id ?? 'default', lesson.driver ?? 'unknown', null, startedAt, endedAt, status);
+  };
+
+  for (const e of events) {
+    if (!of.has(e.lesson_id)) continue;
+    const started = open.get(e.lesson_id);
+    if (e.type === 'turn_start') {
+      // A second start with the first still open is a turn that died without
+      // ever reporting: it was interrupted, and the later one supersedes it.
+      if (started !== undefined) write(e.lesson_id, started, e.ts, 'interrupted');
+      open.set(e.lesson_id, e.ts);
+    } else if (started !== undefined) {
+      write(e.lesson_id, started, e.ts, statusOf(e.payload));
+      open.delete(e.lesson_id);
+    }
+  }
+  for (const [lessonId, startedAt] of open) write(lessonId, startedAt, null, 'running');
+}
 
 /** The version a fully migrated database reports. 0 when there are no migrations at all. */
 export const LATEST_VERSION = MIGRATIONS.length === 0 ? 0 : MIGRATIONS[MIGRATIONS.length - 1].version;

@@ -4,7 +4,7 @@ import * as actions from './actions.js';
 import { backend } from './backend.js';
 import { codexDriver, type Active } from './codex.js';
 import { DATA_DIR, EFFORT, MODEL } from './config.js';
-import { getLesson, learnerProfile, type GraphNodeInput } from './db.js';
+import { getLesson, learnerProfile, startTurn, type GraphNodeInput } from './db.js';
 import { driverOverride, sinkFor, type Driver, type EventSink, type TurnContext } from './driver.js';
 import { emit } from './events.js';
 import { librarySection } from './library.js';
@@ -217,6 +217,12 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   if (active.has(lessonId)) throw new Error('lesson is busy');
 
   if (opts.echoUser) emit(lessonId, 'user', { text: opts.echoUser });
+
+  // A turn begins in two places at once: the row the busy check and the usage
+  // ledger read, and the event the browser replays. The driver is chosen first
+  // only so the row can say which one ran it.
+  const driver = driverOverride() ?? (backend() === 'codex' ? codexDriver : claudeDriver);
+  const turnId = startTurn(lessonId, driver.name, MODEL);
   emit(lessonId, 'turn_start', {});
 
   const pendingNotices = takeNotices(lessonId);
@@ -224,10 +230,8 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
 
   const instructions = systemPrompt(backend()) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
 
-  // The one dispatch: an override when a test installed one, otherwise the
-  // backend's driver. Everything around it — the bookkeeping above and the
-  // teardown below — is the same whichever one runs.
-  const driver = driverOverride() ?? (backend() === 'codex' ? codexDriver : claudeDriver);
+  // The one dispatch, below: everything around it — the bookkeeping above and
+  // the teardown after — is the same whichever driver runs.
   const ctx: TurnContext = {
     lessonId,
     prompt,
@@ -238,7 +242,7 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
     isStopping: () => stopping.has(lessonId),
     onActive: (handle) => active.set(lessonId, handle),
   };
-  const sink = sinkFor(lessonId);
+  const sink = sinkFor(lessonId, turnId);
   try {
     await driver.runTurn(ctx, sink);
   } catch (err) {

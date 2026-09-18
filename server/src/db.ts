@@ -1,5 +1,6 @@
 import { grade, implicitLapse, implicitRepetition, retrievability, schedule, type Confidence, type Grade, type Scheduled } from './schedule.js';
 import { DatabaseSync } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DATA_DIR, DB_PATH } from './config.js';
@@ -156,6 +157,15 @@ const q = {
   ),
   listEvents: db.prepare('SELECT seq, type, payload, ts FROM events WHERE lesson_id = ? ORDER BY seq'),
   updateEvent: db.prepare('UPDATE events SET payload = ? WHERE lesson_id = ? AND seq = ?'),
+  insertTurn: db.prepare('INSERT INTO turns (id, lesson_id, learner_id, driver, model, started_at, ended_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
+  // Only a running turn can be closed: the first ending is the true one, and a
+  // second call (the sink's guard and the boot sweep can both reach one) must
+  // not rewrite what it said.
+  finishTurn: db.prepare("UPDATE turns SET ended_at = ?, status = ? WHERE id = ? AND status = 'running'"),
+  getTurn: db.prepare('SELECT * FROM turns WHERE id = ?'),
+  lastTurn: db.prepare('SELECT * FROM turns WHERE lesson_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1'),
+  openTurns: db.prepare("SELECT * FROM turns WHERE status = 'running' ORDER BY started_at, rowid"),
+  closeOpenTurns: db.prepare("UPDATE turns SET ended_at = ?, status = ? WHERE status = 'running'"),
   upsertNode: db.prepare(`
     INSERT INTO nodes (lesson_id, node_id, label, kind, summary, depends_on)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -408,6 +418,84 @@ export function listEvents(lessonId: string): StoredEvent[] {
   return (q.listEvents.all(lessonId) as { seq: number; type: string; payload: string; ts: number }[]).map(
     (r) => ({ ...r, payload: JSON.parse(r.payload) }),
   );
+}
+
+// ---------- turns ----------
+
+/** What became of a turn. A turn the learner stopped is 'interrupted', not an error; 'running' is the only state a restart can leave behind. */
+export type TurnStatus = 'running' | 'ok' | 'interrupted' | 'error';
+export const TURN_STATUSES: TurnStatus[] = ['running', 'ok', 'interrupted', 'error'];
+
+/**
+ * One run of the model for one lesson: who it was for, what ran it, when it
+ * started and how it ended.
+ *
+ * It is a row rather than a pair of events because two hot paths need the
+ * answer cheaply — `busy()` on every lesson of every listing, and the
+ * restart sweep on boot — and because the usage ledger hangs off it: a usage
+ * row belongs to a turn, and later phases hang resume state off the same id.
+ * The `turn_start` and `turn_end` events are still emitted; they are the
+ * lesson's narrative, which the browser replays. Only the reading moved.
+ */
+export type TurnRow = {
+  id: string;
+  lesson_id: string;
+  learner_id: string;
+  /** What ran it: a driver's name ('claude', 'codex', 'fake') for an app turn, the terminal ('claude-code', 'codex') for a companion one. */
+  driver: string;
+  /** The model asked for, or null to take the provider's default. What each request actually ran on is on the usage row. */
+  model: string | null;
+  started_at: number;
+  ended_at: number | null;
+  status: TurnStatus;
+};
+
+/** The status a `turn_end` payload implies. The same rule is written out in server/src/migrations.ts for the rows backfilled from the event log. */
+export function turnStatusOf(payload: unknown): TurnStatus {
+  const p = (payload && typeof payload === 'object' ? payload : {}) as { ok?: unknown; interrupted?: unknown };
+  if (p.interrupted) return 'interrupted';
+  if (p.ok === false) return 'error';
+  return 'ok';
+}
+
+/** Open a turn for a lesson and return its id. The learner comes from the lesson, so a turn can never be filed under someone else. */
+export function startTurn(lessonId: string, driver: string, model?: string | null): string {
+  const lesson = getLesson(lessonId);
+  const id = randomUUID();
+  q.insertTurn.run(id, lessonId, lesson?.learner_id ?? DEFAULT_LEARNER_ID, driver, model ?? null, Date.now(), null, 'running');
+  return id;
+}
+
+/** Close a turn. A turn that already ended is left as it was. */
+export function finishTurn(turnId: string, status: TurnStatus) {
+  q.finishTurn.run(Date.now(), status, turnId);
+}
+
+export function getTurn(turnId: string): TurnRow | undefined {
+  return q.getTurn.get(turnId) as TurnRow | undefined;
+}
+
+/** A lesson's most recent turn, in one indexed query. This is what "is this lesson busy" reads. */
+export function lastTurn(lessonId: string): TurnRow | undefined {
+  return q.lastTurn.get(lessonId) as TurnRow | undefined;
+}
+
+/** Every turn still running, across every lesson. */
+export function openTurns(): TurnRow[] {
+  return q.openTurns.all() as TurnRow[];
+}
+
+/**
+ * Close every turn still running and return the rows as they were, for the
+ * boot sweep: a restart kills turns without ending them, and the lessons that
+ * lost one are exactly the lessons that still owe the learner a `turn_end`.
+ */
+export function closeOpenTurns(status: TurnStatus): TurnRow[] {
+  return withTx(() => {
+    const rows = openTurns();
+    if (rows.length) q.closeOpenTurns.run(Date.now(), status);
+    return rows;
+  });
 }
 
 export type GraphNodeInput = {

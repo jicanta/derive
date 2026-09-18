@@ -24,7 +24,7 @@
  * arrives through the HTTP action route and the mirrors, never through a
  * driver. Forcing it through `runTurn` would invert that relationship.
  */
-import { setSessionId, type StoredEvent } from './db.js';
+import { finishTurn, setSessionId, turnStatusOf, type StoredEvent } from './db.js';
 import { checkpoint, emit, emitEphemeral, emitUpdate } from './events.js';
 
 /** A turn in flight, as the lesson's bookkeeping holds it: the one thing a driver must let the learner do is stop. */
@@ -77,8 +77,12 @@ export type Driver = {
  * The sink for one lesson's turn. Built once per turn, because the idempotent
  * `endTurn` guard it carries is what makes "exactly one turn_end" true no
  * matter how many times the driver and the bookkeeping around it both try.
+ *
+ * `turnId` is the row this turn was opened as. The guard closes it before the
+ * event goes out, so the turn's row and the lesson's narrative say the same
+ * thing about how it ended, and neither can be written twice.
  */
-export function sinkFor(lessonId: string): EventSink {
+export function sinkFor(lessonId: string, turnId: string): EventSink {
   let ended = false;
   return {
     emit: (type, payload) => emit(lessonId, type, payload),
@@ -89,6 +93,7 @@ export function sinkFor(lessonId: string): EventSink {
     endTurn: (payload) => {
       if (ended) return;
       ended = true;
+      finishTurn(turnId, turnStatusOf(payload));
       emit(lessonId, 'turn_end', payload);
     },
   };

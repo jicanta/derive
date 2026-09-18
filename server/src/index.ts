@@ -17,6 +17,7 @@ import {
   bindMaterials,
   buildReviewGraph,
   buildWarmup,
+  closeOpenTurns,
   createLearner,
   createLesson,
   DEFAULT_LEARNER_ID,
@@ -25,10 +26,12 @@ import {
   deleteMaterial,
   dueNodes,
   findLearner,
+  finishTurn,
   getLearner,
   getLesson,
   getMaterial,
   lastExternalLesson,
+  lastTurn,
   listEvents,
   listLearners,
   listLessons,
@@ -38,8 +41,10 @@ import {
   renameLearner,
   updateLearnerPrefs,
   setAnswerIn,
+  startTurn,
   stats,
   sweepOrphanMaterials,
+  turnStatusOf,
   type GraphNodeInput,
   type MaterialRow,
 } from './db.js';
@@ -54,12 +59,12 @@ import { shapeFor, toolsFor } from './tools.js';
 
 /**
  * A restart kills in-flight turns without a turn_end. Close them on boot so
- * the page is not stuck on "busy" and a stale card is shown as such.
+ * the page is not stuck on "busy" and a stale card is shown as such. One write
+ * over the turns table, rather than a walk of every event of every lesson; the
+ * lessons the sweep closed are exactly the ones still owed a turn_end event.
  */
-for (const l of listLessons()) {
-  const events = listEvents(l.id);
-  const last = [...events].reverse().find((e) => e.type === 'turn_start' || e.type === 'turn_end');
-  if (l.mode === 'agent' && last?.type === 'turn_start') emit(l.id, 'turn_end', { ok: true, interrupted: true, reason: 'server restarted' });
+for (const t of closeOpenTurns('interrupted')) {
+  if (getLesson(t.lesson_id)?.mode === 'agent') emit(t.lesson_id, 'turn_end', { ok: true, interrupted: true, reason: 'server restarted' });
 }
 
 const app = new Hono();
@@ -77,15 +82,18 @@ const learnerOf = (c: Context, fromBody?: unknown): string => {
   return l?.id ?? DEFAULT_LEARNER_ID;
 };
 
-/** External (Claude Code) lessons are "busy" from turn_start until the Stop hook posts turn_end, and while a card is open. */
+/**
+ * External (Claude Code) lessons are "busy" from the moment their turn opens
+ * until the Stop hook posts the end of it, and while a card is open. Every
+ * lesson of every listing asks this, so it is one indexed read of the lesson's
+ * most recent turn rather than a scan of its whole event log.
+ */
 const busy = (id: string) => {
   if (isBusy(id)) return true;
   const lesson = getLesson(id);
   if (lesson?.mode !== 'external') return false;
   if (hasPending(id)) return true;
-  const events = listEvents(id);
-  const last = [...events].reverse().find((e) => e.type === 'turn_start' || e.type === 'turn_end');
-  return last?.type === 'turn_start';
+  return lastTurn(id)?.status === 'running';
 };
 
 const lessonView = (id: string) => {
@@ -521,6 +529,7 @@ app.post('/api/external/lessons', async (c) => {
   if (body.review) {
     const started = startReview(learnerOf(c, body.learner), { mode: 'external', answerIn: body.answer_in === 'terminal' ? 'terminal' : 'browser', driver });
     if (!started) return c.json({ error: 'Nothing is due for review for this learner.' }, 400);
+    startTurn(started.lesson.id, driver);
     emit(started.lesson.id, 'turn_start', { source: driver });
     const due = started.graph.due.map((n) => ({
       id: n.review_id,
@@ -544,6 +553,7 @@ app.post('/api/external/lessons', async (c) => {
   for (const m of materials) emit(lesson.id, 'material', materialEvent(m));
   const warmup = buildWarmup(lesson.id, lesson.learner_id);
   if (warmup.length) emit(lesson.id, 'warmup', { nodes: warmup.map((n) => ({ id: n.review_id, label: n.label, topic: n.topic })) });
+  startTurn(lesson.id, driver);
   emit(lesson.id, 'turn_start', { source: driver });
   return c.json(
     {
@@ -803,7 +813,10 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         // a held card stays open for the learner's next message.
         cancelPending(id);
         const h = held.get(id);
-        emit(id, 'turn_end', { ok: true, source: lesson.driver ?? 'claude-code', held: h && !h.settled ? h.id : null });
+        const payload = { ok: true, source: lesson.driver ?? 'claude-code', held: h && !h.settled ? h.id : null };
+        const turn = lastTurn(id);
+        if (turn) finishTurn(turn.id, turnStatusOf(payload));
+        emit(id, 'turn_end', payload);
         return c.json({ ok: true });
       }
       default:
