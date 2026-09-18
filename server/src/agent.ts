@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createSdkMcpServer, query, tool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import * as actions from './actions.js';
 import { backend } from './backend.js';
-import { runCodexTurn, type Active } from './codex.js';
+import { codexDriver, type Active } from './codex.js';
 import { DATA_DIR, EFFORT, MODEL } from './config.js';
 import { getLesson, learnerProfile, type GraphNodeInput } from './db.js';
 import { driverOverride, sinkFor, type Driver, type EventSink, type TurnContext } from './driver.js';
@@ -224,19 +224,10 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
 
   const instructions = systemPrompt(backend()) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
 
-  const override = driverOverride();
-  if (!override && backend() === 'codex') {
-    try {
-      await runCodexTurn(lessonId, prompt, instructions, active, stopping);
-    } finally {
-      active.delete(lessonId);
-      stopping.delete(lessonId);
-      cancelPending(lessonId);
-    }
-    return;
-  }
-
-  const driver = override ?? claudeDriver;
+  // The one dispatch: an override when a test installed one, otherwise the
+  // backend's driver. Everything around it — the bookkeeping above and the
+  // teardown below — is the same whichever one runs.
+  const driver = driverOverride() ?? (backend() === 'codex' ? codexDriver : claudeDriver);
   const ctx: TurnContext = {
     lessonId,
     prompt,

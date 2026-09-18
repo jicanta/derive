@@ -21,6 +21,8 @@ const { fakeDriver, setFakeScript } = await import('../src/drivers/fake.js');
 // database before the scratch directory above is set; these are type positions
 // only, so nothing is imported at run time.
 type Driver = import('../src/driver.js').Driver;
+type EventSink = import('../src/driver.js').EventSink;
+type TurnContext = import('../src/driver.js').TurnContext;
 type FakeStep = import('../src/drivers/fake.js').FakeStep;
 type StoredEvent = import('../src/db.js').StoredEvent;
 
@@ -99,5 +101,24 @@ describe('a driver reports a whole turn through the one sink', () => {
 
     assert.deepEqual(types(stored), ['turn_start', 'turn_end']);
     assert.deepEqual(stored[1].payload, { ok: true, interrupted: true });
+  });
+
+  it('adding a driver takes one runTurn and nothing else', async () => {
+    // Everything a new provider has to write, written out here in full.
+    const tiny: Driver = {
+      name: 'tiny',
+      async runTurn(ctx: TurnContext, sink: EventSink) {
+        sink.emit('assistant', { id: 'only', text: `Teaching lesson ${ctx.lessonId.slice(0, 8)}.` });
+        sink.endTurn({ ok: true });
+      },
+    };
+
+    const { live, stored } = await turnOn(tiny, null);
+
+    assert.deepEqual(types(stored), ['turn_start', 'assistant', 'turn_end']);
+    assert.deepEqual(types(live), ['turn_start', 'assistant', 'turn_end']);
+    for (const ev of [...stored, ...live]) assert.ok(EVENT_TYPES.includes(ev.type), `${ev.type} is not a type the web app knows`);
+    const seqs = stored.map((e) => e.seq);
+    assert.deepEqual(seqs, [...seqs].sort((a, b) => a - b));
   });
 });
