@@ -4,15 +4,15 @@ import * as actions from './actions.js';
 import { backend } from './backend.js';
 import { runCodexTurn, type Active } from './codex.js';
 import { DATA_DIR, EFFORT, MODEL } from './config.js';
-import { getLesson, learnerProfile, setSessionId, type GraphNodeInput } from './db.js';
-import { driverOverride, sinkFor, type TurnContext } from './driver.js';
-import { checkpoint, emit, emitEphemeral, emitUpdate } from './events.js';
+import { getLesson, learnerProfile, type GraphNodeInput } from './db.js';
+import { driverOverride, sinkFor, type Driver, type EventSink, type TurnContext } from './driver.js';
+import { emit } from './events.js';
 import { librarySection } from './library.js';
 import { materialsSection } from './materials.js';
 import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
 import { systemPrompt } from './prompt.js';
-import { DERIVE_TOOL_NAMES, TOOL_LABELS, toolsFor } from './tools.js';
+import { DERIVE_TOOL_NAMES, TOOL_LABELS, descriptionFor, shapeFor, toolsFor } from './tools.js';
 
 export { DERIVE_TOOL_NAMES } from './tools.js';
 
@@ -68,13 +68,15 @@ const handlers: Record<string, (lessonId: string, a: Record<string, unknown>) =>
  * Every tool the agent offers, built from the registry: the name, the
  * description the model reads and the input schema all come from the one spec
  * the MCP server and the HTTP route read too, so this file cannot drift from
- * them.
+ * them. The description and the shape come through the registry's accessors
+ * rather than off the spec, so a difference this surface one day declares
+ * under `per_surface` is honoured here without another change.
  */
 function buildTools(lessonId: string) {
   const tools = toolsFor('agent').map((spec) => {
     const run = handlers[spec.name];
     if (!run) throw new Error(`no handler for tool: ${spec.name}`);
-    return tool(spec.name, spec.description, spec.shape, async (a) => text(await run(lessonId, a as Record<string, unknown>)));
+    return tool(spec.name, descriptionFor(spec, 'agent'), shapeFor(spec, 'agent'), async (a) => text(await run(lessonId, a as Record<string, unknown>)));
   });
 
   // The material and library tools are always registered: material can be
@@ -87,6 +89,125 @@ function buildTools(lessonId: string) {
     tools,
   });
 }
+
+// ---------- the claude driver ----------
+
+/**
+ * One lesson turn through the Claude Agent SDK, on the learner's Claude Code
+ * login. The tutor's tools are registered in-process, so quiz, ask, set_plan
+ * and the rest run straight through `actions.ts` with no proxy in between.
+ *
+ * Like every driver it reads its inputs off `ctx` and reports through `sink`:
+ * the turn bookkeeping around it — the active and stopping maps, the pending
+ * cards — belongs to `runTurn` below, not here.
+ */
+export const claudeDriver: Driver = {
+  name: 'claude',
+  async runTurn(ctx: TurnContext, sink: EventSink) {
+    const q = query({
+      prompt: ctx.prompt,
+      options: {
+        systemPrompt: ctx.instructions,
+        cwd: DATA_DIR,
+        settingSources: [],
+        mcpServers: { derive: buildTools(ctx.lessonId) },
+        tools: ['WebSearch', 'WebFetch'],
+        allowedTools: ['WebSearch', 'WebFetch', ...DERIVE_TOOL_NAMES.map((n) => `mcp__derive__${n}`)],
+        permissionMode: 'dontAsk',
+        includePartialMessages: true,
+        maxTurns: 400,
+        model: ctx.model,
+        effort: ctx.effort,
+        resume: ctx.sessionId ?? undefined,
+        env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'derive/0.2.0' },
+      },
+    });
+    ctx.onActive({
+      interrupt: async () => {
+        await q.interrupt();
+      },
+    });
+
+    // A text block is persisted the moment it starts and rewritten in place as
+    // it grows (checkpointed every ~1.5 s, finalised at block end), so the
+    // learner never sees prose that later vanishes: Stop, a dropped connection
+    // or a server restart all keep what was written.
+    let blockId: string | null = null;
+    let blockSeq: number | null = null;
+    let blockText = '';
+    let lastCheckpoint = 0;
+    let verified = 0;
+    const flushBlock = () => {
+      if (blockId && blockSeq !== null) sink.emitUpdate(blockSeq, 'assistant', { id: blockId, text: blockText });
+      blockId = null;
+      blockSeq = null;
+      blockText = '';
+    };
+
+    try {
+      for await (const msg of q as AsyncIterable<SDKMessage>) {
+        switch (msg.type) {
+          case 'system':
+            if (msg.subtype === 'init' && msg.session_id !== ctx.sessionId) sink.setSessionId(msg.session_id);
+            break;
+          case 'stream_event': {
+            if (msg.parent_tool_use_id) break;
+            const ev = msg.event;
+            if (ev.type === 'content_block_start') {
+              const cb = ev.content_block;
+              if (cb.type === 'text') {
+                flushBlock();
+                blockId = randomUUID();
+                blockSeq = sink.emit('assistant', { id: blockId, text: '', partial: true }).seq;
+                lastCheckpoint = Date.now();
+              } else if (cb.type === 'tool_use') {
+                flushBlock();
+                if (cb.name === 'WebSearch' || cb.name === 'WebFetch') verified += 1;
+                sink.emitEphemeral('status', { text: cb.name === 'WebSearch' ? 'Verifying with a web search' : cb.name === 'WebFetch' ? 'Reading a source' : TOOL_LABELS[cb.name.replace(/^mcp__derive__/, '')] ?? `Using ${cb.name}` });
+              } else if (cb.type === 'thinking') {
+                sink.emitEphemeral('status', { text: 'Thinking' });
+              }
+            } else if (ev.type === 'content_block_delta') {
+              if (ev.delta.type === 'text_delta' && blockId) {
+                blockText += ev.delta.text;
+                sink.emitEphemeral('delta', { id: blockId, text: ev.delta.text });
+                if (blockSeq !== null && Date.now() - lastCheckpoint > 1500) {
+                  sink.checkpoint(blockSeq, { id: blockId, text: blockText, partial: true });
+                  lastCheckpoint = Date.now();
+                }
+              }
+            } else if (ev.type === 'content_block_stop') {
+              flushBlock();
+            }
+            break;
+          }
+          case 'result': {
+            flushBlock();
+            if (ctx.isStopping()) {
+              sink.endTurn({ ok: true, interrupted: true });
+            } else if (msg.subtype === 'success') {
+              sink.endTurn({ ok: true, cost_usd: msg.total_cost_usd ?? null, duration_ms: msg.duration_ms, verified });
+            } else {
+              const errs = (msg as { errors?: string[] }).errors;
+              sink.endTurn({ ok: false, error: Array.isArray(errs) && errs.length ? errs.join('; ') : msg.subtype });
+            }
+            break;
+          }
+          default:
+            break;
+        }
+      }
+    } catch (err) {
+      flushBlock();
+      sink.endTurn({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      // The stream can end without a result (Stop, the CLI exiting). The
+      // learner still needs the prose kept and the turn marked finished.
+      flushBlock();
+      sink.endTurn({ ok: true, interrupted: true });
+    }
+  },
+};
 
 // ---------- running a turn ----------
 
@@ -104,34 +225,7 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   const instructions = systemPrompt(backend()) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
 
   const override = driverOverride();
-  if (override) {
-    const ctx: TurnContext = {
-      lessonId,
-      prompt,
-      instructions,
-      model: MODEL,
-      effort: EFFORT,
-      sessionId: lesson.session_id ?? null,
-      isStopping: () => stopping.has(lessonId),
-      onActive: (handle) => active.set(lessonId, handle),
-    };
-    const sink = sinkFor(lessonId);
-    try {
-      await override.runTurn(ctx, sink);
-    } catch (err) {
-      sink.endTurn({ ok: false, error: err instanceof Error ? err.message : String(err) });
-      throw err;
-    } finally {
-      // A driver that reported nothing still owes the learner a finished turn.
-      sink.endTurn({ ok: true, interrupted: true });
-      active.delete(lessonId);
-      stopping.delete(lessonId);
-      cancelPending(lessonId);
-    }
-    return;
-  }
-
-  if (backend() === 'codex') {
+  if (!override && backend() === 'codex') {
     try {
       await runCodexTurn(lessonId, prompt, instructions, active, stopping);
     } finally {
@@ -142,113 +236,26 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
     return;
   }
 
-  const q = query({
+  const driver = override ?? claudeDriver;
+  const ctx: TurnContext = {
+    lessonId,
     prompt,
-    options: {
-      systemPrompt: instructions,
-      cwd: DATA_DIR,
-      settingSources: [],
-      mcpServers: { derive: buildTools(lessonId) },
-      tools: ['WebSearch', 'WebFetch'],
-      allowedTools: ['WebSearch', 'WebFetch', ...DERIVE_TOOL_NAMES.map((n) => `mcp__derive__${n}`)],
-      permissionMode: 'dontAsk',
-      includePartialMessages: true,
-      maxTurns: 400,
-      model: MODEL,
-      effort: EFFORT,
-      resume: lesson.session_id ?? undefined,
-      env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'derive/0.2.0' },
-    },
-  });
-  active.set(lessonId, {
-    interrupt: async () => {
-      await q.interrupt();
-    },
-  });
-
-  // A text block is persisted the moment it starts and rewritten in place as
-  // it grows (checkpointed every ~1.5 s, finalised at block end), so the
-  // learner never sees prose that later vanishes: Stop, a dropped connection
-  // or a server restart all keep what was written.
-  let blockId: string | null = null;
-  let blockSeq: number | null = null;
-  let blockText = '';
-  let lastCheckpoint = 0;
-  let verified = 0;
-  let ended = false;
-  const endTurn = (payload: Record<string, unknown>) => {
-    if (ended) return;
-    ended = true;
-    emit(lessonId, 'turn_end', payload);
+    instructions,
+    model: MODEL,
+    effort: EFFORT,
+    sessionId: lesson.session_id ?? null,
+    isStopping: () => stopping.has(lessonId),
+    onActive: (handle) => active.set(lessonId, handle),
   };
-  const flushBlock = () => {
-    if (blockId && blockSeq !== null) emitUpdate(lessonId, blockSeq, 'assistant', { id: blockId, text: blockText });
-    blockId = null;
-    blockSeq = null;
-    blockText = '';
-  };
-
+  const sink = sinkFor(lessonId);
   try {
-    for await (const msg of q as AsyncIterable<SDKMessage>) {
-      switch (msg.type) {
-        case 'system':
-          if (msg.subtype === 'init' && msg.session_id !== lesson.session_id) setSessionId(lessonId, msg.session_id);
-          break;
-        case 'stream_event': {
-          if (msg.parent_tool_use_id) break;
-          const ev = msg.event;
-          if (ev.type === 'content_block_start') {
-            const cb = ev.content_block;
-            if (cb.type === 'text') {
-              flushBlock();
-              blockId = randomUUID();
-              blockSeq = emit(lessonId, 'assistant', { id: blockId, text: '', partial: true }).seq;
-              lastCheckpoint = Date.now();
-            } else if (cb.type === 'tool_use') {
-              flushBlock();
-              if (cb.name === 'WebSearch' || cb.name === 'WebFetch') verified += 1;
-              emitEphemeral(lessonId, 'status', { text: cb.name === 'WebSearch' ? 'Verifying with a web search' : cb.name === 'WebFetch' ? 'Reading a source' : TOOL_LABELS[cb.name.replace(/^mcp__derive__/, '')] ?? `Using ${cb.name}` });
-            } else if (cb.type === 'thinking') {
-              emitEphemeral(lessonId, 'status', { text: 'Thinking' });
-            }
-          } else if (ev.type === 'content_block_delta') {
-            if (ev.delta.type === 'text_delta' && blockId) {
-              blockText += ev.delta.text;
-              emitEphemeral(lessonId, 'delta', { id: blockId, text: ev.delta.text });
-              if (blockSeq !== null && Date.now() - lastCheckpoint > 1500) {
-                checkpoint(lessonId, blockSeq, { id: blockId, text: blockText, partial: true });
-                lastCheckpoint = Date.now();
-              }
-            }
-          } else if (ev.type === 'content_block_stop') {
-            flushBlock();
-          }
-          break;
-        }
-        case 'result': {
-          flushBlock();
-          if (stopping.has(lessonId)) {
-            endTurn({ ok: true, interrupted: true });
-          } else if (msg.subtype === 'success') {
-            endTurn({ ok: true, cost_usd: msg.total_cost_usd ?? null, duration_ms: msg.duration_ms, verified });
-          } else {
-            const errs = (msg as { errors?: string[] }).errors;
-            endTurn({ ok: false, error: Array.isArray(errs) && errs.length ? errs.join('; ') : msg.subtype });
-          }
-          break;
-        }
-        default:
-          break;
-      }
-    }
+    await driver.runTurn(ctx, sink);
   } catch (err) {
-    flushBlock();
-    endTurn({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    sink.endTurn({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    throw err;
   } finally {
-    // The stream can end without a result (Stop, the CLI exiting). The
-    // learner still needs the prose kept and the turn marked finished.
-    flushBlock();
-    endTurn({ ok: true, interrupted: true });
+    // A driver that reported nothing still owes the learner a finished turn.
+    sink.endTurn({ ok: true, interrupted: true });
     active.delete(lessonId);
     stopping.delete(lessonId);
     cancelPending(lessonId);
