@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
-import { api } from './api';
+import { api, deriveToken } from './api';
 import type {
   AskPayload,
   ExplainPayload,
@@ -252,7 +252,9 @@ export function useLesson(id: string | undefined) {
         if (cancelled) return;
         lastSeq.current = d.events.reduce((m, e) => Math.max(m, e.seq), 0);
         dispatch({ type: 'init', lesson: d.lesson, nodes: d.nodes, materials: d.materials ?? [], events: d.events, busy: d.busy });
-        es = new EventSource(`/api/lessons/${id}/stream?after=${lastSeq.current}`);
+        // EventSource cannot set a header, so this is the one request that carries the install token in the query string.
+        const auth = deriveToken() ? `&token=${encodeURIComponent(deriveToken())}` : '';
+        es = new EventSource(`/api/lessons/${id}/stream?after=${lastSeq.current}${auth}`);
         es.onopen = () => dispatch({ type: 'connected', value: true });
         es.onerror = () => dispatch({ type: 'connected', value: false });
         // Text arrives token by token. Re-rendering the markdown on every

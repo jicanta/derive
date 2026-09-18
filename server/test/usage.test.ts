@@ -13,7 +13,7 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -158,6 +158,8 @@ describe('a lesson driven from a terminal', () => {
   let server: ChildProcess | undefined;
   let base = '';
   let dataDir = '';
+  /** The install token the server wrote on its first boot; every /api call but health carries it. */
+  let token = '';
 
   before(async () => {
     assert.ok(existsSync(entry), `build first: ${entry} is missing`);
@@ -169,7 +171,10 @@ describe('a lesson driven from a terminal', () => {
     while (Date.now() < deadline) {
       try {
         const r = await fetch(`${base}/api/health`);
-        if (r.ok) return;
+        if (r.ok) {
+          token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
+          return;
+        }
       } catch {
         /* not up yet */
       }
@@ -184,11 +189,11 @@ describe('a lesson driven from a terminal', () => {
   });
 
   it('is still in the ledger, saying its tokens were never reported', async () => {
-    const created = await fetch(`${base}/api/external/lessons`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ topic: 'what a companion lesson costs', answer_in: 'terminal' }) });
+    const created = await fetch(`${base}/api/external/lessons`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-derive-token': token }, body: JSON.stringify({ topic: 'what a companion lesson costs', answer_in: 'terminal' }) });
     const { id } = (await created.json()) as { id: string };
     assert.equal(created.status, 201);
 
-    const ended = await fetch(`${base}/api/external/lessons/${id}/end`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const ended = await fetch(`${base}/api/external/lessons/${id}/end`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-derive-token': token }, body: '{}' });
     assert.equal(ended.status, 200);
 
     const db = new DatabaseSync(join(dataDir, 'derive.db'));

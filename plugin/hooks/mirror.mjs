@@ -22,7 +22,21 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const BASE = (process.env.DERIVE_URL ?? 'http://localhost:4310').replace(/\/$/, '');
-const STATE_DIR = join(process.env.DERIVE_DATA_DIR ?? join(homedir(), '.derive'), 'mirror');
+const DATA_DIR = process.env.DERIVE_DATA_DIR ?? join(homedir(), '.derive');
+const STATE_DIR = join(DATA_DIR, 'mirror');
+
+// The server answers /api only to a request carrying its install token. This hook
+// runs as the same user, so it reads the file; a missing one says so once, on
+// stderr, and every call below keeps its existing catch so the session is never
+// interrupted by a mirror that could not post.
+const TOKEN_PATH = join(DATA_DIR, 'token');
+let token = '';
+try {
+  token = readFileSync(TOKEN_PATH, 'utf8').trim();
+} catch {
+  process.stderr.write(`[derive] no token at ${TOKEN_PATH}; start the derive server once so this session can be mirrored.\n`);
+}
+const HEADERS = { 'content-type': 'application/json', ...(token ? { 'x-derive-token': token } : {}) };
 
 async function main() {
   let payload = {};
@@ -35,7 +49,7 @@ async function main() {
   const transcript = payload.transcript_path;
   if (!sessionId || !transcript || !existsSync(transcript)) return;
 
-  const active = await fetch(`${BASE}/api/external/active`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const active = await fetch(`${BASE}/api/external/active`, { headers: HEADERS }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   if (!active) return;
 
   mkdirSync(STATE_DIR, { recursive: true });
@@ -94,7 +108,7 @@ async function main() {
   for (const item of out) {
     await fetch(`${BASE}/api/external/lessons/${active.id}/mirror`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: HEADERS,
       body: JSON.stringify(item),
     }).catch(() => undefined);
   }
@@ -103,14 +117,14 @@ async function main() {
 
   if (payload.hook_event_name === 'Stop') {
     // Ends the turn in the companion. A card left open for a terminal reply survives this.
-    await fetch(`${BASE}/api/external/lessons/${active.id}/end`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => undefined);
+    await fetch(`${BASE}/api/external/lessons/${active.id}/end`, { method: 'POST', headers: HEADERS, body: '{}' }).catch(() => undefined);
   }
 
   if (payload.hook_event_name === 'UserPromptSubmit' && active.held) {
     // A card is open for a terminal reply. If the learner clicked in the
     // browser instead, hand the model the result now, so it does not treat
     // this message as the answer.
-    const r = await fetch(`${BASE}/api/external/lessons/${active.id}/collect`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+    const r = await fetch(`${BASE}/api/external/lessons/${active.id}/collect`, { method: 'POST', headers: HEADERS, body: '{}' })
       .then((x) => (x.ok ? x.json() : null))
       .catch(() => null);
     if (r?.settled) {

@@ -4,6 +4,19 @@ import { join, resolve } from 'node:path';
 export const PORT = Number(process.env.PORT ?? 4310);
 export const DATA_DIR = resolve(process.env.DERIVE_DATA_DIR ?? join(homedir(), '.derive'));
 export const DB_PATH = join(DATA_DIR, 'derive.db');
+/** The per-install token every /api request but health must carry. Written on first boot, read by the app, the dev proxy, the MCP server and the plugin hook; no endpoint ever hands it out. */
+export const TOKEN_PATH = join(DATA_DIR, 'token');
+/** Which interface the server answers on. Loopback by default; DERIVE_HOST=0.0.0.0 opens it to the network, and the token stays mandatory there. */
+export const HOST = process.env.DERIVE_HOST?.trim() || '127.0.0.1';
+/** True when HOST is a loopback address, which is the default and the only quiet case. */
+export const HOST_IS_LOOPBACK = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(HOST.toLowerCase());
+/** Extra browser origins allowed to call the API, comma-separated. Only needed when the bind is widened. */
+export const DERIVE_ORIGINS = (process.env.DERIVE_ORIGINS ?? '')
+  .split(',')
+  .map((o) => o.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+/** Every origin a browser may call the API from: this server on either loopback spelling, the Vite dev server, and whatever DERIVE_ORIGINS adds. Matched whole, never by prefix. */
+export const ALLOWED_ORIGINS = [...new Set([`http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`, 'http://127.0.0.1:5173', 'http://localhost:5173', ...DERIVE_ORIGINS])];
 /** Optional model override. Leave unset to use the backend's own default (your Claude Code or Codex default model). */
 export const MODEL = process.env.DERIVE_MODEL || undefined;
 export const EFFORT = (process.env.DERIVE_EFFORT as 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined) || 'high';

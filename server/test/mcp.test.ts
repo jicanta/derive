@@ -39,6 +39,8 @@ let server: ChildProcess | undefined;
 let mcp: ChildProcess | undefined;
 let base = '';
 let dataDir = '';
+/** The install token the server wrote into the scratch data dir; the mcp child reads the same file through DERIVE_DATA_DIR. */
+let token = '';
 
 /** One JSON-RPC call over the child's stdin/stdout, or a readable failure instead of a hung suite. */
 let nextId = 0;
@@ -70,7 +72,7 @@ async function call<T = Record<string, unknown>>(name: string, args: Record<stri
 const teachProse = (lesson: string, node: string) =>
   fetch(`${base}/api/external/lessons/${lesson}/mirror`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-derive-token': token },
     body: JSON.stringify({ role: 'assistant', text: `Teaching ${node}. `.repeat(30), uid: `${node}-prose` }),
   });
 
@@ -87,6 +89,7 @@ before(async () => {
     try {
       const r = await fetch(`${base}/api/health`);
       if (r.ok) {
+        token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
         up = true;
         break;
       }

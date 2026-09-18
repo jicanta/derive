@@ -21,9 +21,21 @@ export const selectLearner = (id: string) => {
     /* private mode */
   }
 };
+/**
+ * The install token, put into this document by the server that served it.
+ * Empty in development, where the page comes from Vite and its /api proxy
+ * adds the header instead. Read once; never stored anywhere else and never
+ * logged, since it is already in the document the page arrived as.
+ */
+let token: string | null = null;
+export const deriveToken = (): string => {
+  if (token === null) token = document.querySelector<HTMLMetaElement>('meta[name="derive-token"]')?.content ?? '';
+  return token;
+};
 const headers = (extra: Record<string, string> = {}) => {
   const l = currentLearner();
-  return l ? { ...extra, 'x-derive-learner': l } : extra;
+  const t = deriveToken();
+  return { ...extra, ...(t ? { 'x-derive-token': t } : {}), ...(l ? { 'x-derive-learner': l } : {}) };
 };
 const get = (url: string) => fetch(url, { headers: headers() });
 const del = (url: string) => fetch(url, { method: 'DELETE', headers: headers() });
@@ -65,7 +77,7 @@ export const api = {
     const form = new FormData();
     if (lessonId) form.set('lesson_id', lessonId);
     for (const f of files) form.append('files', f, f.name);
-    return fetch('/api/materials', { method: 'POST', body: form }).then((r) => j<{ materials: Material[]; errors: { name: string; error: string }[] }>(r));
+    return fetch('/api/materials', { method: 'POST', headers: headers(), body: form }).then((r) => j<{ materials: Material[]; errors: { name: string; error: string }[] }>(r));
   },
   /** Import a repository as material: a folder on this machine, a GitHub URL, or a git URL. */
   importRepo: (source: string, lessonId?: string) =>

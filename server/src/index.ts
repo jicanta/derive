@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -11,7 +11,7 @@ import { z } from 'zod';
 import * as actions from './actions.js';
 import { interrupt, isBusy, runTurn } from './agent.js';
 import { backend, backendSource } from './backend.js';
-import { PORT, VAULT_DIR } from './config.js';
+import { ALLOWED_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, TOKEN_PATH, VAULT_DIR } from './config.js';
 import {
   allNodes,
   bindMaterials,
@@ -68,8 +68,86 @@ for (const t of closeOpenTurns('interrupted')) {
   if (getLesson(t.lesson_id)?.mode === 'agent') emit(t.lesson_id, 'turn_end', { ok: true, interrupted: true, reason: 'server restarted' });
 }
 
+/**
+ * The install token: read it, or make one the first time Derive runs.
+ *
+ * 32 bytes of randomness in a 0600 file next to the database, written with
+ * "wx" so a second boot racing the first cannot clobber a token the app is
+ * already holding. Nothing hands it out — the app is given it inside the
+ * HTML the server serves, and everything else on this machine reads the file
+ * — so a failure here has to be loud, or the learner is left with an app
+ * that says 401 and no idea why.
+ */
+function ensureToken(): string {
+  if (!existsSync(TOKEN_PATH)) {
+    try {
+      writeFileSync(TOKEN_PATH, randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
+    } catch (e) {
+      // Losing the "wx" race to a concurrent boot is fine; that file is just as good.
+      if (!existsSync(TOKEN_PATH)) throw new Error(`could not write the derive token at ${TOKEN_PATH}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  let token: string;
+  try {
+    token = readFileSync(TOKEN_PATH, 'utf8').trim();
+  } catch (e) {
+    throw new Error(`could not read the derive token at ${TOKEN_PATH}: ${e instanceof Error ? e.message : String(e)}. Delete that file and start derive again to make a new one.`);
+  }
+  if (!token) throw new Error(`the derive token at ${TOKEN_PATH} is empty. Delete that file and start derive again to make a new one.`);
+  return token;
+}
+
+/** This install's token. Deliberate module state: read once at boot, compared on every request, and never logged, emitted or returned. */
+const TOKEN = ensureToken();
+const TOKEN_BUF = Buffer.from(TOKEN);
+
+/** The host names a request may address this server by: loopback in every spelling, plus the configured interface when the bind was widened. */
+const ALLOWED_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', ...(HOST_IS_LOOPBACK ? [] : [HOST.toLowerCase()])]);
+
+/** The host and the port a Host header names, keeping an IPv6 literal's brackets. Empty parts when it is not a Host header at all. */
+function splitHost(raw: string): { host: string; port: string } {
+  const m = /^(\[[^\]]+\]|[^:]*)(?::(\d+))?$/.exec(raw.trim());
+  return m ? { host: m[1].toLowerCase(), port: m[2] ?? '' } : { host: '', port: '' };
+}
+
+/** Constant-time string equality, falling back to plain inequality when the lengths already differ. */
+const sameSecret = (a: string) => {
+  const buf = Buffer.from(a);
+  return buf.length === TOKEN_BUF.length && timingSafeEqual(buf, TOKEN_BUF);
+};
+
 const app = new Hono();
-app.use('/api/*', cors({ origin: '*', allowHeaders: ['content-type', 'x-derive-learner'] }));
+app.use('/api/*', cors({ origin: ALLOWED_ORIGINS, allowHeaders: ['content-type', 'x-derive-learner', 'x-derive-token'] }));
+
+/**
+ * Only this machine, and only Derive's own app.
+ *
+ * Everything the API can do — read every lesson, import any readable folder
+ * as course material, fetch a URL — used to be open to any process or any
+ * page that could reach the port. Four checks close that, in order: health
+ * is exempt because the doctor and the test harnesses poll it before there
+ * is anything to authenticate with; the Host header must name this server on
+ * its own port, which is what defeats a DNS rebind that keeps the origin
+ * plausible; an Origin, when the browser sends one, must match the allowlist
+ * whole (a same-origin fetch, curl and the stdio MCP proxy send none, so an
+ * absent Origin passes); and the token must match. The lesson stream is the
+ * one place the token may ride in the query string, because EventSource
+ * cannot set a header.
+ */
+app.use('/api/*', async (c, next) => {
+  if (c.req.path === '/api/health') return next();
+
+  const { host, port } = splitHost(c.req.header('host') ?? '');
+  if (!ALLOWED_HOSTS.has(host) || port !== String(PORT)) return c.json({ error: `derive answers on ${[...ALLOWED_HOSTS].join(', ')} at port ${PORT} only` }, 403);
+
+  const origin = c.req.header('origin');
+  if (origin && !ALLOWED_ORIGINS.includes(origin)) return c.json({ error: `origin ${origin} is not allowed to call derive` }, 403);
+
+  const supplied = c.req.header('x-derive-token') ?? (c.req.path.endsWith('/stream') ? (c.req.query('token') ?? '') : '');
+  if (!supplied || !sameSecret(supplied)) return c.json({ error: `send the x-derive-token header, with the token in ${TOKEN_PATH}` }, 401);
+
+  return next();
+});
 
 /**
  * Whose request this is. The web app sends the learner it has selected in
@@ -878,12 +956,34 @@ function baseUrl(reqUrl: string) {
 const here = dirname(fileURLToPath(import.meta.url));
 const distDir = resolve(here, '../../web/dist');
 if (existsSync(distDir)) {
-  const relRoot = distDir.startsWith(process.cwd()) ? distDir.slice(process.cwd().length + 1) : distDir;
+  // serveStatic resolves its root against process.cwd(), so this is the path from wherever the server was started, whatever that is.
+  const relRoot = relative(process.cwd(), distDir).split(sep).join('/') || '.';
+  /**
+   * The app is handed the token here and nowhere else: inside the document it
+   * is served as, never as data from a route, so a hostile page has nothing
+   * to call (D-09). Read once at boot — index.html does not change while the
+   * server runs — and a build with no head to inject into fails loudly rather
+   * than serving an app that can only say 401.
+   */
+  const indexPath = join(distDir, 'index.html');
+  const rawIndex = readFileSync(indexPath, 'utf8');
+  if (!rawIndex.includes('</head>')) throw new Error(`${indexPath} has no </head> to put the derive token in; run pnpm build again`);
+  const indexHtml = rawIndex.replace('</head>', `  <meta name="derive-token" content="${TOKEN}" />\n  </head>`);
+  // Ahead of serveStatic, which would otherwise hand out the file on disk for "/" and never inject anything.
+  app.get('/', (c) => c.html(indexHtml));
+  app.get('/index.html', (c) => c.html(indexHtml));
   app.use('/*', serveStatic({ root: relRoot }));
-  app.get('*', (c) => c.html(readFileSync(join(distDir, 'index.html'), 'utf8')));
+  app.get('*', (c) => c.html(indexHtml));
 }
 
-serve({ fetch: app.fetch, port: PORT }, (info) => {
+serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
   console.log(`derive server on http://localhost:${info.port}${existsSync(distDir) ? '' : ' (API only; run the web dev server too)'}`);
   console.log(`tutor runs on ${backend() === 'codex' ? 'Codex (your ChatGPT login)' : 'Claude (your Claude Code login)'}${backendSource() === 'auto' ? ', picked automatically; set DERIVE_BACKEND to choose' : ''}`);
+  // D-12: binding wider than loopback is a deliberate choice, and it says exactly what it opened.
+  if (!HOST_IS_LOOPBACK) {
+    console.warn(
+      `[derive] DERIVE_HOST=${HOST}: every device that can reach this machine on port ${info.port} can reach your lessons, your library and the folders derive can read. ` +
+        `The x-derive-token header from ${TOKEN_PATH} is required on every /api route. Browser origins allowed: ${ALLOWED_ORIGINS.join(', ')} (add more with DERIVE_ORIGINS).`,
+    );
+  }
 });

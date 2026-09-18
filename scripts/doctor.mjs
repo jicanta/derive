@@ -4,7 +4,7 @@
  * says what to do about each thing it finds missing. Read-only.
  */
 import { execFileSync } from 'node:child_process';
-import { accessSync, constants, existsSync, mkdirSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -68,6 +68,16 @@ try {
   ok('Data folder', dataDir);
 } catch {
   fail('Data folder', `${dataDir} is not writable`, 'Set DERIVE_DATA_DIR in .env to a folder you can write to.');
+}
+
+// Every /api request but health carries this; anyone who can read the file can drive your lessons.
+const tokenFile = join(dataDir, 'token');
+if (!existsSync(tokenFile)) warn('Install token', `${tokenFile} does not exist yet`, 'Start Derive once (`pnpm start`) and it makes one.');
+else if (process.platform === 'win32') ok('Install token', tokenFile);
+else {
+  const mode = (statSync(tokenFile).mode & 0o777).toString(8).padStart(3, '0');
+  if (mode === '600') ok('Install token', `${tokenFile} (0600)`);
+  else fail('Install token', `${tokenFile} is mode 0${mode}, not 0600`, `Run \`chmod 600 ${tokenFile}\`. Anyone who can read that file can drive your lessons and read anything Derive can read.`);
 }
 
 if (process.env.DERIVE_VAULT_DIR) {

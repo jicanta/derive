@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -23,9 +23,11 @@ const DAY = 86_400_000;
 let server: ChildProcess | undefined;
 let base = '';
 let dataDir = '';
+/** The install token the server wrote into the scratch data dir on its first boot; every /api call but health carries it. */
+let token = '';
 
 const api = async <T = Record<string, unknown>>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<{ status: number; json: T }> => {
-  const res = await fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const res = await fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json', 'x-derive-token': token }, body: body === undefined ? undefined : JSON.stringify(body) });
   return { status: res.status, json: (await res.json()) as T };
 };
 const act = (lesson: string, action: string, body: unknown) => api(`/api/external/lessons/${lesson}/${action}`, body);
@@ -55,7 +57,10 @@ before(async () => {
   while (Date.now() < deadline) {
     try {
       const r = await fetch(`${base}/api/health`);
-      if (r.ok) return;
+      if (r.ok) {
+        token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
+        return;
+      }
     } catch {
       /* not up yet */
     }
