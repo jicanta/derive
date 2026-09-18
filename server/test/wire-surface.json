@@ -1,0 +1,86 @@
+{
+  "agent": [
+    {
+      "name": "node_status",
+      "description": "Update the state of a plan node: \"teaching\" when you start it, \"locked\" when a confident check confirmed it (the node is then scheduled for review by how well the check went; the reply says in how many days, and which nodes below it earned implicit review credit), \"shaky\" when it did not land after two checks (the reply names the nodes it rests on and what the checks on each showed, for targeted remediation). Locking a derived node is refused until a correct intuition or transfer question on it exists; locking the goal returns the instructions for the cumulative quiz.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "teaching",
+              "locked",
+              "shaky"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "mcp": [
+    {
+      "name": "node_status",
+      "description": "Update the state of a plan node: \"teaching\" when you start it, \"locked\" when a confident check confirmed it (the node is then scheduled for review by how well the check went; the reply says in how many days, and which nodes below it earned implicit review credit), \"shaky\" when it did not land after two checks (the reply names the nodes it rests on and what the checks on each showed, for targeted remediation). Locking a derived node is refused until a correct intuition or transfer question on it exists; locking the goal returns the instructions for the cumulative quiz.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "teaching",
+              "locked",
+              "shaky"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "http": [
+    {
+      "name": "node_status",
+      "description": "Update the state of a plan node: \"teaching\" when you start it, \"locked\" when a confident check confirmed it (the node is then scheduled for review by how well the check went; the reply says in how many days, and which nodes below it earned implicit review credit), \"shaky\" when it did not land after two checks (the reply names the nodes it rests on and what the checks on each showed, for targeted remediation). Locking a derived node is refused until a correct intuition or transfer question on it exists; locking the goal returns the instructions for the cumulative quiz.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "teaching",
+              "locked",
+              "shaky"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

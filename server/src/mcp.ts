@@ -30,6 +30,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { RolloutMirror } from './codex-mirror.js';
+import { toolSpec } from './tools.js';
 
 const BASE = (process.env.DERIVE_URL ?? 'http://localhost:4310').replace(/\/$/, '');
 const LEARNER = process.env.DERIVE_LEARNER?.trim() || undefined;
@@ -410,12 +411,12 @@ server.registerTool(
   async (a) => text(await api(`/api/external/lessons/${await ensureLesson()}/answer_in`, a)),
 );
 
+// The first tool registered from the shared registry: this surface no longer
+// keeps its own copy of the description or the schema.
+const nodeStatusSpec = toolSpec('node_status');
 server.registerTool(
   'node_status',
-  {
-    description: 'Mark a plan node "teaching", "locked" (a confident check confirmed it; the node is scheduled for review by how well the check went, the reply says in how many days and which nodes below it earned implicit review credit) or "shaky" (it did not land after two checks; the reply names the nodes it rests on and what the checks on each showed, for targeted remediation). Locking a derived node is refused until a correct intuition or transfer question on it exists; locking the goal returns the instructions for the cumulative quiz. Lights the graph up.',
-    inputSchema: { id: z.string(), status: z.enum(['teaching', 'locked', 'shaky']) },
-  },
+  { description: nodeStatusSpec.description, inputSchema: nodeStatusSpec.shape },
   async (a) => (await flushed(), text(await api(`/api/external/lessons/${await ensureLesson()}/node_status`, a))),
 );
 

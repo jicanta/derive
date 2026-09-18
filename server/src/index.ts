@@ -7,6 +7,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
+import { z } from 'zod';
 import * as actions from './actions.js';
 import { interrupt, isBusy, runTurn } from './agent.js';
 import { backend, backendSource } from './backend.js';
@@ -49,6 +50,7 @@ import { ACCEPTED, describe, ingestMaterial, ingestRepo, materialsSection, MAX_F
 import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief } from './prompt.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
+import { toolsFor } from './tools.js';
 
 /**
  * A restart kills in-flight turns without a turn_end. Close them on boot so
@@ -639,6 +641,24 @@ function holdCard(lessonId: string, kind: PromptKind, open: { id: string; done: 
 
 const nodeLabelOf = (lessonId: string, nodeId?: string | null) => (nodeId ? listNodes(lessonId).find((n) => n.node_id === nodeId)?.label ?? null : null);
 
+/**
+ * The registry's own shape decides what a valid body is, before any method
+ * logic runs: a bad argument is a 400 naming the tool, the field and what was
+ * wrong, not a half-applied write. The parse is not strict-mode rejection, so
+ * the keys the route reads for itself (answer_in, already_held, prompt_id,
+ * learner) still pass through untouched.
+ */
+const ACTION_SCHEMAS = new Map(toolsFor('http').map((s) => [s.name, z.object(s.shape)]));
+
+function invalidArgs(action: string, body: unknown): string | null {
+  const schema = ACTION_SCHEMAS.get(action);
+  if (!schema) return null;
+  const parsed = schema.safeParse(body);
+  if (parsed.success) return null;
+  const issue = parsed.error.issues[0];
+  return `${action}: ${issue.path.join('.') || '(body)'}: ${issue.message}`;
+}
+
 /** Run a tutor action for an external lesson. Blocking actions long-poll until the learner answers, or return at once in terminal mode. */
 app.post('/api/external/lessons/:id/:action', async (c) => {
   const id = c.req.param('id');
@@ -646,6 +666,8 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
   const lesson = getLesson(id);
   if (!lesson) return c.json({ error: 'not found' }, 404);
   const a = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const bad = invalidArgs(action, a);
+  if (bad) return c.json({ error: bad }, 400);
   const terminal = a.answer_in === 'terminal' || (a.answer_in !== 'browser' && lesson.answer_in === 'terminal');
   try {
     if (terminal && (action === 'quiz' || action === 'ask' || action === 'set_plan' || action === 'explain_back') && held.get(id) && !held.get(id)!.settled) {

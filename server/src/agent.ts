@@ -12,7 +12,7 @@ import { materialsSection } from './materials.js';
 import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
 import { systemPrompt } from './prompt.js';
-import { DERIVE_TOOL_NAMES, TOOL_LABELS } from './tools.js';
+import { DERIVE_TOOL_NAMES, TOOL_LABELS, toolSpec } from './tools.js';
 
 export { DERIVE_TOOL_NAMES } from './tools.js';
 
@@ -59,7 +59,6 @@ export const TOOL_DESCRIPTIONS = {
   ask: 'Ask the learner a question with no right answer (goal, preference, energy, what next). Optionally offer choices; the learner can always type a free answer. Blocks until they answer.',
   set_plan:
     'Submit the lesson plan as a dependency DAG: unconditional truths at the roots (kind "truth"), derived steps (kind "derived"), exactly one "goal" sink. The app draws it and asks the learner to approve. Blocks until they approve or request changes; if they request changes, revise and call again.',
-  node_status: 'Update the state of a plan node: "teaching" when you start it, "locked" when a confident check confirmed it (the node is then scheduled for review by how well the check went; the reply says in how many days, and which nodes below it earned implicit review credit), "shaky" when it did not land after two checks (the reply names the nodes it rests on and what the checks on each showed, for targeted remediation). Locking a derived node is refused until a correct intuition or transfer question on it exists; locking the goal returns the instructions for the cumulative quiz.',
   set_phase: 'Announce which phase of the lesson you are in.',
   explain_back:
     'Teach-back check: ask the learner to explain a node in their own words (2 to 5 sentences), or to say WHY a claim must be true. Write the rubric first: the 2 or 3 things a correct explanation must contain. Returns their explanation for you to grade. Use it at least once per lesson on the most important derived node, and whenever a pass was unsure. Blocks until they write.',
@@ -110,11 +109,11 @@ function buildTools(lessonId: string) {
     async (a) => text(await actions.setPlan(lessonId, { goal: a.goal, nodes: a.nodes as GraphNodeInput[] })),
   );
 
-  const node_status = tool(
-    'node_status',
-    TOOL_DESCRIPTIONS.node_status,
-    { id: z.string(), status: z.enum(['teaching', 'locked', 'shaky']) },
-    async (a) => text(actions.nodeStatus(lessonId, a)),
+  // The first tool built from the registry: its description and its shape are
+  // read off the one spec every surface shares, not declared again here.
+  const nodeStatusSpec = toolSpec('node_status');
+  const node_status = tool(nodeStatusSpec.name, nodeStatusSpec.description, nodeStatusSpec.shape, async (a) =>
+    text(actions.nodeStatus(lessonId, a as unknown as { id: string; status: 'teaching' | 'locked' | 'shaky' })),
   );
 
   const set_phase = tool('set_phase', TOOL_DESCRIPTIONS.set_phase, { phase: z.enum(['probe', 'plan', 'teach']) }, async (a) =>
