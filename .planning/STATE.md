@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-05-PLAN.md
-last_updated: "2026-09-18T12:14:45.646Z"
+stopped_at: Completed 01-06-PLAN.md
+last_updated: "2026-09-18T12:38:29.813Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 01 execution resumed (wave continue)
-state_head: 4b08339df108aa0b96639a37c95e2d079eeca048
+state_head: 01fbc7b539de7c1117ebcbe0ac2b886a954eb4e6
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 ## Current Position
 
 Phase: 01 (Foundation) — EXECUTING
-Plan: 5 of 8
+Plan: 6 of 8
 Status: Ready to execute
 Last activity: 2026-09-18 — Phase 01 execution resumed (wave continue)
 
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P03 | 70 min | 3 tasks | 26 files |
 | Phase 01 P04 | 14 min | 3 tasks | 5 files |
 | Phase 01 P05 | 17 min | 3 tasks | 4 files |
+| Phase 01 P06 | 25 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,9 @@ Recent decisions affecting current work:
 - [Phase 01]: Schema changes run through server/src/migrations.ts: numbered { version, name, up } entries on PRAGMA user_version, each applying inside a transaction that carries its own version bump; migration 1 is the old inline schema verbatim so an existing ~/.derive/derive.db and a fresh one converge on byte-identical DDL
 - [Phase 01]: An existing database is snapshotted with VACUUM INTO as derive.db.bak-v<version left behind> before the first pending migration (WAL makes a raw file copy unsafe); a fresh database is never snapshotted and an existing snapshot is never overwritten
 - [Phase 01]: withTx(fn) in server/src/db.ts is re-entrant via a depth counter, so deleteLearner looping over deleteLesson is one transaction; replaceGraph, deleteLesson and deleteLearner are now atomic
+- [Phase 01]: The turns/usage column set was fixed as proposed: usage carries lesson, learner, driver and model denormalised, and recordUsage is the one write path that fills them from the turn
+- [Phase 01]: Usage is a sink method, never an event, so the browser reducer, the SSE stream and the Obsidian mirror stay untouched
+- [Phase 01]: A turn with no reported counts still gets a row: nulls and cost_source 'unknown', never an estimate
 
 ### Pending Todos
 
@@ -108,6 +112,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-18T12:14:45.580Z
-Stopped at: Completed 01-05-PLAN.md
+Last session: 2026-09-18T12:38:19.080Z
+Stopped at: Completed 01-06-PLAN.md
 Resume file: None

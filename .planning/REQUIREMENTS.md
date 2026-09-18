@@ -44,7 +44,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Cost
 
-- [ ] **COST-01**: Every turn persists raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
+- [x] **COST-01**: Every turn persists raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
 - [ ] **COST-02**: Learner sees the estimated cost of each lesson in the lesson header and on Home, labelled billed, estimated, or not billed
 - [ ] **COST-03**: Learner sees a usage page with a running total per learner, by provider, model and lesson, and tokens-only lines for subscription and local paths
 - [ ] **COST-04**: Prices come from a versioned pricing table with a "prices as of" date the learner can override locally
@@ -164,7 +164,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SET-04 | Phase 2 | Pending |
 | SET-05 | Phase 2 | Pending |
 | SET-06 | Phase 2 | Pending |
-| COST-01 | Phase 1 | Pending |
+| COST-01 | Phase 1 | Complete |
 | COST-02 | Phase 3 | Pending |
 | COST-03 | Phase 4 | Pending |
 | COST-04 | Phase 3 | Pending |
