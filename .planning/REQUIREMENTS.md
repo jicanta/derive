@@ -13,7 +13,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [x] **FOUND-01**: The 14 tutor tools are defined once (name, description, zod schema) and every driver, the MCP server and the HTTP action validation derive from that single definition
 - [x] **FOUND-02**: The teaching method text is defined once and rendered for the app system prompt, the Claude Code plugin skill, the Codex skills and the docs; CI fails when a rendered copy drifts from the source
-- [ ] **FOUND-03**: Every driver runs behind one driver interface and reports through one event sink, so adding a provider changes neither the web UI, the SSE stream, nor the terminal mirrors
+- [x] **FOUND-03**: Every driver runs behind one driver interface and reports through one event sink, so adding a provider changes neither the web UI, the SSE stream, nor the terminal mirrors
 - [x] **FOUND-04**: The Claude Code plugin and Codex paths keep working through the refactor, proven by a wire-surface snapshot and a stdio MCP smoke test that needs no model
 - [ ] **FOUND-05**: SQLite schema changes run through a numbered, transactional migration runner; `replaceGraph` and `deleteLesson` are transactional; existing databases migrate forward
 - [ ] **FOUND-06**: The local server binds loopback only, checks Host and Origin, requires a per-install token, and redacts secrets from every error, log, event and export path before any key is stored
@@ -142,7 +142,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | FOUND-01 | Phase 1 | Complete |
 | FOUND-02 | Phase 1 | Complete |
-| FOUND-03 | Phase 1 | Pending |
+| FOUND-03 | Phase 1 | Complete |
 | FOUND-04 | Phase 1 | Complete |
 | FOUND-05 | Phase 1 | Pending |
 | FOUND-06 | Phase 1 | Pending |
