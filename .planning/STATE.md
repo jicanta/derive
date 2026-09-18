@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-06-PLAN.md
-last_updated: "2026-09-18T12:38:29.813Z"
+stopped_at: Completed 01-07-PLAN.md
+last_updated: "2026-09-18T12:58:50.132Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 01 execution resumed (wave continue)
-state_head: 01fbc7b539de7c1117ebcbe0ac2b886a954eb4e6
+state_head: 3be5f60dcd78336054cf743477274da07e937a21
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 ## Current Position
 
 Phase: 01 (Foundation) — EXECUTING
-Plan: 6 of 8
+Plan: 7 of 8
 Status: Ready to execute
 Last activity: 2026-09-18 — Phase 01 execution resumed (wave continue)
 
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P04 | 14 min | 3 tasks | 5 files |
 | Phase 01 P05 | 17 min | 3 tasks | 4 files |
 | Phase 01 P06 | 25 min | 3 tasks | 11 files |
+| Phase 01 P07 | 18 min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,10 @@ Recent decisions affecting current work:
 - [Phase 01]: The turns/usage column set was fixed as proposed: usage carries lesson, learner, driver and model denormalised, and recordUsage is the one write path that fills them from the turn
 - [Phase 01]: Usage is a sink method, never an event, so the browser reducer, the SSE stream and the Obsidian mirror stay untouched
 - [Phase 01]: A turn with no reported counts still gets a row: nulls and cost_source 'unknown', never an estimate
+- [Phase 01]: The local server answers on 127.0.0.1 only behind a 0600 per-install token; /api/health is the one exemption, and Host plus a whole-string Origin allowlist close DNS rebinding and hostile pages
+- [Phase 01]: Per D-09 the token is injected into the served index.html and read from the file by the MCP server, the plugin hook and the Vite dev proxy; no endpoint hands it out, and the stream route is the only place it may ride in the query string because EventSource cannot set a header
+- [Phase 01]: Per D-12 DERIVE_HOST past loopback is an explicit opt-in that prints one loud startup warning and weakens no check; DERIVE_ORIGINS extends the browser allowlist
+- [Phase 01]: VERSION is read once from server/package.json in server/src/config.ts and replaces five literals; root and server manifests now match plugin.json at 0.4.0, and @anthropic-ai/claude-agent-sdk is pinned to ^0.3.261 with the resolved version unchanged
 
 ### Pending Todos
 
@@ -112,6 +117,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-18T12:38:19.080Z
-Stopped at: Completed 01-06-PLAN.md
+Last session: 2026-09-18T12:58:37.474Z
+Stopped at: Completed 01-07-PLAN.md
 Resume file: None
