@@ -139,6 +139,7 @@ const q = {
   deleteLesson: db.prepare('DELETE FROM lessons WHERE id = ?'),
   deleteEvents: db.prepare('DELETE FROM events WHERE lesson_id = ?'),
   deleteNodes: db.prepare('DELETE FROM nodes WHERE lesson_id = ?'),
+  deleteNode: db.prepare('DELETE FROM nodes WHERE lesson_id = ? AND node_id = ?'),
   deleteQuiz: db.prepare('DELETE FROM quiz_results WHERE lesson_id = ?'),
   insertMaterial: db.prepare(
     'INSERT INTO materials (id, lesson_id, name, kind, unit, pages, chars, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -192,6 +193,40 @@ const q = {
       (SELECT COUNT(*) FROM quiz_results q JOIN lessons l ON l.id = q.lesson_id WHERE l.learner_id = $l AND q.correct = 1) AS correct
   `),
 };
+
+/** How deep we are inside withTx; node:sqlite has no transaction helper and SQLite has no nested BEGIN. */
+let txDepth = 0;
+
+/**
+ * Run `fn` inside one transaction, rolling back and rethrowing the original
+ * error unchanged if it throws. Re-entrant: a `withTx()` called from inside
+ * another joins it rather than beginning a second one — SQLite has no nested
+ * BEGIN — so `deleteLearner` looping over `deleteLesson` is a single atomic
+ * write. `fn` must be synchronous: node:sqlite is, and an awaited body would
+ * commit before its work finished.
+ */
+export function withTx<T>(fn: () => T): T {
+  if (txDepth > 0) {
+    txDepth += 1;
+    try {
+      return fn();
+    } finally {
+      txDepth -= 1;
+    }
+  }
+  db.exec('BEGIN');
+  txDepth = 1;
+  try {
+    const out = fn();
+    db.exec('COMMIT');
+    return out;
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  } finally {
+    txDepth = 0;
+  }
+}
 
 // ---------- learners ----------
 
@@ -296,9 +331,11 @@ export function renameLearner(id: string, name: string): Learner {
 /** Removes the learner and everything they learned. The default learner cannot be removed. */
 export function deleteLearner(id: string) {
   if (id === DEFAULT_LEARNER_ID) throw new Error('the first learner cannot be removed; rename it instead');
-  for (const { id: lessonId } of q.lessonsOfLearner.all(id) as { id: string }[]) deleteLesson(lessonId);
-  q.deleteResourcesOfLearner.run(id);
-  q.deleteLearner.run(id);
+  withTx(() => {
+    for (const { id: lessonId } of q.lessonsOfLearner.all(id) as { id: string }[]) deleteLesson(lessonId);
+    q.deleteResourcesOfLearner.run(id);
+    q.deleteLearner.run(id);
+  });
 }
 
 export function createLesson(
@@ -328,14 +365,17 @@ export function listLessons(learnerId?: string): Lesson[] {
   return (learnerId ? q.listLessons.all(learnerId) : q.listAllLessons.all()) as Lesson[];
 }
 
+/** Removes a lesson and everything hanging off it. One transaction: a crash partway would otherwise orphan events and nodes. */
 export function deleteLesson(id: string) {
-  q.deleteMaterialsByLesson.run(id);
-  q.deleteMemoryByLesson.run(id);
-  q.deleteMisByLesson.run(id);
-  q.deleteQuiz.run(id);
-  q.deleteNodes.run(id);
-  q.deleteEvents.run(id);
-  q.deleteLesson.run(id);
+  withTx(() => {
+    q.deleteMaterialsByLesson.run(id);
+    q.deleteMemoryByLesson.run(id);
+    q.deleteMisByLesson.run(id);
+    q.deleteQuiz.run(id);
+    q.deleteNodes.run(id);
+    q.deleteEvents.run(id);
+    q.deleteLesson.run(id);
+  });
 }
 
 export function setSessionId(id: string, sessionId: string) {
@@ -378,15 +418,18 @@ export type GraphNodeInput = {
   depends_on?: string[];
 };
 
+/** Swaps a lesson's graph for a new one. One transaction: this runs while the learner is looking at the graph, and half a graph is worse than the old one. */
 export function replaceGraph(lessonId: string, nodes: GraphNodeInput[]) {
-  const existing = new Map(listNodes(lessonId).map((n) => [n.node_id, n]));
-  const keep = new Set(nodes.map((n) => n.id));
-  for (const id of existing.keys()) {
-    if (!keep.has(id)) db.prepare('DELETE FROM nodes WHERE lesson_id = ? AND node_id = ?').run(lessonId, id);
-  }
-  for (const n of nodes) {
-    q.upsertNode.run(lessonId, n.id, n.label, n.kind, n.summary ?? null, JSON.stringify(n.depends_on ?? []));
-  }
+  withTx(() => {
+    const existing = new Map(listNodes(lessonId).map((n) => [n.node_id, n]));
+    const keep = new Set(nodes.map((n) => n.id));
+    for (const id of existing.keys()) {
+      if (!keep.has(id)) q.deleteNode.run(lessonId, id);
+    }
+    for (const n of nodes) {
+      q.upsertNode.run(lessonId, n.id, n.label, n.kind, n.summary ?? null, JSON.stringify(n.depends_on ?? []));
+    }
+  });
 }
 
 export function listNodes(lessonId: string): NodeRow[] {
