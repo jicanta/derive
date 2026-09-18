@@ -12,6 +12,14 @@
  * DERIVE_WRITE_WIRE_SURFACE=1, and commit the regenerated file as part of the
  * change so the diff is in the pull request. Never regenerate it merely to make
  * this test go green.
+ *
+ * A handful of tools genuinely say something different on one surface, because
+ * the surface differs: only a terminal driver settles a card through `answer`,
+ * and only the external path runs the teach gate. Those differences are declared
+ * in the registry under `per_surface`, and the assertion below is two-sided — a
+ * surface may differ only where a tool declares it does, and a tool may declare a
+ * difference only where the snapshot actually shows one. Undeclared drift between
+ * two surfaces therefore still fails, which is the whole point of the registry.
  */
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -19,7 +27,7 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { ALL_TOOL_NAMES, DERIVE_TOOL_NAMES, jsonSchemaOf, TOOL_LABELS, toolsFor, TOOL_REGISTRY, type ToolSurface } from '../src/tools.js';
+import { ALL_TOOL_NAMES, DERIVE_TOOL_NAMES, descriptionFor, differsOnSurface, jsonSchemaOf, TOOL_LABELS, toolsFor, TOOL_REGISTRY, type ToolSurface } from '../src/tools.js';
 
 const SURFACES: ToolSurface[] = ['agent', 'mcp', 'http'];
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'wire-surface.json');
@@ -53,7 +61,7 @@ type Row = { name: string; description: string; input_schema: unknown };
 /** The registry projected onto every surface, in registry declaration order, exactly as the fixture stores it. */
 function wireSurface(): Record<string, Row[]> {
   const out: Record<string, Row[]> = {};
-  for (const surface of SURFACES) out[surface] = toolsFor(surface).map((t) => ({ name: t.name, description: t.description, input_schema: jsonSchemaOf(t) }));
+  for (const surface of SURFACES) out[surface] = toolsFor(surface).map((t) => ({ name: t.name, description: descriptionFor(t, surface), input_schema: jsonSchemaOf(t, surface) }));
   return out;
 }
 
@@ -78,17 +86,34 @@ describe('the wire surface', () => {
     assert.equal(onDisk, `${JSON.stringify(live, null, 2)}\n`);
   });
 
-  it('gives a tool the same description and the same schema on every surface it appears on', () => {
+  it('gives a tool the same description and the same schema on every surface, except where it declares otherwise', () => {
     for (const spec of TOOL_REGISTRY) {
-      if (spec.surfaces.length < 2) continue;
-      const [first, ...rest] = spec.surfaces;
-      const head = rowOf(live, spec.name, first)!;
-      for (const other of rest) {
-        const row = rowOf(live, spec.name, other)!;
-        assert.equal(row.description, head.description, `${spec.name}: the ${first} and ${other} surfaces disagree on the description`);
-        assert.deepEqual(row.input_schema, head.input_schema, `${spec.name}: the ${first} and ${other} surfaces disagree on the input schema`);
+      for (const surface of spec.surfaces) {
+        const row = rowOf(live, spec.name, surface)!;
+        const moved = row.description !== spec.description || JSON.stringify(row.input_schema) !== JSON.stringify(jsonSchemaOf(spec));
+        if (moved && !differsOnSurface(spec, surface)) {
+          assert.fail(`${spec.name}: the ${surface} surface differs from the registry but declares no per_surface entry for it — declare the difference or remove it`);
+        }
+        if (!moved && differsOnSurface(spec, surface)) {
+          assert.fail(`${spec.name}: a per_surface entry is declared for ${surface} but the snapshot shows no difference — delete the dead declaration`);
+        }
       }
     }
+  });
+
+  it('declares every per-surface difference the snapshot shows, and no others', () => {
+    // The two halves above, stated as sets, so a failure names the whole drift
+    // rather than the first tool that trips it.
+    const shown: string[] = [];
+    const declared: string[] = [];
+    for (const spec of TOOL_REGISTRY) {
+      for (const surface of spec.surfaces) {
+        const row = rowOf(live, spec.name, surface)!;
+        if (row.description !== spec.description || JSON.stringify(row.input_schema) !== JSON.stringify(jsonSchemaOf(spec))) shown.push(`${spec.name}@${surface}`);
+        if (differsOnSurface(spec, surface)) declared.push(`${spec.name}@${surface}`);
+      }
+    }
+    assert.deepEqual(shown.sort(), declared.sort(), 'the tools that read differently on a surface must be exactly the tools that say so in the registry');
   });
 
   it('carries node_status identically on the agent and the MCP surface', () => {

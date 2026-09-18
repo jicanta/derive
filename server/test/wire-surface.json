@@ -515,14 +515,13 @@
   "mcp": [
     {
       "name": "quiz",
-      "description": "Ask the learner ONE graded multiple-choice question with a known correct answer. The app renders the options, the learner picks and says whether they are sure, the app grades it and reveals your explanation. Returns what they picked, whether it was correct, how sure they were, and what to do next. Set `purpose`: \"pretest\" for the attempt you ask for BEFORE teaching a derived node (a miss is expected and is not recorded against them), \"check\" for the question that locks a node, \"cumulative\" for the end-of-lesson quiz; the probe phase and reviews of copied nodes are recognised on their own. Set `tests` to what the question tests (intuition, procedure, transfer): a derived node locks only after a correct intuition or transfer question. Blocks until the learner answers.",
+      "description": "Ask the learner ONE graded multiple-choice question with a known correct answer. The server grades it and returns what they picked, whether it was correct, how sure they were, and what to do next; you never grade it yourself. Never leak the answer in the question or options. Options are 2 or 3 bare claims; the app adds \"I don't know\". Set `purpose`: \"pretest\" for the attempt you ask for BEFORE teaching a derived node (a miss is expected, not recorded against them, never locks), \"check\" for the question that locks a node, \"cumulative\" for the end-of-lesson quiz after the goal locks. Set `tests` to what the question tests: a derived node locks only after a correct \"intuition\" or \"transfer\" question on it. In the teach phase a check for a node is refused until you have actually written the teaching for that node in the terminal (several paragraphs: motivate, establish, connect), so teach first, then check; a pretest is allowed before the teaching. In a browser-answered lesson this blocks until they answer. In a lesson answered from the terminal (answer_in \"terminal\") this returns at once with the card as text: show it verbatim, end your turn, and when the learner replies pass their message to `answer`.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "question": {
-            "type": "string",
-            "description": "The question, markdown with $LaTeX$ allowed. Do not restate it in prose."
+            "type": "string"
           },
           "options": {
             "minItems": 2,
@@ -530,8 +529,7 @@
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "2 or 3 bare claims, no justification. The app adds \"I don't know\" itself."
+            }
           },
           "correct": {
             "minItems": 1,
@@ -540,19 +538,16 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
-            },
-            "description": "0-based indices of the correct option(s). Usually exactly one."
+            }
           },
           "explanation": {
-            "type": "string",
-            "description": "Why the correct answer is correct, and what each distractor gets wrong. Shown only after answering."
+            "type": "string"
           },
           "node_id": {
-            "description": "The plan node this question checks. Always pass it in the teach phase.",
             "type": "string"
           },
           "purpose": {
-            "description": "\"pretest\": the attempt before teaching a node (not recorded against the learner, never locks). \"check\": the question that locks a node. \"cumulative\": the end-of-lesson quiz over every node, after the goal locks. \"review\": a node from an earlier lesson (the warm-up, or a review session). Default: \"review\" on a copied node, \"probe\" in the probe phase, else \"check\".",
+            "description": "Default: \"review\" on a node copied from an earlier lesson (a warm-up node, a review session), \"probe\" in the probe phase, else \"check\".",
             "type": "string",
             "enum": [
               "probe",
@@ -563,13 +558,17 @@
             ]
           },
           "tests": {
-            "description": "What the question tests. \"intuition\": why the claim must be so, what breaks if a premise changes, which picture or geometric reading is right, an estimate before any computation. \"procedure\": carry out the steps. \"transfer\": a problem of a kind this lesson has not shown. A derived node locks only after a correct intuition or transfer question; always set this in the teach phase.",
+            "description": "\"intuition\": why the claim must be so, what breaks if a premise changes, which picture is right, an estimate before computing. \"procedure\": carry out the steps. \"transfer\": a problem of a kind this lesson has not shown. Always set it in the teach phase.",
             "type": "string",
             "enum": [
               "intuition",
               "procedure",
               "transfer"
             ]
+          },
+          "already_held": {
+            "description": "Set true only when the probe already showed the learner holds this node and you are confirming rather than teaching it. Say so to the learner in one sentence.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -583,7 +582,7 @@
     },
     {
       "name": "ask",
-      "description": "Ask the learner a question with no right answer (goal, preference, energy, what next). Optionally offer choices; the learner can always type a free answer. Blocks until they answer.",
+      "description": "Ask the learner a question with no right answer (goal, preference, what next). Optional suggested answers. In a browser-answered lesson this blocks until they answer. In a lesson answered from the terminal (answer_in \"terminal\") this returns at once with the card as text: show it verbatim, end your turn, and when the learner replies pass their message to `answer`.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -592,7 +591,6 @@
             "type": "string"
           },
           "options": {
-            "description": "Optional suggested answers.",
             "maxItems": 4,
             "type": "array",
             "items": {
@@ -608,14 +606,13 @@
     },
     {
       "name": "set_plan",
-      "description": "Submit the lesson plan as a dependency DAG: unconditional truths at the roots (kind \"truth\"), derived steps (kind \"derived\"), exactly one \"goal\" sink. The app draws it and asks the learner to approve. Blocks until they approve or request changes; if they request changes, revise and call again.",
+      "description": "Submit the lesson plan as a dependency DAG (truth roots, derived steps, one goal sink). Drawn in the browser; in a browser-answered lesson this blocks until the learner approves or asks for changes. In a lesson answered from the terminal (answer_in \"terminal\") this returns at once with the card as text: show it verbatim, end your turn, and when the learner replies pass their message to `answer`.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "goal": {
-            "type": "string",
-            "description": "The learning goal in one sentence, as agreed with the learner."
+            "type": "string"
           },
           "nodes": {
             "minItems": 3,
@@ -630,7 +627,7 @@
                 },
                 "label": {
                   "type": "string",
-                  "description": "The claim in plain words a learner reads at a glance, 3 to 7 words, e.g. \"A line can output any real number\". No formulas, symbols, abbreviations or private shorthand: this is what the graph shows."
+                  "description": "The claim in plain words, 3 to 7 words, no formulas or shorthand. This is what the graph shows."
                 },
                 "kind": {
                   "type": "string",
@@ -642,10 +639,9 @@
                 },
                 "summary": {
                   "type": "string",
-                  "description": "One full sentence stating the claim this node stands for. Shown to the learner next to the label; write it for them."
+                  "description": "One full sentence stating the claim. Shown to the learner next to the label."
                 },
                 "depends_on": {
-                  "description": "Ids of the nodes this one is derived from. Empty for roots.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -697,7 +693,7 @@
     },
     {
       "name": "set_phase",
-      "description": "Announce which phase of the lesson you are in.",
+      "description": "Announce the lesson phase: probe, plan or teach.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -719,18 +715,16 @@
     },
     {
       "name": "explain_back",
-      "description": "Teach-back check: ask the learner to explain a node in their own words (2 to 5 sentences), or to say WHY a claim must be true. Write the rubric first: the 2 or 3 things a correct explanation must contain. Returns their explanation for you to grade. Use it at least once per lesson on the most important derived node, and whenever a pass was unsure. Blocks until they write.",
+      "description": "Teach-back: ask the learner to explain a node in their own words. Write the rubric first (what a correct explanation must contain). Returns their text for you to grade. In a browser-answered lesson this blocks until they write. In a lesson answered from the terminal (answer_in \"terminal\") this returns at once with the card as text: show it verbatim, end your turn, and when the learner replies pass their message to `answer`.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "prompt": {
-            "type": "string",
-            "description": "What to explain, e.g. \"Explain in your own words why the step size has to be below 2/L.\""
+            "type": "string"
           },
           "rubric": {
-            "type": "string",
-            "description": "The 2 or 3 things a correct explanation must contain. Not shown to the learner."
+            "type": "string"
           },
           "node_id": {
             "type": "string"
@@ -745,7 +739,7 @@
     },
     {
       "name": "remember",
-      "description": "Store one durable fact about this learner for future lessons: a strength, a gap, a preference (Socratic vs narrated), a background detail. One sentence. Use sparingly: 1 to 3 per lesson.",
+      "description": "Store one durable fact about this learner for future lessons (strength, gap, preference). One sentence; use sparingly.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -771,7 +765,7 @@
     },
     {
       "name": "set_preferences",
-      "description": "Update how this learner wants to be taught, for this and every future lesson: the language to write in, how Socratic (style), how long each step runs (pace), their background, how they learn in their words, and where to take examples from. Call it when the learner TELLS you how they want to be taught (\"en español por favor\", \"just explain it, stop quizzing me through every step\", \"I'm a musician, use music\"), passing only the fields they touched, in their words. Do not infer it from a single reaction; that is what `remember` is for. An empty string clears a field.",
+      "description": "Update how this learner wants to be taught, for this and every future lesson: the language to write in, how Socratic (style), how long each step runs (pace), their background, how they learn in their words, and where to take examples from. Call it when the learner TELLS you how they want to be taught (\"en español por favor\", \"just explain it, stop quizzing me through every step\", \"I'm a musician, use music\"), passing only the fields they touched, in their words. Do not infer it from a single reaction; that is what `remember` is for. An empty string clears a field. With no fields it returns the current preferences.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -807,6 +801,10 @@
           "examples": {
             "description": "Domains to draw examples and analogies from.",
             "type": "string"
+          },
+          "learner": {
+            "description": "A learner name or id. Default: the current lesson's learner.",
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -814,13 +812,13 @@
     },
     {
       "name": "read_material",
-      "description": "Read a range of the course material the learner attached (pages of a PDF, slides of a deck, parts of a document, files of a repository). Returns the text with a marker before each page, slide or file. For a repository pass `path` to read one file. Read the relevant range before planning and before teaching a node that maps to it. About ten pages per call. Only useful when the lesson has material (listed in your instructions, or announced in a tool result).",
+      "description": "Read a range of the course material attached to this lesson: pages of a PDF, slides of a deck, parts of a document, or files of a repository (pass `path` for one file). About ten per call; the text carries a marker before each page, slide or file. Read before planning and before teaching a node that maps to it.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "name": {
-            "description": "Which material, by name (or part of it). Optional when only one is attached.",
+            "description": "Which material, by name or part of it. Optional when only one is attached.",
             "type": "string"
           },
           "path": {
@@ -834,7 +832,7 @@
             "maximum": 9007199254740991
           },
           "to": {
-            "description": "Last page, slide or file, inclusive. Default: from + 9 (or the one file, with path).",
+            "description": "Last page, slide or file, inclusive. Default from + 9.",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
@@ -845,17 +843,15 @@
     },
     {
       "name": "search_material",
-      "description": "Find where something is covered in the attached course material. Returns the best-matching pages, slides or files with a snippet each. Use it to locate a definition, an example, a formula or a function before you read the range around it. Only useful when the lesson has material.",
+      "description": "Find where something is covered in the attached course material. Returns the best-matching pages, slides or files with a snippet each.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "query": {
-            "type": "string",
-            "description": "A few words: the term, symbol or example you are looking for."
+            "type": "string"
           },
           "name": {
-            "description": "Restrict to one file. Default: all attached material.",
             "type": "string"
           },
           "limit": {
@@ -872,7 +868,7 @@
     },
     {
       "name": "search_library",
-      "description": "Search the learner's library: the articles, videos, books, papers, courses and notes they keep across lessons (listed in your instructions when there are any). Matches titles, tags, notes and the fetched text. Returns entries with a snippet and the part it was found in. Search it before you plan, and when the learner asks for something to read or watch.",
+      "description": "Search the learner's library: the articles, videos, books, papers, courses and notes they keep across lessons (start_lesson returns the catalog under `library` when there is one). Matches titles, tags, notes and the fetched text; returns entries with a snippet and the part it was found in. Search it before you plan, and when the learner asks for something to read or watch.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -882,7 +878,6 @@
             "description": "A few words: the topic, a term, an author. Empty lists the shelf."
           },
           "kind": {
-            "description": "Restrict to one kind.",
             "type": "string",
             "enum": [
               "article",
@@ -894,7 +889,6 @@
             ]
           },
           "tag": {
-            "description": "Restrict to one tag.",
             "type": "string"
           },
           "limit": {
@@ -911,27 +905,25 @@
     },
     {
       "name": "read_resource",
-      "description": "Read a range of parts of one library entry (an article's body, a paper's PDF, a video's description). About ten parts per call, with a marker before each. Pass the entry's id (from the catalog or a search hit) or its title. An entry with nothing fetched returns its URL and note; fetch the URL yourself then.",
+      "description": "Read a range of parts of one library entry (an article's body, a paper's PDF, a video's description), about ten parts per call with a marker before each. Pass the entry id (from the catalog or a search hit) or its title. An entry with nothing fetched returns its URL and the learner's note; read the URL yourself then.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "id": {
-            "description": "The entry id, or the first characters of it.",
+            "description": "The entry id, or its first characters.",
             "type": "string"
           },
           "title": {
-            "description": "Or the entry title (or part of it).",
+            "description": "Or the title (or part of it).",
             "type": "string"
           },
           "from": {
-            "description": "First part, 1-based. Default 1.",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
           },
           "to": {
-            "description": "Last part, inclusive. Default from + 9.",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
@@ -942,29 +934,26 @@
     },
     {
       "name": "suggest_resource",
-      "description": "Point the learner at one entry of their library, as a card in the lesson: which entry, why it is worth their time now, and where to look (a chapter, a section, a timestamp). Use it when a node locks and the entry deepens it, when the learner wants more, or when a source explains a step better than chat can. One at a time, only when it earns its place. Only entries in the library or ones you just saved with add_resource.",
+      "description": "Point the learner at one entry of their library as a card in the companion: which entry, why it is worth their time now, and where to look (a chapter, a section, a timestamp). Use it when a node locks and the entry deepens it, when the learner wants more, or when a source explains a step better than chat can. One at a time, only when it earns its place; only entries in the library or ones you just saved.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "id": {
-            "description": "The entry id, or the first characters of it.",
             "type": "string"
           },
           "title": {
-            "description": "Or the entry title (or part of it).",
             "type": "string"
           },
           "why": {
             "type": "string",
-            "description": "One or two sentences, to the learner: what this gives them that the lesson did not."
+            "description": "One or two sentences, to the learner."
           },
           "where": {
-            "description": "Where to look: \"chapter 3\", \"from 12:40\", \"the section on invariants\".",
+            "description": "\"chapter 3\", \"from 12:40\", \"the section on invariants\".",
             "type": "string"
           },
           "node_id": {
-            "description": "The plan node it deepens, if any.",
             "type": "string"
           }
         },
@@ -976,17 +965,15 @@
     },
     {
       "name": "add_resource",
-      "description": "Save a source to the learner's library for later: a URL you found with a web search or read (the page is fetched and its text kept), with a one-sentence note on why and a few tags. Sparingly: one or two per lesson, and only sources you actually read. A URL already on the shelf is not duplicated; your note and tags are merged in.",
+      "description": "Save a source to the learner's library: a URL you found with a web search or read (the server fetches it and keeps its text), with a one-sentence note on why and a few tags. Sparingly: one or two per lesson, only sources you actually read. A URL already on the shelf is not duplicated; the note and tags are merged in.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "url": {
-            "type": "string",
-            "description": "The page, video, paper or book to save."
+            "type": "string"
           },
           "title": {
-            "description": "Override the fetched title.",
             "type": "string"
           },
           "kind": {
@@ -1006,10 +993,9 @@
           },
           "note": {
             "type": "string",
-            "description": "One sentence, to the learner: why this is worth keeping."
+            "description": "Why this is worth keeping, to the learner."
           },
           "tags": {
-            "description": "A few lowercase tags, e.g. [\"calculus\", \"visual\"].",
             "maxItems": 8,
             "type": "array",
             "items": {
