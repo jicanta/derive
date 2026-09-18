@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-07-PLAN.md
-last_updated: "2026-09-18T12:58:50.132Z"
+stopped_at: Completed 01-08-PLAN.md
+last_updated: "2026-09-18T13:19:03.560Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 01 execution resumed (wave continue)
-state_head: 3be5f60dcd78336054cf743477274da07e937a21
+state_head: 0891e9d66eeda09c2b3c415d102110ca434f74ea
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 ## Current Position
 
 Phase: 01 (Foundation) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 Status: Ready to execute
 Last activity: 2026-09-18 — Phase 01 execution resumed (wave continue)
 
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P05 | 17 min | 3 tasks | 4 files |
 | Phase 01 P06 | 25 min | 3 tasks | 11 files |
 | Phase 01 P07 | 18 min | 3 tasks | 17 files |
+| Phase 01 P08 | 52 min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,12 @@ Recent decisions affecting current work:
 - [Phase 01]: Per D-09 the token is injected into the served index.html and read from the file by the MCP server, the plugin hook and the Vite dev proxy; no endpoint hands it out, and the stream route is the only place it may ride in the query string because EventSource cannot set a header
 - [Phase 01]: Per D-12 DERIVE_HOST past loopback is an explicit opt-in that prints one loud startup warning and weakens no check; DERIVE_ORIGINS extends the browser allowlist
 - [Phase 01]: VERSION is read once from server/package.json in server/src/config.ts and replaces five literals; root and server manifests now match plugin.json at 0.4.0, and @anthropic-ai/claude-agent-sdk is pinned to ^0.3.261 with the resolved version unchanged
+- [Phase 01]: Per D-11 one exact-match redact() chokepoint covers every egress (emit, emitUpdate, checkpoint, emitEphemeral, renderMarkdown); the key-shaped pattern backstop is confined to errors and logs, and a test proves a key-shaped teaching example reaches the Obsidian vault byte-intact
+- [Phase 01]: A registered secret must be at least 16 characters and empty, blank or short values are a silent no-op, because a tiny registered value would turn redaction into a text shredder that mangles lesson prose invisibly
+- [Phase 01]: Redaction lives in events.ts at the fan-out rather than at each emit() caller, so the database, the SSE stream and the vault mirror all see the same already-clean payload and no future writer has to remember the rule
+- [Phase 01]: Per D-10 assertPublicHost resolves the host and judges every answered address (loopback, unspecified, link-local including the metadata address, RFC-1918, CGNAT, multicast and reserved, ::1, fc00::/7, fe80::/10 and IPv4-mapped forms); library get() became fetchPublic(), a manual five-hop redirect loop that re-checks every hop
+- [Phase 01]: Per D-10 repo import refuses / and ~ as roots, denies credentials, *.pem, *.key, id_*, .netrc, .npmrc, auth.json and .env* in both the walker and the collector, clones over https only with the check before the spawn, and caps and times out the GitHub tarball
+- [Phase 01]: The human half of FOUND-04, one real lesson through the Claude Code plugin and one through the Codex skills, is recorded in 01-08-SUMMARY.md for the end-of-phase UAT harvest and was not performed in the plan
 
 ### Pending Todos
 
@@ -117,6 +124,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-18T12:58:37.474Z
-Stopped at: Completed 01-07-PLAN.md
+Last session: 2026-09-18T13:18:03.208Z
+Stopped at: Completed 01-08-PLAN.md
 Resume file: None
