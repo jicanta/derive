@@ -13,6 +13,7 @@
  *
  * It imports no SDK and performs no I/O beyond the sink it is handed.
  */
+import { type UsageInput } from '../db.js';
 import { type Driver, type EventSink, type TurnContext } from '../driver.js';
 
 /** One thing a driver does. The union covers the sink calls a real driver makes, and nothing else. */
@@ -27,6 +28,8 @@ export type FakeStep =
   | { kind: 'status'; text: string }
   /** The provider's conversation id, so the next turn resumes. */
   | { kind: 'session'; id: string }
+  /** What one model request cost, as a real driver reports it once per request. */
+  | { kind: 'usage'; row: UsageInput }
   /** The turn's result. */
   | { kind: 'end'; payload: Record<string, unknown> };
 
@@ -70,6 +73,9 @@ export const fakeDriver: Driver = {
           break;
         case 'session':
           sink.setSessionId(step.id);
+          break;
+        case 'usage':
+          sink.usage(step.row);
           break;
         case 'end':
           sink.endTurn(step.payload);

@@ -18,6 +18,7 @@ import {
   buildReviewGraph,
   buildWarmup,
   closeOpenTurns,
+  closeUsage,
   createLearner,
   createLesson,
   DEFAULT_LEARNER_ID,
@@ -815,7 +816,13 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         const h = held.get(id);
         const payload = { ok: true, source: lesson.driver ?? 'claude-code', held: h && !h.settled ? h.id : null };
         const turn = lastTurn(id);
-        if (turn) finishTurn(turn.id, turnStatusOf(payload));
+        if (turn) {
+          finishTurn(turn.id, turnStatusOf(payload));
+          // The terminal ran the model; nothing about the requests it made
+          // reaches this process. The turn is closed with an honest blank —
+          // null counts, cost_source 'unknown' — rather than a guess.
+          closeUsage(turn.id);
+        }
         emit(id, 'turn_end', payload);
         return c.json({ ok: true });
       }

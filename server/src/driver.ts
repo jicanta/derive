@@ -12,7 +12,8 @@
  *
  * The sink is deliberately no wider than `server/src/events.ts` already is —
  * emit, emitUpdate, checkpoint, emitEphemeral — plus the session-id write a
- * resumable driver needs and one `endTurn`. `endTurn` is idempotent and the
+ * resumable driver needs, the usage report that keeps token counts out of the
+ * event stream, and one `endTurn`. `endTurn` is idempotent and the
  * guard lives here rather than once per driver, so a turn ends exactly once
  * however many times its driver says so; a driver that reports nothing at all
  * still ends its turn, because `runTurn` in `server/src/agent.ts` closes it
@@ -24,7 +25,7 @@
  * arrives through the HTTP action route and the mirrors, never through a
  * driver. Forcing it through `runTurn` would invert that relationship.
  */
-import { finishTurn, setSessionId, turnStatusOf, type StoredEvent } from './db.js';
+import { closeUsage, finishTurn, recordUsage, setSessionId, turnStatusOf, type StoredEvent, type UsageInput } from './db.js';
 import { checkpoint, emit, emitEphemeral, emitUpdate } from './events.js';
 
 /** A turn in flight, as the lesson's bookkeeping holds it: the one thing a driver must let the learner do is stop. */
@@ -63,6 +64,18 @@ export type EventSink = {
   emitEphemeral: (type: string, payload: unknown) => void;
   /** Record the provider's conversation id so the next turn resumes it. */
   setSessionId: (id: string) => void;
+  /**
+   * Report what one model request cost: the raw counts the provider gave, the
+   * model it ran on and where the cost figure came from. Called once per
+   * request, so a turn that makes several produces several rows.
+   *
+   * It is a sink method and not an event on purpose. Usage is accounting, not
+   * narrative: an event would put a token count in the lesson's replayable log,
+   * in the browser's reducer and in the learner's Obsidian notes, none of which
+   * is the learner's record of what they know. Report only what the provider
+   * actually said — a count it did not report is left out, never estimated.
+   */
+  usage: (row: UsageInput) => void;
   /** End the turn. Idempotent: the first call wins and every later one is ignored. */
   endTurn: (payload: Record<string, unknown>) => void;
 };
@@ -78,9 +91,10 @@ export type Driver = {
  * `endTurn` guard it carries is what makes "exactly one turn_end" true no
  * matter how many times the driver and the bookkeeping around it both try.
  *
- * `turnId` is the row this turn was opened as. The guard closes it before the
- * event goes out, so the turn's row and the lesson's narrative say the same
- * thing about how it ended, and neither can be written twice.
+ * `turnId` is the row this turn was opened as: what the guard closes before the
+ * event goes out — so the turn's row and the lesson's narrative say the same
+ * thing about how it ended, and neither can be written twice — and what every
+ * usage report is filed under.
  */
 export function sinkFor(lessonId: string, turnId: string): EventSink {
   let ended = false;
@@ -90,10 +104,15 @@ export function sinkFor(lessonId: string, turnId: string): EventSink {
     checkpoint: (seq, payload) => checkpoint(lessonId, seq, payload),
     emitEphemeral: (type, payload) => emitEphemeral(lessonId, type, payload),
     setSessionId: (id) => setSessionId(lessonId, id),
+    usage: (row) => recordUsage(turnId, row),
     endTurn: (payload) => {
       if (ended) return;
       ended = true;
       finishTurn(turnId, turnStatusOf(payload));
+      // D-16's completeness rule, in the one place every driver passes through:
+      // a driver that reported nothing still leaves a row, with nulls and
+      // 'unknown', rather than vanishing from the ledger.
+      closeUsage(turnId);
       emit(lessonId, 'turn_end', payload);
     },
   };

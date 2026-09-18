@@ -117,6 +117,21 @@ export const codexDriver: Driver = {
             break;
           }
           case 'turn.completed':
+            // What the turn cost, as the ledger's own row rather than as part
+            // of the event: Codex reports counts but no price, because this
+            // runs on the learner's ChatGPT login and not on metered billing.
+            if (ev.usage) {
+              sink.usage({
+                model: ctx.model ?? null,
+                input_tokens: ev.usage.input_tokens,
+                output_tokens: ev.usage.output_tokens,
+                cache_read_tokens: ev.usage.cached_input_tokens,
+                cache_write_tokens: ev.usage.cache_write_input_tokens,
+                reasoning_tokens: ev.usage.reasoning_output_tokens,
+                cost_usd: null,
+                cost_source: 'subscription',
+              });
+            }
             sink.endTurn({ ok: true, cost_usd: null, duration_ms: Date.now() - started, verified, tokens: ev.usage });
             break;
           case 'turn.failed':

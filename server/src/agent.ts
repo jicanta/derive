@@ -92,6 +92,54 @@ function buildTools(lessonId: string) {
 
 // ---------- the claude driver ----------
 
+/** A number the provider actually reported, or null. Anything else — undefined, NaN — is a count nobody gave us, and stays blank. */
+const reported = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * What the provider reported for this result, as one usage row per model it
+ * ran on.
+ *
+ * `modelUsage` is the SDK's own per-model breakdown and is what COST-01 asks
+ * for: the counts together with the model id in effect, which a turn that
+ * retried on a second model would otherwise lose. Where it is missing, the
+ * turn-level `usage` is written instead against the model the turn asked for.
+ * Fields the table has no column for are dropped; columns nothing was reported
+ * for stay null. Nothing here is ever derived from the transcript.
+ */
+function reportUsage(sink: EventSink, msg: Extract<SDKMessage, { type: 'result' }>, asked: string | undefined) {
+  const perModel = msg.modelUsage && typeof msg.modelUsage === 'object' ? Object.entries(msg.modelUsage) : [];
+  if (perModel.length) {
+    for (const [model, u] of perModel) {
+      sink.usage({
+        model,
+        input_tokens: reported(u.inputTokens),
+        output_tokens: reported(u.outputTokens),
+        cache_read_tokens: reported(u.cacheReadInputTokens),
+        cache_write_tokens: reported(u.cacheCreationInputTokens),
+        reasoning_tokens: reported(u.thinkingTokens),
+        cost_usd: reported(u.costUSD),
+        // The app path runs on the learner's Claude Code login, not on metered
+        // billing, so a figure the SDK did not put a price on is subscription
+        // usage rather than a cost of zero.
+        cost_source: reported(u.costUSD) === null ? 'subscription' : 'provider',
+      });
+    }
+    return;
+  }
+  const u = msg.usage;
+  if (!u) return;
+  sink.usage({
+    model: asked ?? null,
+    input_tokens: reported(u.input_tokens),
+    output_tokens: reported(u.output_tokens),
+    cache_read_tokens: reported(u.cache_read_input_tokens),
+    cache_write_tokens: reported(u.cache_creation_input_tokens),
+    reasoning_tokens: null,
+    cost_usd: reported(msg.total_cost_usd),
+    cost_source: reported(msg.total_cost_usd) === null ? 'subscription' : 'provider',
+  });
+}
+
 /**
  * One lesson turn through the Claude Agent SDK, on the learner's Claude Code
  * login. The tutor's tools are registered in-process, so quiz, ask, set_plan
@@ -183,6 +231,7 @@ export const claudeDriver: Driver = {
           }
           case 'result': {
             flushBlock();
+            reportUsage(sink, msg, ctx.model);
             if (ctx.isStopping()) {
               sink.endTurn({ ok: true, interrupted: true });
             } else if (msg.subtype === 'success') {

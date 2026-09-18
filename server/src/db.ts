@@ -166,6 +166,14 @@ const q = {
   lastTurn: db.prepare('SELECT * FROM turns WHERE lesson_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1'),
   openTurns: db.prepare("SELECT * FROM turns WHERE status = 'running' ORDER BY started_at, rowid"),
   closeOpenTurns: db.prepare("UPDATE turns SET ended_at = ?, status = ? WHERE status = 'running'"),
+  insertUsage: db.prepare(`
+    INSERT INTO usage (turn_id, lesson_id, learner_id, driver, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost_source, cost_usd, ts)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `),
+  usageOfTurn: db.prepare('SELECT * FROM usage WHERE turn_id = ? ORDER BY id'),
+  usageOfLesson: db.prepare('SELECT * FROM usage WHERE lesson_id = ? ORDER BY id'),
+  usageOfLearner: db.prepare('SELECT * FROM usage WHERE learner_id = ? ORDER BY id'),
+  allUsage: db.prepare('SELECT * FROM usage ORDER BY id'),
   upsertNode: db.prepare(`
     INSERT INTO nodes (lesson_id, node_id, label, kind, summary, depends_on)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -496,6 +504,124 @@ export function closeOpenTurns(status: TurnStatus): TurnRow[] {
     if (rows.length) q.closeOpenTurns.run(Date.now(), status);
     return rows;
   });
+}
+
+// ---------- usage ----------
+
+/**
+ * Where a usage row's figures came from. 'provider': the provider reported the
+ * cost itself. 'table': it was priced from a versioned pricing table.
+ * 'subscription': the turn ran on a login rather than metered billing, so there
+ * is no per-request price to report. 'unknown': nothing was reported at all,
+ * which is what a turn run in the learner's own terminal looks like.
+ */
+export type CostSource = 'provider' | 'table' | 'subscription' | 'unknown';
+export const COST_SOURCES: CostSource[] = ['provider', 'table', 'subscription', 'unknown'];
+
+/**
+ * One model request: its raw counts, the model it actually ran on at that
+ * moment, and where the cost figure came from.
+ *
+ * The grain is the request, not the turn, because one turn can make many
+ * requests and can change model partway; per-turn and per-lesson totals are a
+ * SUM away, and the reverse is a migration nobody can do. The lesson, learner,
+ * driver and model are carried here rather than joined for, so a reader needs
+ * one table. Every token column is nullable: a count nobody reported is null,
+ * never a zero and never an estimate.
+ */
+export type UsageRow = {
+  id: number;
+  turn_id: string;
+  lesson_id: string;
+  learner_id: string;
+  driver: string;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  reasoning_tokens: number | null;
+  cost_source: CostSource;
+  cost_usd: number | null;
+  ts: number;
+};
+
+/** What a caller reports about one request. The lesson, learner and driver are deliberately absent; recordUsage takes those from the turn. */
+export type UsageInput = {
+  /** The model this request ran on. Left out: whatever the turn was opened with. */
+  model?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_tokens?: number | null;
+  cache_write_tokens?: number | null;
+  reasoning_tokens?: number | null;
+  cost_source: CostSource;
+  cost_usd?: number | null;
+};
+
+const count = (v: number | null | undefined): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * Record one model request against a turn.
+ *
+ * This is the only way a usage row is ever written, and it is the only reason
+ * the denormalised `lesson_id`, `learner_id` and `driver` columns can be
+ * trusted: they are read off the turn here, never taken from the caller, so no
+ * later phase can file a request under a lesson or a learner its turn does not
+ * belong to. Keep it that way — a second write path is how those columns start
+ * disagreeing with `turns`.
+ *
+ * A field the caller leaves out is stored as null. Never fill one in by
+ * estimating from transcript length, character count or any other proxy: a
+ * guess rendered as data is worse than an honest blank.
+ */
+export function recordUsage(turnId: string, row: UsageInput): UsageRow {
+  const turn = getTurn(turnId);
+  if (!turn) throw new Error('turn not found');
+  const ts = Date.now();
+  const model = row.model === undefined ? turn.model : row.model;
+  q.insertUsage.run(
+    turn.id,
+    turn.lesson_id,
+    turn.learner_id,
+    turn.driver,
+    model,
+    count(row.input_tokens),
+    count(row.output_tokens),
+    count(row.cache_read_tokens),
+    count(row.cache_write_tokens),
+    count(row.reasoning_tokens),
+    row.cost_source,
+    count(row.cost_usd),
+    ts,
+  );
+  return listUsage({ turn: turn.id }).at(-1)!;
+}
+
+/**
+ * Usage rows, always in ascending id — insertion order, and stable across
+ * runs, so the requests of one turn read back in the order they were made.
+ */
+export function listUsage(filter: { turn?: string; lesson?: string; learner?: string } = {}): UsageRow[] {
+  if (filter.turn) return q.usageOfTurn.all(filter.turn) as UsageRow[];
+  if (filter.lesson) return q.usageOfLesson.all(filter.lesson) as UsageRow[];
+  if (filter.learner) return q.usageOfLearner.all(filter.learner) as UsageRow[];
+  return q.allUsage.all() as UsageRow[];
+}
+
+/**
+ * Every turn gets a usage row, whichever driver ran it.
+ *
+ * A turn run by the Claude Code plugin or the Codex terminal runs the model in
+ * the learner's own terminal and reports nothing back, so it is closed with one
+ * row of nulls and 'unknown'. That is what lets a reader say "six lessons on
+ * the Claude Code plugin, tokens not reported" instead of quietly leaving them
+ * out, and it is why turn counts reconcile across every view. Called once where
+ * a turn ends; a turn that already reported is left alone.
+ */
+export function closeUsage(turnId: string) {
+  if (listUsage({ turn: turnId }).length) return;
+  recordUsage(turnId, { cost_source: 'unknown' });
 }
 
 export type GraphNodeInput = {

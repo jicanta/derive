@@ -196,6 +196,37 @@ export const MIGRATIONS: Migration[] = [
       backfillTurns(db);
     },
   },
+  {
+    version: 3,
+    name: 'usage',
+    up(db) {
+      // One row per model request. Every token column is nullable on purpose:
+      // a turn run in the learner's own terminal reports no counts at all, and
+      // a blank that says so is the honest record. Nothing here is ever filled
+      // in by estimating from transcript length or any other proxy.
+      db.exec(`
+        CREATE TABLE usage (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          turn_id TEXT NOT NULL,
+          lesson_id TEXT NOT NULL,
+          learner_id TEXT NOT NULL,
+          driver TEXT NOT NULL,
+          model TEXT,
+          input_tokens INTEGER,
+          output_tokens INTEGER,
+          cache_read_tokens INTEGER,
+          cache_write_tokens INTEGER,
+          reasoning_tokens INTEGER,
+          cost_source TEXT NOT NULL,
+          cost_usd REAL,
+          ts INTEGER NOT NULL
+        );
+        CREATE INDEX usage_turn ON usage (turn_id);
+        CREATE INDEX usage_learner ON usage (learner_id, ts);
+        CREATE INDEX usage_lesson ON usage (lesson_id);
+      `);
+    },
+  },
 ];
 
 /**
