@@ -25,6 +25,7 @@
  * right there — the `IF NOT EXISTS` idiom would hide the very mistake the
  * version number exists to catch.
  */
+import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 
 /** The schema as `server/src/db.ts` wrote it before this runner existed. Byte-identical on purpose; see the note above. */
@@ -185,17 +186,58 @@ function currentVersion(db: DatabaseSync): number {
   return row?.user_version ?? 0;
 }
 
+/** Where this handle's `main` database lives on disk, or undefined when it is in memory. */
+function fileOf(db: DatabaseSync): string | undefined {
+  const rows = db.prepare('PRAGMA database_list').all() as { name: string; file: string }[];
+  const main = rows.find((r) => r.name === 'main');
+  return main?.file || undefined;
+}
+
 /**
- * Bring a database up to `LATEST_VERSION` and return the version it ends on.
+ * Copy the database beside itself before anything is applied to it, named for
+ * the version being left behind (`derive.db.bak-v0`).
+ *
+ * `VACUUM INTO` rather than a filesystem copy: the database runs in WAL mode,
+ * so copying the `.db` file alone can miss committed pages still sitting in
+ * the write-ahead log, and a backup that quietly loses the last lesson is
+ * worse than none. An existing snapshot of the same version is left alone —
+ * the older one is the one closer to the learner's last known-good state.
+ * Returns the path written, or undefined when nothing was written.
+ */
+function snapshot(db: DatabaseSync, from: number): string | undefined {
+  const file = fileOf(db);
+  if (!file) return undefined;
+  // A database with nothing in it yet was created by this very process; there
+  // is nothing to lose, so nothing to back up.
+  const { n } = db.prepare('SELECT count(*) AS n FROM sqlite_master').get() as { n: number };
+  if (n === 0) return undefined;
+  const path = `${file}.bak-v${from}`;
+  if (existsSync(path)) return path;
+  db.prepare('VACUUM INTO ?').run(path);
+  return path;
+}
+
+/**
+ * Bring a database up to the highest version in `migrations` and return the
+ * version it ends on.
  *
  * Runs at import time from `server/src/db.ts`, before any statement is
  * prepared: every consumer of that module assumes the schema exists the moment
- * it is imported. A database already at the highest version is left untouched.
+ * it is imported. A database already at the highest version is left untouched
+ * and no snapshot is written. A failure rolls its migration back and throws,
+ * which at import time means the server refuses to start — the right failure
+ * for a local-first app holding the learner's only record, where serving on a
+ * schema nobody can name is worse than not serving at all.
+ *
+ * `migrations` is a seam for the tests, which need a list that fails on
+ * purpose; everything else calls this with one argument.
  */
-export function runMigrations(db: DatabaseSync): number {
+export function runMigrations(db: DatabaseSync, migrations: Migration[] = MIGRATIONS): number {
   const from = currentVersion(db);
-  const pending = MIGRATIONS.filter((m) => m.version > from);
+  const pending = migrations.filter((m) => m.version > from);
   if (pending.length === 0) return from;
+
+  const backup = snapshot(db, from);
 
   for (const m of pending) {
     // PRAGMA takes no bound parameter, so the number is interpolated. It comes
@@ -204,9 +246,19 @@ export function runMigrations(db: DatabaseSync): number {
     const version = m.version;
     if (!Number.isInteger(version) || version < 0) throw new Error(`migration ${m.name} has an invalid version`);
     db.exec('BEGIN');
-    m.up(db);
-    db.exec(`PRAGMA user_version = ${version}`);
-    db.exec('COMMIT');
+    try {
+      m.up(db);
+      db.exec(`PRAGMA user_version = ${version}`);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`[migrate] migration ${version} (${m.name}) failed and was rolled back: ${message}`);
+      throw new Error(
+        `migration ${version} (${m.name}) failed and was rolled back: ${message}. the database is still on version ${from}` +
+          (backup ? `; a copy of it as it was is at ${backup}` : ''),
+      );
+    }
   }
   return currentVersion(db);
 }

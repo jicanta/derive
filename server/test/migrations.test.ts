@@ -8,13 +8,13 @@
  * only record.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, describe, it } from 'node:test';
 
-import { LATEST_VERSION, MIGRATIONS, runMigrations } from '../src/migrations.js';
+import { LATEST_VERSION, MIGRATIONS, runMigrations, type Migration } from '../src/migrations.js';
 
 const dirs: string[] = [];
 const scratch = () => {
@@ -253,5 +253,98 @@ describe('the migration runner', () => {
     migrate(old);
     assert.deepEqual(schemaOf(old), before);
     assert.equal(userVersion(old), LATEST_VERSION);
+  });
+});
+
+describe('a migration that fails', () => {
+  /** The real list plus one that throws once it is inside its transaction. */
+  const withAFailure = (): Migration[] => [
+    ...MIGRATIONS,
+    {
+      version: LATEST_VERSION + 1,
+      name: 'deliberately broken',
+      up(db) {
+        db.exec('CREATE TABLE half_built (id TEXT PRIMARY KEY)');
+        db.exec('THIS IS NOT SQL');
+      },
+    },
+  ];
+
+  /** Run the runner with console.error captured, returning the thrown error and every line it logged. */
+  function failing(file: string) {
+    const db = new DatabaseSync(file);
+    db.exec('PRAGMA journal_mode = WAL');
+    const logged: string[] = [];
+    const real = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(' '));
+    let error: Error | undefined;
+    try {
+      runMigrations(db, withAFailure());
+    } catch (e) {
+      error = e as Error;
+    } finally {
+      console.error = real;
+      db.close();
+    }
+    return { error, logged };
+  }
+
+  it('rolls back, leaving the version and the half-built table where they were', () => {
+    const old = legacyDatabase(scratch());
+    migrate(old);
+    const before = schemaOf(old);
+
+    const { error } = failing(old);
+    assert.ok(error, 'the runner must throw');
+    assert.equal(userVersion(old), LATEST_VERSION);
+    assert.deepEqual(schemaOf(old), before);
+    assert.equal(before.objects.some((o) => o.name === 'half_built'), false);
+  });
+
+  it('says which migration failed, in a lowercase sentence, and logs one [migrate] line', () => {
+    const old = legacyDatabase(scratch());
+    migrate(old);
+
+    const { error, logged } = failing(old);
+    const message = error?.message ?? '';
+    assert.match(message, new RegExp(`migration ${LATEST_VERSION + 1} \\(deliberately broken\\)`));
+    assert.equal(message[0], message[0].toLowerCase());
+    assert.equal(logged.length, 1);
+    assert.equal(logged[0].startsWith('[migrate] '), true);
+    assert.equal(logged[0].split('\n').length, 1);
+  });
+});
+
+describe('the snapshot taken before migrating', () => {
+  const backups = (dir: string) => readdirSync(dir).filter((f) => f.startsWith('derive.db.bak-'));
+
+  it('is written for an existing database and carries the schema it had', () => {
+    const dir = scratch();
+    const old = legacyDatabase(dir);
+    populate(old);
+    const was = schemaOf(old);
+    migrate(old);
+
+    assert.deepEqual(backups(dir), ['derive.db.bak-v0']);
+    const backup = join(dir, 'derive.db.bak-v0');
+    assert.equal(userVersion(backup), 0);
+    assert.deepEqual(schemaOf(backup), was);
+    const db = new DatabaseSync(backup);
+    assert.equal((db.prepare('SELECT count(*) AS n FROM lessons').get() as { n: number }).n, 1);
+    db.close();
+  });
+
+  it('is not written for a database created fresh', () => {
+    const dir = scratch();
+    migrate(join(dir, 'derive.db'));
+    assert.deepEqual(backups(dir), []);
+  });
+
+  it('is written once, however many times the runner runs', () => {
+    const dir = scratch();
+    const old = legacyDatabase(dir);
+    migrate(old);
+    migrate(old);
+    assert.deepEqual(backups(dir), ['derive.db.bak-v0']);
   });
 });
