@@ -12,6 +12,7 @@ import { materialsSection } from './materials.js';
 import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
 import { systemPrompt } from './prompt.js';
+import { safeMessage } from './secrets.js';
 import { DERIVE_TOOL_NAMES, TOOL_LABELS, descriptionFor, shapeFor, toolsFor } from './tools.js';
 
 export { DERIVE_TOOL_NAMES } from './tools.js';
@@ -248,7 +249,7 @@ export const claudeDriver: Driver = {
       }
     } catch (err) {
       flushBlock();
-      sink.endTurn({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      sink.endTurn({ ok: false, error: safeMessage(err) });
     } finally {
       // The stream can end without a result (Stop, the CLI exiting). The
       // learner still needs the prose kept and the turn marked finished.
@@ -295,7 +296,7 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   try {
     await driver.runTurn(ctx, sink);
   } catch (err) {
-    sink.endTurn({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    sink.endTurn({ ok: false, error: safeMessage(err) });
     throw err;
   } finally {
     // A driver that reported nothing still owes the learner a finished turn.

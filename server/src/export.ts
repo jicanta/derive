@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { VAULT_DIR } from './config.js';
 import { DEFAULT_LEARNER_ID, getLearner, getLesson, listEvents, listMaterials, listNodes, type Lesson, type StoredEvent } from './db.js';
+import { redact, safeMessage } from './secrets.js';
 
 const LETTERS = 'ABCDEFG';
 
@@ -66,6 +67,12 @@ function inlineSvgFences(md: string): string {
   });
 }
 
+/**
+ * The lesson as one Obsidian note. The last redaction before the learner's
+ * durable record: exact match only, so a registered secret cannot reach the
+ * vault and nothing else is touched — a lesson that teaches about API keys
+ * must survive here byte for byte.
+ */
 export function renderMarkdown(lesson: Lesson): string {
   const events = listEvents(lesson.id);
   const nodes = listNodes(lesson.id);
@@ -166,7 +173,7 @@ export function renderMarkdown(lesson: Lesson): string {
         break;
     }
   }
-  return out.join('\n');
+  return redact(out.join('\n'));
 }
 
 /** The first learner's notes sit in the vault folder itself; every other learner gets a folder named after them. */
@@ -206,7 +213,7 @@ export function mirrorToVault(lessonId: string, delayMs = 600) {
       try {
         exportToVault(lesson);
       } catch (e) {
-        console.error('[vault]', e instanceof Error ? e.message : e);
+        console.error('[vault]', safeMessage(e));
       }
     }, delayMs),
   );

@@ -171,3 +171,18 @@ describe('the Host check', () => {
     assert.equal((await raw('/api/lessons', { 'x-derive-token': token, host: `127.0.0.1:${port}` })).status, 200);
   });
 });
+
+describe('an error body that would have carried the token', () => {
+  it('says [redacted] instead', async () => {
+    // The repo importer echoes the path it was handed; hand it the token, and the message is the token.
+    const res = await fetch(`${base}/api/materials/repo`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-derive-token': token },
+      body: JSON.stringify({ source: token }),
+    });
+    assert.equal(res.status, 422);
+    const body = await res.text();
+    assert.ok(!body.includes(token), `the token reached an error body: ${body}`);
+    assert.ok(body.includes('[redacted]'), body);
+  });
+});

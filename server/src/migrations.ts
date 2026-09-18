@@ -28,6 +28,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
+import { redactErrors } from './secrets.js';
 
 /** The schema as `server/src/db.ts` wrote it before this runner existed. Byte-identical on purpose; see the note above. */
 const BASELINE_SCHEMA = `
@@ -370,7 +371,7 @@ export function runMigrations(db: DatabaseSync, migrations: Migration[] = MIGRAT
     } catch (e) {
       db.exec('ROLLBACK');
       const message = e instanceof Error ? e.message : String(e);
-      console.error(`[migrate] migration ${version} (${m.name}) failed and was rolled back: ${message}`);
+      console.error(`[migrate] migration ${version} (${m.name}) failed and was rolled back: ${redactErrors(message)}`);
       throw new Error(
         `migration ${version} (${m.name}) failed and was rolled back: ${message}. the database is still on version ${from}` +
           (backup ? `; a copy of it as it was is at ${backup}` : ''),

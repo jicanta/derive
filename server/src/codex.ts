@@ -18,6 +18,7 @@ import { Codex, type ThreadEvent, type ThreadItem } from '@openai/codex-sdk';
 import { codexBinary, mcpCommand } from './backend.js';
 import { DATA_DIR, PORT } from './config.js';
 import { type Active, type Driver, type EventSink, type TurnContext } from './driver.js';
+import { redactErrors, safeMessage } from './secrets.js';
 import { DERIVE_TOOL_NAMES, TOOL_LABELS } from './tools.js';
 
 /** The turn handle now belongs to the driver seam; re-exported here so no existing import breaks. */
@@ -112,7 +113,7 @@ export const codexDriver: Driver = {
               if (item.text.trim()) sink.emit('assistant', { id: item.id, text: item.text });
             } else if (item.type === 'error') {
               // Warnings ride along as error items (a missing model in the cache, a hook notice); they are not turn failures.
-              console.warn(`[codex] ${item.message}`);
+              console.warn(`[codex] ${redactErrors(item.message)}`);
             }
             break;
           }
@@ -146,7 +147,7 @@ export const codexDriver: Driver = {
       }
     } catch (err) {
       if (ctx.isStopping() || ac.signal.aborted) sink.endTurn({ ok: true, interrupted: true });
-      else sink.endTurn({ ok: false, error: friendly(err instanceof Error ? err.message : String(err)) });
+      else sink.endTurn({ ok: false, error: friendly(safeMessage(err)) });
     } finally {
       sink.endTurn({ ok: true, interrupted: true });
     }

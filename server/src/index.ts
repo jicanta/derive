@@ -56,6 +56,7 @@ import { ACCEPTED, describe, ingestMaterial, ingestRepo, materialsSection, MAX_F
 import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief } from './prompt.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
+import { registerSecret, safeMessage } from './secrets.js';
 import { shapeFor, toolsFor } from './tools.js';
 
 /**
@@ -100,6 +101,9 @@ function ensureToken(): string {
 /** This install's token. Deliberate module state: read once at boot, compared on every request, and never logged, emitted or returned. */
 const TOKEN = ensureToken();
 const TOKEN_BUF = Buffer.from(TOKEN);
+
+// Registered before a single route exists, so no request can be served while the value is still able to reach an error, a log line or a lesson note.
+registerSecret(TOKEN);
 
 /** The host names a request may address this server by: loopback in every spelling, plus the configured interface when the bind was widened. */
 const ALLOWED_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', ...(HOST_IS_LOOPBACK ? [] : [HOST.toLowerCase()])]);
@@ -202,7 +206,7 @@ app.post('/api/learners', async (c) => {
   try {
     return c.json(createLearner(String(body.name ?? '')), 201);
   } catch (e) {
-    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    return c.json({ error: safeMessage(e) }, 400);
   }
 });
 
@@ -215,7 +219,7 @@ app.patch('/api/learners/:id', async (c) => {
     if (body.prefs && typeof body.prefs === 'object') updateLearnerPrefs(id, body.prefs);
     return c.json(getLearner(id));
   } catch (e) {
-    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    return c.json({ error: safeMessage(e) }, 400);
   }
 });
 
@@ -227,7 +231,7 @@ app.delete('/api/learners/:id', async (c) => {
     deleteLearner(id);
     return c.json({ ok: true });
   } catch (e) {
-    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    return c.json({ error: safeMessage(e) }, 400);
   }
 });
 
@@ -258,7 +262,7 @@ app.post('/api/lessons', async (c) => {
   // Review before new work: the due nodes most likely forgotten come first, as copies whose lock reschedules the original.
   const warmup = buildWarmup(lesson.id, lesson.learner_id);
   if (warmup.length) emit(lesson.id, 'warmup', { nodes: warmup.map((n) => ({ id: n.review_id, label: n.label, topic: n.topic })) });
-  void runTurn(lesson.id, firstTurnPrompt(topic, materials.map(describe), warmup)).catch((e) => console.error('[turn]', e));
+  void runTurn(lesson.id, firstTurnPrompt(topic, materials.map(describe), warmup)).catch((e) => console.error('[turn]', safeMessage(e)));
   return c.json({ ...lesson, materials, warmup: warmup.length }, 201);
 });
 
@@ -328,7 +332,7 @@ app.post('/api/lessons/:id/message', async (c) => {
     addNotice(id, `The learner wrote while you were working: "${text}". Address it at your next chance.`);
     return c.json({ ok: true, note: 'queued for the tutor' });
   }
-  void runTurn(id, text, { echoUser: text }).catch((e) => console.error('[turn]', e));
+  void runTurn(id, text, { echoUser: text }).catch((e) => console.error('[turn]', safeMessage(e)));
   return c.json({ ok: true });
 });
 
@@ -390,7 +394,7 @@ function announceMaterials(lessonId: string, materials: MaterialRow[]) {
   if (!lesson || !materials.length) return;
   for (const m of materials) emit(lesson.id, 'material', materialEvent(m));
   const prompt = materialAttachedPrompt(materials.map(describe).join('; '));
-  if (lesson.mode === 'agent' && !isBusy(lesson.id)) void runTurn(lesson.id, prompt).catch((e) => console.error('[turn]', e));
+  if (lesson.mode === 'agent' && !isBusy(lesson.id)) void runTurn(lesson.id, prompt).catch((e) => console.error('[turn]', safeMessage(e)));
   else addNotice(lesson.id, prompt);
 }
 
@@ -404,7 +408,7 @@ app.post('/api/materials', async (c) => {
   try {
     body = await c.req.parseBody({ all: true });
   } catch (e) {
-    return c.json({ error: `could not read the upload: ${e instanceof Error ? e.message : String(e)}` }, 400);
+    return c.json({ error: `could not read the upload: ${safeMessage(e)}` }, 400);
   }
   const raw = body.files ?? body.file;
   const files = (Array.isArray(raw) ? raw : raw ? [raw] : []).filter((f): f is File => f instanceof File);
@@ -424,7 +428,7 @@ app.post('/api/materials', async (c) => {
     try {
       materials.push(await ingestMaterial(f.name, Buffer.from(await f.arrayBuffer()), lesson?.id ?? null));
     } catch (e) {
-      errors.push({ name: f.name, error: e instanceof Error ? e.message : String(e) });
+      errors.push({ name: f.name, error: safeMessage(e) });
     }
   }
   if (lesson) announceMaterials(lesson.id, materials);
@@ -449,7 +453,7 @@ app.post('/api/materials/repo', async (c) => {
     if (lesson) announceMaterials(lesson.id, [m]);
     return c.json({ materials: [m], errors: [] }, 201);
   } catch (e) {
-    return c.json({ error: e instanceof Error ? e.message : String(e) }, 422);
+    return c.json({ error: safeMessage(e) }, 422);
   }
 });
 
@@ -473,7 +477,7 @@ app.delete('/api/materials/:id', (c) => {
 
 // ---------- the library ----------
 
-const err = (c: Context, e: unknown, status: 400 | 404 | 422 | 500 = 400) => c.json({ error: e instanceof Error ? e.message : String(e) }, status);
+const err = (c: Context, e: unknown, status: 400 | 404 | 422 | 500 = 400) => c.json({ error: safeMessage(e) }, status);
 
 /** The learner's shelf, filtered by ?q= (title, tags, note, author), ?kind= and ?tag=. */
 app.get('/api/library', (c) => {
@@ -557,7 +561,7 @@ function startReview(learner: string, opts: { mode?: 'agent' | 'external'; answe
 app.post('/api/review', async (c) => {
   const started = startReview(learnerOf(c));
   if (!started) return c.json({ error: 'nothing due' }, 400);
-  void runTurn(started.lesson.id, reviewTurnPrompt(started.graph.due)).catch((e) => console.error('[turn]', e));
+  void runTurn(started.lesson.id, reviewTurnPrompt(started.graph.due)).catch((e) => console.error('[turn]', safeMessage(e)));
   return c.json(started.lesson, 201);
 });
 
@@ -593,7 +597,7 @@ app.patch('/api/preferences', async (c) => {
     const l = updateLearnerPrefs(id, patch);
     return c.json({ learner: l.name, preferences: l.prefs });
   } catch (e) {
-    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    return c.json({ error: safeMessage(e) }, 400);
   }
 });
 
@@ -908,7 +912,7 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         return c.json({ error: `unknown action ${action}` }, 400);
     }
   } catch (e) {
-    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    return c.json({ error: safeMessage(e) }, 500);
   }
 });
 
