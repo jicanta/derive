@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 3
+open_count: 5
 waived_count: 0
 fixed_count: 0
-total_count: 3
-last_updated: 2026-09-18T13:16:03.682Z
+total_count: 5
+last_updated: 2026-09-19T14:47:16.434Z
 ---
 
 # Broken Windows Ledger
@@ -18,6 +18,8 @@ last_updated: 2026-09-18T13:16:03.682Z
 | 1 | 01 | deviation | plugin/commands/learn.md |  | allowed-tools is rendered in registry declaration order rather than the committed hand-curated order; tool sets verified identical to b8f255ce | open |  | 2026-09-18T11:42:20.112Z |  |
 | 2 | 01 | deviation | server/src/agent.ts |  | buildTools read the registry off spec.description/spec.shape instead of descriptionFor/shapeFor; fixed in 646451c | open |  | 2026-09-18T11:58:40.950Z |  |
 | 3 | 01 | unrun-verify | server/src/library.ts |  | An ordinary public URL fetch through fetchPublic could not be exercised: the execution environment has no DNS or outbound network. Re-check during the phase UAT parity run. | open |  | 2026-09-18T13:16:03.682Z |  |
+| 4 | 01 | unrun-verify | .planning/phases/01-foundation/01-12-SUMMARY.md |  | HC-1 browser session-cookie smoke recorded but not performed (no automated test drives a real browser) | open |  | 2026-09-19T14:47:16.295Z |  |
+| 5 | 01 | unrun-verify | .planning/phases/01-foundation/01-12-SUMMARY.md |  | HC-2 plugin + Codex parity run (FOUND-04 human half) recorded but not performed; needs a real model and login on two terminals | open |  | 2026-09-19T14:47:16.434Z |  |
 
 ````json
 [
@@ -57,6 +59,32 @@ last_updated: 2026-09-18T13:16:03.682Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-18T13:16:03.682Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 4,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": ".planning/phases/01-foundation/01-12-SUMMARY.md",
+    "line": null,
+    "description": "HC-1 browser session-cookie smoke recorded but not performed (no automated test drives a real browser)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-19T14:47:16.295Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 5,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": ".planning/phases/01-foundation/01-12-SUMMARY.md",
+    "line": null,
+    "description": "HC-2 plugin + Codex parity run (FOUND-04 human half) recorded but not performed; needs a real model and login on two terminals",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-19T14:47:16.434Z",
     "resolved_at": null,
     "milestone": null
   }
