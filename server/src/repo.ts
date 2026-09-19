@@ -11,6 +11,8 @@ import { homedir } from 'node:os';
 import { basename, extname, join, parse, relative, resolve, sep } from 'node:path';
 import { gunzipSync } from 'fflate';
 import { DATA_DIR } from './config.js';
+// This import closes a ring: repo -> library -> materials -> repo. It resolves because nothing in the ring reads another module's bindings while the modules are evaluating -- library.ts uses partsOf/SEP/titleOf only inside function bodies, and materials.ts calls collectRepo only inside attachRepo. A second copy of assertPublicHost would avoid the ring and is exactly the wrong answer: two destination guards drift apart, and then one egress is weaker than the rest.
+import { assertPublicHost } from './library.js';
 
 export type RepoFile = { path: string; text: string };
 export type RepoSource = { name: string; files: RepoFile[]; skipped: number; ref?: string };
@@ -268,9 +270,10 @@ async function fromGitHub(owner: string, repo: string, ref?: string, subdir?: st
   return { name: `${owner}/${repo}${subdir ? `/${subdir.replace(/\/+$/, '')}` : ''}`, files, skipped, ref };
 }
 
-function fromGitClone(url: string): RepoSource {
-  // Before the process is spawned, not inside a try around it: git over ssh would hand the learner's own keys to whatever the URL names.
+async function fromGitClone(url: string): Promise<RepoSource> {
+  // Both checks run before the process is spawned, not inside a try around it: git over ssh would hand the learner's own keys to whatever the URL names, and a URL pointing at this machine or this network would read an internal host through git instead of through fetch. The scheme check stays first so an ssh or git URL still gets its own sentence rather than a lookup error; the host guard runs before the scratch directory exists, so a refusal leaves nothing behind.
   if (!/^https:\/\//i.test(url.trim())) throw new Error(`derive only clones over https (got ${url.trim()}); an ssh or git URL would use your own keys`);
+  await assertPublicHost(url.trim());
   const tmp = mkdtempSync(join(DATA_DIR, 'clone-'));
   try {
     execFileSync('git', ['clone', '--depth', '1', '--quiet', url, tmp], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000 });
@@ -293,6 +296,6 @@ export async function collectRepo(source: string): Promise<RepoSource> {
   if (!s) throw new Error('repo path or URL required');
   const gh = GITHUB_RE.exec(s);
   if (gh) return fromGitHub(gh[1], gh[2], gh[3] ? decodeURIComponent(gh[3]) : undefined, gh[4] ? decodeURIComponent(gh[4]) : undefined);
-  if (isRepoUrl(s)) return fromGitClone(s);
+  if (isRepoUrl(s)) return await fromGitClone(s);
   return fromDirectory(s);
 }

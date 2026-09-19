@@ -28,6 +28,7 @@ import {
   type ResourceKind,
   type ResourceRow,
 } from './db.js';
+// repo.ts imports this module for assertPublicHost, so repo -> library -> materials -> repo is a ring. It only resolves while these three names stay inside function bodies: move any of them to module scope and repo.ts's import breaks, with no signal at the line you edited.
 import { partsOf, SEP, titleOf } from './materials.js';
 
 export { RESOURCE_KINDS };

@@ -1,16 +1,21 @@
 /**
- * Where a fetch is actually going, and what an import is allowed to read.
+ * Where a fetch or a clone is actually going, and what an import is allowed
+ * to read.
  *
- * The tutor model itself can hand Derive a URL through `add_resource`, and
- * the repo importer walks a folder the learner names and puts every readable
- * file where the model can read it. These cases are the proof that neither
- * can be pointed at this machine: the host guard judges resolved addresses
- * rather than names and runs again on every redirect hop, `git clone` is
- * https only and refuses before a process is spawned, and an import refuses
- * a home directory and skips the files that hold credentials.
+ * The tutor model hands Derive a URL through `add_resource` and a repo URL
+ * through `attach_material`, and the repo importer walks a folder the
+ * learner names and puts every readable file where the model can read it.
+ * What these cases exercise, one guard at a time: the host guard judges
+ * resolved addresses rather than names and runs again on every redirect
+ * hop; `collectRepo` refuses a scheme that is not https and then runs that
+ * same host guard before it makes its scratch directory, so a refused clone
+ * leaves none behind; the archive reader is capped with and without a
+ * declared length; and a folder import refuses a home directory and skips
+ * the files that hold credentials.
  *
- * Offline by construction: the guards are driven directly, and the one case
- * that needs a server uses a fixture on this machine.
+ * Offline by construction: the guards are driven directly, no private
+ * address is ever connected to, and the one case that needs a server uses a
+ * fixture on this machine.
  */
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
@@ -126,6 +131,16 @@ describe('cloning', () => {
     await assert.rejects(() => collectRepo('git@github.com:jicanta/derive.git'), /only clones over https/);
     await assert.rejects(() => collectRepo('git://github.com/jicanta/derive.git'), /only clones over https/);
     // No scratch clone directory means the guard threw before mkdtempSync, and therefore before git.
+    assert.deepEqual(cloneDirs(), []);
+  });
+
+  it('refuses a git URL pointing at this machine or this network, before a directory is made', async () => {
+    // The entry point the model reaches: attach_material hands collectRepo a URL, and every non-GitHub one is cloned.
+    for (const url of ['https://127.0.0.1/x.git', 'https://192.168.0.5/internal.git', 'https://169.254.169.254/x.git', 'https://[::1]/x.git']) {
+      await assert.rejects(() => collectRepo(url), /private or local address/, `${url} should be refused`);
+      assert.deepEqual(cloneDirs(), [], `${url} left a scratch directory behind`);
+    }
+    // Once more at the end, so a directory left by any one of them fails here rather than being masked by the next.
     assert.deepEqual(cloneDirs(), []);
   });
 });
