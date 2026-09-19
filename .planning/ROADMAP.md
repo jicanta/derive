@@ -39,7 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. An existing `~/.derive` database opens on the new version and migrates forward under a numbered, transactional runner; an interrupted `replaceGraph` or `deleteLesson` leaves no partial state
   5. The server answers only on 127.0.0.1 with a per-install token, rejects foreign Host and Origin, and no secret appears in any error, log, event, export or vault-mirror path; every turn stores raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
 
-**Plans**: 12/12 plans executed, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening); plus 4 gap-closure plans (01-09..01-12) in 4 waves — serialised because each runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files — closing the Success Criterion 5 authentication gaps found at verification and running the outstanding Criterion 1 parity check
+**Plans**: 12/15 plans executed, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening); plus 4 gap-closure plans (01-09..01-12) in 4 waves closing the Success Criterion 5 authentication gaps found at the first verification; plus 3 more gap-closure plans (01-13..01-15) in 3 further waves closing the Criterion 5 gaps found at re-verification — the repo importer reading outside the tree it was given, the loopback credential posture being neither closed nor stated, and the record that asserts what does not hold. Every gap wave is serialised because each plan runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files
 
 Plans:
 **Wave 1**
@@ -88,6 +88,20 @@ Plans:
 **Gap wave 4** *(blocked on gap wave 3 completion)*
 
 - [x] 01-12-PLAN.md — Re-run every failed spot-check with the verifier's own instrument, then the plugin and Codex parity run as a human check (gap wave 4)
+
+**Gap closure, second round** *(from the re-verification of 01-VERIFICATION.md, status gaps_found at 3/5 — run with `/gsd-execute-phase 1 --gaps-only`)*
+
+**Gap wave 5**
+
+- [ ] 01-13-PLAN.md — The repo importer reads nothing outside the tree it was given: `lstatSync` in the walker and the read loop, a `realpathSync` root pin for the `git ls-files` path, `isSecretName` on the tarball path too, and a clone pinned to the URL the guard judged (gap wave 5)
+
+**Gap wave 6** *(blocked on gap wave 5 completion)*
+
+- [ ] 01-14-PLAN.md — The loopback credential posture decided and then stated: no fail-open on an unknown local address, the browser's credential written down instead of inherited, and three sentences that each map to a case or a line (gap wave 6)
+
+**Gap wave 7** *(blocked on gap wave 6 completion)*
+
+- [ ] 01-15-PLAN.md — The ledger reconciles across a restart, and the record says what holds: requirement statuses, the cross-cutting constraint, and the two human-only checks carried forward (gap wave 7)
 
 **Cross-cutting constraints:**
 
@@ -210,7 +224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 12/12 | In Progress|  |
+| 1. Foundation | 12/15 | In Progress|  |
 | 2. Settings and Secrets | 0/TBD | Not started | - |
 | 3. Owned Loop: API Keys and Gateways | 0/TBD | Not started | - |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |
