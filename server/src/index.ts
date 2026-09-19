@@ -1,10 +1,11 @@
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context } from 'hono';
+import { getCookie, setCookie } from 'hono/cookie';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -74,10 +75,10 @@ for (const t of closeOpenTurns('interrupted')) {
  *
  * 32 bytes of randomness in a 0600 file next to the database, written with
  * "wx" so a second boot racing the first cannot clobber a token the app is
- * already holding. Nothing hands it out — the app is given it inside the
- * HTML the server serves, and everything else on this machine reads the file
- * — so a failure here has to be loud, or the learner is left with an app
- * that says 401 and no idea why.
+ * already holding. Nothing hands it out — everything on this machine except
+ * the browser reads the file, and the browser is handed a separate derived
+ * value instead — so a failure here has to be loud, or the learner is left
+ * with an app that says 401 and no idea why.
  */
 function ensureToken(): string {
   if (!existsSync(TOKEN_PATH)) {
@@ -98,15 +99,24 @@ function ensureToken(): string {
   return token;
 }
 
-/** This install's token. Deliberate module state: read once at boot, compared on every request, and never logged, emitted or returned. */
+/** This install's token. Deliberate module state: read once at boot, compared on every request, never logged, never emitted, and never returned by any route. The browser is handed the derived value below instead, so the token itself never leaves this process. */
 const TOKEN = ensureToken();
 const TOKEN_BUF = Buffer.from(TOKEN);
 
-// Registered before a single route exists, so no request can be served while the value is still able to reach an error, a log line or a lesson note.
+/** The browser's credential, derived from the install token so it survives a restart and an open tab keeps working. It is never the token, and an HMAC is not reversible to one. */
+const SESSION = createHmac('sha256', TOKEN).update('derive browser session v1').digest('hex');
+const SESSION_BUF = Buffer.from(SESSION);
+/** The cookie the derived credential rides in. */
+const SESSION_COOKIE = 'derive_session';
+
+// Registered before a single route exists, so no request can be served while either value is still able to reach an error, a log line or a lesson note.
 registerSecret(TOKEN);
+registerSecret(SESSION);
 
 /** The host names a request may address this server by: loopback in every spelling, plus the configured interface when the bind was widened. */
-const ALLOWED_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', ...(HOST_IS_LOOPBACK ? [] : [HOST.toLowerCase()])]);
+function hostNames(_c: Context): Set<string> {
+  return new Set(['127.0.0.1', 'localhost', '[::1]', ...(HOST_IS_LOOPBACK ? [] : [HOST.toLowerCase()])]);
+}
 
 /** The host and the port a Host header names, keeping an IPv6 literal's brackets. Empty parts when it is not a Host header at all. */
 function splitHost(raw: string): { host: string; port: string } {
@@ -115,40 +125,65 @@ function splitHost(raw: string): { host: string; port: string } {
 }
 
 /** Constant-time string equality, falling back to plain inequality when the lengths already differ. */
-const sameSecret = (a: string) => {
-  const buf = Buffer.from(a);
-  return buf.length === TOKEN_BUF.length && timingSafeEqual(buf, TOKEN_BUF);
+const sameValue = (supplied: string, expected: Buffer) => {
+  const buf = Buffer.from(supplied);
+  return buf.length === expected.length && timingSafeEqual(buf, expected);
 };
+
+/** A credential a request offers, or an empty string when it offered none. Whitespace-only is absent, never something to compare. */
+const offered = (raw: string | undefined) => (raw ?? '').trim();
 
 const app = new Hono();
 app.use('/api/*', cors({ origin: ALLOWED_ORIGINS, allowHeaders: ['content-type', 'x-derive-learner', 'x-derive-token'] }));
+
+/**
+ * Is this request even addressed to this server, from somewhere allowed?
+ *
+ * The two checks every route shares, in a fixed order so a request that
+ * fails both this and the credential check is refused 403 rather than 401.
+ * The Host header must name this server on its own port, which is what
+ * defeats a DNS rebind that keeps the origin plausible; an Origin, when the
+ * browser sends one, must match the allowlist whole (a same-origin fetch,
+ * curl and the stdio MCP proxy send none, so an absent Origin passes).
+ * Returns the refusal, or null when both pass.
+ */
+function guardLocal(c: Context): Response | null {
+  const allowed = hostNames(c);
+  const { host, port } = splitHost(c.req.header('host') ?? '');
+  if (!allowed.has(host) || port !== String(PORT)) return c.json({ error: `derive answers on ${[...allowed].join(', ')} at port ${PORT} only` }, 403);
+
+  const origin = c.req.header('origin');
+  if (origin && !ALLOWED_ORIGINS.includes(origin)) return c.json({ error: `origin ${origin} is not allowed to call derive` }, 403);
+
+  return null;
+}
 
 /**
  * Only this machine, and only Derive's own app.
  *
  * Everything the API can do — read every lesson, import any readable folder
  * as course material, fetch a URL — used to be open to any process or any
- * page that could reach the port. Four checks close that, in order: health
- * is exempt because the doctor and the test harnesses poll it before there
- * is anything to authenticate with; the Host header must name this server on
- * its own port, which is what defeats a DNS rebind that keeps the origin
- * plausible; an Origin, when the browser sends one, must match the allowlist
- * whole (a same-origin fetch, curl and the stdio MCP proxy send none, so an
- * absent Origin passes); and the token must match. The lesson stream is the
- * one place the token may ride in the query string, because EventSource
- * cannot set a header.
+ * page that could reach the port. The checks close that, in order: health is
+ * exempt because the doctor and the test harnesses poll it before there is
+ * anything to authenticate with; then the shared Host and Origin guard; then
+ * a credential. Three credentials are accepted and any one is enough — the
+ * x-derive-token header, which is how the MCP server, the plugin hook and
+ * the Vite dev proxy call in; the token as a query parameter on the lesson
+ * stream only, because EventSource cannot set a header; and the browser's
+ * derive_session cookie, which is the derived value and not the token. An
+ * empty or whitespace-only value is absent, never something to compare.
  */
 app.use('/api/*', async (c, next) => {
   if (c.req.path === '/api/health') return next();
 
-  const { host, port } = splitHost(c.req.header('host') ?? '');
-  if (!ALLOWED_HOSTS.has(host) || port !== String(PORT)) return c.json({ error: `derive answers on ${[...ALLOWED_HOSTS].join(', ')} at port ${PORT} only` }, 403);
+  const refusal = guardLocal(c);
+  if (refusal) return refusal;
 
-  const origin = c.req.header('origin');
-  if (origin && !ALLOWED_ORIGINS.includes(origin)) return c.json({ error: `origin ${origin} is not allowed to call derive` }, 403);
-
-  const supplied = c.req.header('x-derive-token') ?? (c.req.path.endsWith('/stream') ? (c.req.query('token') ?? '') : '');
-  if (!supplied || !sameSecret(supplied)) return c.json({ error: `send the x-derive-token header, with the token in ${TOKEN_PATH}` }, 401);
+  const header = offered(c.req.header('x-derive-token'));
+  const query = c.req.path.endsWith('/stream') ? offered(c.req.query('token')) : '';
+  const cookie = offered(getCookie(c, SESSION_COOKIE));
+  const ok = (header && sameValue(header, TOKEN_BUF)) || (query && sameValue(query, TOKEN_BUF)) || (cookie && sameValue(cookie, SESSION_BUF));
+  if (!ok) return c.json({ error: `send the x-derive-token header, with the token in ${TOKEN_PATH}` }, 401);
 
   return next();
 });
@@ -963,21 +998,45 @@ if (existsSync(distDir)) {
   // serveStatic resolves its root against process.cwd(), so this is the path from wherever the server was started, whatever that is.
   const relRoot = relative(process.cwd(), distDir).split(sep).join('/') || '.';
   /**
-   * The app is handed the token here and nowhere else: inside the document it
-   * is served as, never as data from a route, so a hostile page has nothing
-   * to call (D-09). Read once at boot — index.html does not change while the
-   * server runs — and a build with no head to inject into fails loudly rather
-   * than serving an app that can only say 401.
+   * The app is handed its credential here and nowhere else: as an HttpOnly,
+   * SameSite=Strict cookie on a document response that has already passed
+   * the Host and Origin checks. The value is derived from the install token
+   * and is never the token. It is never written into the markup, because
+   * markup that can be fetched is a secret that can be scraped — which is
+   * exactly what the injection this replaces turned out to be. A hostile
+   * page has nothing to call and nothing to read.
    */
   const indexPath = join(distDir, 'index.html');
   const rawIndex = readFileSync(indexPath, 'utf8');
-  if (!rawIndex.includes('</head>')) throw new Error(`${indexPath} has no </head> to put the derive token in; run pnpm build again`);
-  const indexHtml = rawIndex.replace('</head>', `  <meta name="derive-token" content="${TOKEN}" />\n  </head>`);
-  // Ahead of serveStatic, which would otherwise hand out the file on disk for "/" and never inject anything.
-  app.get('/', (c) => c.html(indexHtml));
-  app.get('/index.html', (c) => c.html(indexHtml));
+
+  /** Hand this browser the derived credential. No `secure`, or the browser drops a cookie delivered over plain http on loopback; no expiry, so it dies with the tab's session. */
+  function issueSession(c: Context) {
+    setCookie(c, SESSION_COOKIE, SESSION, { httpOnly: true, sameSite: 'Strict', path: '/' });
+  }
+
+  /** The app, exactly as it is on disk, plus the cookie that lets it call the API. */
+  function serveApp(c: Context) {
+    issueSession(c);
+    return c.html(rawIndex);
+  }
+
+  /**
+   * The document routes are protected at least as well as the API they
+   * unlock. One place covers both of them, serveStatic and the catch-all;
+   * /api/* has its own middleware with its own credential step and passes
+   * straight through here.
+   */
+  app.use('/*', async (c, next) => {
+    if (c.req.path.startsWith('/api/')) return next();
+    const refusal = guardLocal(c);
+    if (refusal) return refusal;
+    return next();
+  });
+  // Ahead of serveStatic, which would otherwise hand out the file on disk for "/" and never set a cookie.
+  app.get('/', serveApp);
+  app.get('/index.html', serveApp);
   app.use('/*', serveStatic({ root: relRoot }));
-  app.get('*', (c) => c.html(indexHtml));
+  app.get('*', serveApp);
 }
 
 serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
