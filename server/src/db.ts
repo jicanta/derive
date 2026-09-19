@@ -520,11 +520,17 @@ export function openTurns(): TurnRow[] {
  * Close every turn still running and return the rows as they were, for the
  * boot sweep: a restart kills turns without ending them, and the lessons that
  * lost one are exactly the lessons that still owe the learner a `turn_end`.
+ *
+ * A turn the sweep closes is still a turn, so it still owes the ledger a row.
+ * This is the one place a turn ends with no driver to report for it, so the
+ * close happens here rather than at the caller; `closeUsage` leaves a turn that
+ * already reported exactly the row it reported.
  */
 export function closeOpenTurns(status: TurnStatus): TurnRow[] {
   return withTx(() => {
     const rows = openTurns();
     if (rows.length) q.closeOpenTurns.run(Date.now(), status);
+    for (const r of rows) closeUsage(r.id);
     return rows;
   });
 }

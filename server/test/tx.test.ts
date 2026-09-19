@@ -6,6 +6,9 @@
  * counts rows before and after; an assertion that nothing threw would prove
  * nothing. Failures partway are forced with a trigger that RAISEs, which is a
  * real statement failure inside the transaction rather than a simulated one.
+ * The same counting is what drives the restart case: a sweep leaves the ledger
+ * reconciling, so the turn count and the usage count are compared rather than
+ * the sweep merely being observed to return.
  */
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -17,7 +20,7 @@ import { after, describe, it } from 'node:test';
 const scratch = mkdtempSync(join(tmpdir(), 'derive-tx-'));
 process.env.DERIVE_DATA_DIR = scratch;
 
-const { addMemory, appendEvent, createLearner, createLesson, db, deleteLearner, deleteLesson, finishTurn, getLesson, listNodes, listUsage, recordQuiz, recordUsage, replaceGraph, setNodeStatus, startTurn, withTx } =
+const { addMemory, appendEvent, closeOpenTurns, createLearner, createLesson, db, deleteLearner, deleteLesson, finishTurn, getLesson, listNodes, listUsage, recordQuiz, recordUsage, replaceGraph, setNodeStatus, startTurn, withTx } =
   await import('../src/db.js');
 
 type GraphNodeInput = import('../src/db.js').GraphNodeInput;
@@ -254,6 +257,59 @@ describe('the usage ledger', () => {
       },
       others,
       'every other learner’s ledger is untouched',
+    );
+  });
+});
+
+describe('a restart', () => {
+  it('leaves the ledger reconciling: every turn the sweep closes carries a usage row', () => {
+    const learner = createLearner('Restarted');
+    createLesson('sweep-l1', 'Killed mid-turn', { learnerId: learner.id });
+    const reported = startTurn('sweep-l1', 'claude', 'claude-sonnet-4');
+    recordUsage(reported, { input_tokens: 120, output_tokens: 34, cost_source: 'provider' });
+    const silent = startTurn('sweep-l1', 'fake');
+
+    // Two turns still running and one usage row: the state a killed process
+    // leaves behind, before the boot sweep has touched anything.
+    assert.deepEqual(ledgerOf(learner.id), { turns: 2, usage: 1 });
+
+    closeOpenTurns('interrupted');
+
+    // The count equality is the assertion. db.ts states the invariant in its
+    // own words — "Every turn gets a usage row, whichever driver ran it" — and
+    // it is false after a restart unless this holds.
+    assert.deepEqual(ledgerOf(learner.id), { turns: 2, usage: 2 });
+
+    // Idempotent on the turn id: the turn that already reported keeps exactly
+    // the row it reported rather than gaining a second one of nulls.
+    const kept = listUsage({ turn: reported });
+    assert.equal(kept.length, 1);
+    assert.deepEqual({ input: kept[0].input_tokens, output: kept[0].output_tokens, source: kept[0].cost_source }, { input: 120, output: 34, source: 'provider' });
+
+    // The swept turn that reported nothing gets nulls and 'unknown' — D-16:
+    // never an estimate, and never zeros, which would read as "ran and used
+    // nothing" instead of "ran and reported nothing".
+    const made = listUsage({ turn: silent });
+    assert.equal(made.length, 1);
+    assert.deepEqual(
+      {
+        cost_source: made[0].cost_source,
+        input_tokens: made[0].input_tokens,
+        output_tokens: made[0].output_tokens,
+        cache_read_tokens: made[0].cache_read_tokens,
+        cache_write_tokens: made[0].cache_write_tokens,
+        reasoning_tokens: made[0].reasoning_tokens,
+        cost_usd: made[0].cost_usd,
+      },
+      {
+        cost_source: 'unknown',
+        input_tokens: null,
+        output_tokens: null,
+        cache_read_tokens: null,
+        cache_write_tokens: null,
+        reasoning_tokens: null,
+        cost_usd: null,
+      },
     );
   });
 });
