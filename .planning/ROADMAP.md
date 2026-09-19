@@ -39,7 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. An existing `~/.derive` database opens on the new version and migrates forward under a numbered, transactional runner; an interrupted `replaceGraph` or `deleteLesson` leaves no partial state
   5. The server answers only on 127.0.0.1 with a per-install token, rejects foreign Host and Origin, and no secret appears in any error, log, event, export or vault-mirror path; every turn stores raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
 
-**Plans**: 14/15 plans executed, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening); plus 4 gap-closure plans (01-09..01-12) in 4 waves closing the Success Criterion 5 authentication gaps found at the first verification; plus 3 more gap-closure plans (01-13..01-15) in 3 further waves closing the Criterion 5 gaps found at re-verification — the repo importer reading outside the tree it was given, the loopback credential posture being neither closed nor stated, and the record that asserts what does not hold. Every gap wave is serialised because each plan runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files
+**Plans**: 15/15 plans executed, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening); plus 4 gap-closure plans (01-09..01-12) in 4 waves closing the Success Criterion 5 authentication gaps found at the first verification; plus 3 more gap-closure plans (01-13..01-15) in 3 further waves closing the Criterion 5 gaps found at re-verification — the repo importer reading outside the tree it was given, the loopback credential posture being neither closed nor stated, and the record that asserts what does not hold. Every gap wave is serialised because each plan runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files
 
 Plans:
 **Wave 1**
@@ -101,7 +101,7 @@ Plans:
 
 **Gap wave 7** *(blocked on gap wave 6 completion)*
 
-- [ ] 01-15-PLAN.md — The ledger reconciles across a restart, and the record says what holds: requirement statuses, the cross-cutting constraint, and the two human-only checks carried forward (gap wave 7)
+- [x] 01-15-PLAN.md — The ledger reconciles across a restart, and the record says what holds: requirement statuses, the cross-cutting constraint, and the two human-only checks carried forward (gap wave 7)
 
 **Cross-cutting constraints:**
 
@@ -224,7 +224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 14/15 | In Progress|  |
+| 1. Foundation | 15/15 | In Progress|  |
 | 2. Settings and Secrets | 0/TBD | Not started | - |
 | 3. Owned Loop: API Keys and Gateways | 0/TBD | Not started | - |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |
