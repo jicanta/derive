@@ -1,621 +1,294 @@
-# Phase 1: Foundation - Pattern Map
+# Phase 01: Foundation - Pattern Map
 
-**Mapped:** 2026-09-17
-**Files analyzed:** 22 (9 new, 13 modified)
-**Analogs found:** 20 / 22
+**Mapped:** 2026-09-19
+**Mode:** gap closure (file list derived from `01-VERIFICATION.md` `gaps:` → `artifacts:` + `missing:`)
+**Files analyzed:** 6 modified (0 created)
+**Analogs found:** 6 / 6 — every gap fix has an in-file or in-repo analog established earlier in this same phase
 
-All analog paths below were verified git-tracked (`git ls-files`). No gitignored mirrors.
+> All analog paths below were confirmed git-tracked with `git ls-files`. No gitignored mirror paths appear here.
 
 ## File Classification
 
-| New/Modified File | New? | Role | Data Flow | Closest Analog | Match Quality |
-|-------------------|------|------|-----------|----------------|---------------|
-| `server/src/tools.ts` (registry, D-05) | modified | config/registry | transform | `server/src/tools.ts` itself + `server/src/agent.ts` `TOOL_DESCRIPTIONS`/`buildTools` | exact |
-| `server/src/agent.ts` (→ claude driver) | modified | service | streaming | itself (`runTurn` + Claude branch) | exact |
-| `server/src/codex.ts` (→ codex driver) | modified | service | streaming | itself (`runCodexTurn`) | exact |
-| `server/src/driver.ts` (seam, new) | new | service | streaming | `server/src/backend.ts` (module-doc + resolution) + `server/src/events.ts` (sink shape) | role-match |
-| `server/src/drivers/fake.ts` (new) | new | test fixture | streaming | `server/src/notices.ts` (tiny documented module) | partial |
-| `server/src/migrations.ts` (new) | new | model/schema | batch | `server/src/db.ts` lines 10-137 (inline schema + ALTER list) | exact |
-| `server/src/db.ts` (`withTx`, `turns`, `usage`) | modified | model | CRUD | itself (`q` prepared-statement object, `deleteLesson`, `replaceGraph`) | exact |
-| `server/src/secrets.ts` + `redact()` (new) | new | utility | transform | `server/src/notices.ts` (module-level Map, documented) | role-match |
-| `server/src/index.ts` (bind, Host/Origin, token, strict validation) | modified | route/controller | request-response | itself (`learnerOf`, `busy`, action switch, `serve()`) | exact |
-| `server/src/config.ts` (VERSION, DERIVE_HOST, DERIVE_ORIGINS, TOKEN_PATH) | modified | config | request-response | itself | exact |
-| `server/src/mcp.ts` (registry-driven `registerTool`, token header) | modified | route/proxy | request-response | itself (`registerTool` + `api()`) | exact |
-| `server/src/events.ts` (redaction chokepoint) | modified | utility | pub-sub | itself (`emit`) | exact |
-| `server/src/export.ts` (redaction on vault mirror) | modified | service | file-I/O | itself (`mirrorToVault`) | exact |
-| `server/src/library.ts` (SSRF guard) | modified | service | request-response | itself (`get()` at line 217) | exact |
-| `server/src/repo.ts` (SSRF + secret-file deny-list) | modified | service | file-I/O | itself (`fromDirectory`, `fromGitClone`) | exact |
-| `server/src/prompt.ts` (rendered method target) | modified | config/text | transform | itself (`PROMPT` + `{{WEB_TOOLS}}` + `systemPrompt(backend)`) | exact |
-| `method/*.md` (canonical source, new) | new | content | transform | `plugin/skills/teach/SKILL.md`, `server/src/prompt.ts` `PROMPT` | role-match |
-| `scripts/render-method.mjs` + `scripts/check-method.mjs` (new) | new | script | file-I/O | `scripts/doctor.mjs` | exact |
-| `plugin/commands/learn.md` / `review.md` (generated frontmatter) | modified | config | transform | `plugin/commands/learn.md` frontmatter | exact |
-| `codex/skills/derive-{learn,review}/SKILL.md` (new) | new | content | transform | `plugin/skills/teach/SKILL.md` | exact |
-| `server/test/wire-surface.test.ts` + `wire-surface.json` (new) | new | test | batch | `server/test/reply.test.ts` (import-order trick) | role-match |
-| `server/test/mcp.test.ts` (stdio smoke, new) | new | test | streaming | `server/test/api.test.ts` (spawn-server harness) | role-match |
-| `web/vite.config.ts` (token header on proxy) | modified | config | request-response | itself | exact |
-| `.github/workflows/ci.yml` (drift + snapshot + smoke steps) | modified | config | batch | itself (`Test` / `Doctor script runs` steps) | exact |
+| Modified file | Role | Data flow | Closest analog | Match quality |
+|---|---|---|---|---|
+| `server/src/index.ts` (document middleware ~1087-1104, `serveApp`/`issueSession` 1064-1072, comments 102 and 1075-1082) | middleware / route | request-response | `server/src/index.ts` `guardLocal` (~195-210) + the `/api/*` credential middleware (~213-243) — **same file, 900 lines above** | exact |
+| `server/src/repo.ts` `walk()` 122-143, `fromDirectory()` 145-173 | service (ingest) | file-I/O | `server/src/repo.ts` `isSecretName` 54-64 + `fromDirectory`'s own `parse(dir).root`/`homedir()` refusal at 148 | exact (in-file) |
+| `server/src/repo.ts` `fromGitHub` tarball filter 255 | service (ingest) | streaming / transform | `server/src/repo.ts` `fromDirectory` line 151 filter chain | exact (in-file) |
+| `server/src/repo.ts` `fromGitClone` 274-286 | service (egress) | request-response (subprocess) | `server/src/library.ts` `fetchPublic` 322-345 — the redirect-re-checking egress guard | role-match (same guard, different transport) |
+| `server/test/guards.test.ts` (new symlink-refusal case; doc comment) | test | file-I/O | `guards.test.ts` `describe('importing a folder')` → `it('imports the ordinary file and nothing else')` 195-206 | exact |
+| `server/test/security.test.ts` (doc comment 5-8; document-route cases) | test | request-response | `server/test/security.test.ts` `describe('a widened bind')` 222-232 doc comment — the one in this file that states only what its cases drive | exact (in-file) |
+| `web/src/lib/api.ts` 24-40 (`deriveToken`, `headers`) | utility (api client) | request-response | `web/src/lib/api.ts` `currentLearner` 3-15 — the neighbouring documented browser-credential helper | exact (in-file) |
+| `web/src/lib/useLesson.ts` ~254-256 (EventSource token query branch) | hook | streaming (SSE) | same block, minus the `auth` term | exact (in-file) |
 
 ---
 
 ## Pattern Assignments
 
-### `server/src/tools.ts` — the 22-tool registry (D-05, D-07, D-08)
+### `server/src/index.ts` — close the loopback fail-open, and make the two comments honest
 
-**Analog:** `server/src/tools.ts` (all 23 lines, read in full) + `server/src/agent.ts` lines 49-120.
+**Analog A (fail-closed on an unknown local address):** `server/src/index.ts` `hostNames`, ~145-160. This is the pattern the verifier named explicitly: when `localAddress(c)` returns nothing, `hostNames` narrows to loopback rather than widening.
 
-Today the contract is spread across four places. The registry keeps the file's existing shape — a flat `as const` list plus a `Record<string, string>` label map — and adds the schema and description per entry.
-
-**What exists now** (`server/src/tools.ts` lines 1-8):
 ```typescript
-/** The tutor's tool names and the status line each one shows the learner while it runs. Shared by both backends. */
-
-export const DERIVE_TOOL_NAMES = [
-  'quiz', 'ask', 'set_plan', 'node_status', 'set_phase', 'explain_back', 'remember', 'set_preferences', 'read_material', 'search_material',
-  'search_library', 'read_resource', 'suggest_resource', 'add_resource',
-] as const;
-
-export const TOOL_LABELS: Record<string, string> = { quiz: 'Writing a question', /* ... */ };
+/**
+ * ...With no address to go on, fail
+ * closed to loopback.
+ */
+function hostNames(c: Context): Set<string> {
+  const addr = localAddress(c);
+  if (!addr) return new Set(LOOPBACK_NAMES);
+  ...
+}
 ```
 
-**Schema + description pattern to fold in** — `server/src/agent.ts` lines 49-56 (`nodeSchema`) and 84-97 (`quiz`). Note the `.describe()` on every field; these strings are the model-facing docs and go into the D-08 snapshot verbatim:
-```typescript
-export const nodeSchema = z.object({
-  id: z.string().describe('Short stable id, e.g. "packets".'),
-  label: z.string().describe('The claim in plain words a learner reads at a glance, 3 to 7 words, ...'),
-  kind: z.enum(['truth', 'derived', 'goal']),
-  summary: z.string().describe('One full sentence stating the claim this node stands for. ...'),
-  depends_on: z.array(z.string()).optional().describe('Ids of the nodes this one is derived from. Empty for roots.'),
-});
-```
-```typescript
-  const quiz = tool(
-    'quiz',
-    TOOL_DESCRIPTIONS.quiz,
-    {
-      question: z.string().describe('The question, markdown with $LaTeX$ allowed. Do not restate it in prose.'),
-      options: z.array(z.string()).min(2).max(3).describe('2 or 3 bare claims, no justification. The app adds "I don\'t know" itself.'),
-      correct: z.array(z.number().int().min(0)).min(1).describe('0-based indices of the correct option(s). Usually exactly one.'),
-      ...
-    },
-    async (a) => text(await actions.quiz(lessonId, a)),
-  );
-```
-`agent.ts` uses a **raw shape object** (not `z.object(...)`) as the third arg to `tool()`. `mcp.ts` `registerTool` uses the same raw-shape form under `inputSchema`. A registry entry carrying `shape: z.ZodRawShape` therefore feeds both surfaces unchanged; `z.object(shape)` gives the `safeParse` for D-06 and the JSON-Schema projection for the snapshot.
+The document middleware currently does the opposite at ~1093:
 
-**MCP-only tool descriptions** — `server/src/mcp.ts` lines 173-196 (`start_lesson`) and 226-238 (`attach_material`); same `description` + `inputSchema` raw shape:
 ```typescript
-server.registerTool(
-  'attach_material',
-  {
-    description: 'Attach course material to the current lesson: local .pdf, .pptx, ...',
-    inputSchema: { files: z.array(z.string()).min(1).describe('Paths or URLs. A folder with a .git or a package manifest is imported as a repository.') },
-  },
-  async ({ files }) => { ... },
-);
+const here = localAddress(c);
+if (!here || isLoopback(here)) return next();   // fail-OPEN on !here
 ```
 
-**Surface marking:** follow the `as const` + `typeof` idiom already used for `DERIVE_TOOL_NAMES` and `RESOURCE_KINDS` (`library.ts`) / `QUIZ_TESTS` (`db.ts`) so the surface union is a type, not a string.
+Copy `hostNames`' polarity — `if (here && isLoopback(here)) return next();` — so an unknown local address falls through to the token path (`missing:` item 5). The comment above it must state the reason in `hostNames`' own voice ("With no address to go on, fail closed").
 
-**Consumers that must read the registry instead of declaring:** `agent.ts` `buildTools` (line 83), `agent.ts` line ~236 `tools: [quiz, ask, ...]` array, `codex.ts` `enabled_tools: [...DERIVE_TOOL_NAMES]` (line ~50), `mcp.ts` every `registerTool`, `index.ts` `switch (action)` (line 654), `plugin/commands/*.md` frontmatter.
+**Analog B (a credential check written as an ordered prose comment + a guard chain):** the `/api/*` middleware, ~213-243. This is the shape to imitate if the planner chooses the *close it* branch of `missing:` item 1 (require the token on the document route on loopback too, with a one-time `?token=` handoff):
 
----
-
-### `server/src/index.ts` — strict action validation (D-06)
-
-**Analog:** `server/src/index.ts` lines 643-680, the current hand-rolled checks that the zod `safeParse` replaces.
-
-**Current shape** (lines 643-660) — note the `as unknown as` casts and the manual enum checks:
 ```typescript
-app.post('/api/external/lessons/:id/:action', async (c) => {
-  const id = c.req.param('id');
-  const action = c.req.param('action');
-  const lesson = getLesson(id);
-  if (!lesson) return c.json({ error: 'not found' }, 404);
-  const a = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-  const terminal = a.answer_in === 'terminal' || (a.answer_in !== 'browser' && lesson.answer_in === 'terminal');
-  try {
-    ...
-    switch (action) {
-      case 'quiz': {
-        const args = a as unknown as actions.QuizArgs;
-        if (args.purpose != null && !actions.QUIZ_PURPOSES.includes(args.purpose)) return c.json({ error: `purpose must be one of ${actions.QUIZ_PURPOSES.join(', ')}` }, 400);
-        if (args.tests != null && !actions.QUIZ_TESTS.includes(args.tests)) return c.json({ error: `tests must be one of ${actions.QUIZ_TESTS.join(', ')}` }, 400);
-```
-
-**Where the new `safeParse` goes:** immediately after the `const a = ...` line and **before** the held-card 409 check and the `teachingGap` gate, so method refusals (`Teach first`, `{ refused: true }`) and `api.test.ts` assertions are untouched (D-06). Error message style must match the rest of the file — lowercase sentence, `c.json({ error }, 400)`:
-```typescript
-if (gap) return c.json({ error: gap }, 400);
-if (!Array.isArray(args.options) || args.options.length < 2 || ...) return c.json({ error: 'quiz needs 2 or 3 options and at least one correct index' }, 400);
-```
-Keep the `answer_in` / `already_held` keys accepted (they are read off `a` outside the tool schema).
-
----
-
-### `server/src/index.ts` — hardening (D-09, D-12) and `busy()` (D-15)
-
-**Analog:** the same file.
-
-**CORS today** (line 64) — becomes an Origin allowlist:
-```typescript
-app.use('/api/*', cors({ origin: '*', allowHeaders: ['content-type', 'x-derive-learner'] }));
-```
-Add `x-derive-token` to `allowHeaders` when the token lands.
-
-**Serve + startup log today** (lines 835-838) — the hostname arg and the loud `DERIVE_HOST=0.0.0.0` warning go here; keep the two-line startup log format:
-```typescript
-serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`derive server on http://localhost:${info.port}${existsSync(distDir) ? '' : ' (API only; run the web dev server too)'}`);
-  console.log(`tutor runs on ${backend() === 'codex' ? 'Codex (your ChatGPT login)' : 'Claude (your Claude Code login)'}${backendSource() === 'auto' ? ', picked automatically; set DERIVE_BACKEND to choose' : ''}`);
+/**
+ * Only this machine, and only Derive's own app.
+ * ... The checks close that, in order: health is
+ * exempt because the doctor and the test harnesses poll it before there is
+ * anything to authenticate with; then the shared Host and Origin guard; then
+ * a credential. Three credentials are accepted and any one is enough — ...
+ * An empty or whitespace-only value is absent, never something to compare.
+ */
+app.use('/api/*', async (c, next) => {
+  if (c.req.path === '/api/health') return next();
+  const refusal = guardLocal(c);
+  if (refusal) return refusal;
+  const header = offered(c.req.header('x-derive-token'));
+  ...
+  if (!ok) return c.json({ error: `send the x-derive-token header, with the token in ${TOKEN_PATH}` }, 401);
+  return next();
 });
 ```
 
-**Static + index.html today** (lines 828-832) — the token injection point of D-09 is the `c.html(readFileSync(...))` line, which is also where the `process.cwd()` fragility lives:
-```typescript
-const here = dirname(fileURLToPath(import.meta.url));
-const distDir = resolve(here, '../../web/dist');
-if (existsSync(distDir)) {
-  const relRoot = distDir.startsWith(process.cwd()) ? distDir.slice(process.cwd().length + 1) : distDir;
-  app.use('/*', serveStatic({ root: relRoot }));
-  app.get('*', (c) => c.html(readFileSync(join(distDir, 'index.html'), 'utf8')));
-}
-```
+The widened-bind branch already inside the document middleware (~1095-1103) is the exact `?token=` handoff to reuse verbatim on loopback if that branch is taken — it already issues the cookie and 302s with the query string dropped.
 
-**Health route** (line 97) — the `'0.4.0'` literal is one of the six to replace with `VERSION` from `config.ts`; keep the route unauthenticated (doctor + `api.test.ts` poll it):
-```typescript
-app.get('/api/health', (c) => c.json({ ok: true, version: '0.4.0', backend: backend(), backend_source: backendSource() }));
-```
+**Analog C (an honest comment that names the residual):** `scripts/doctor.mjs` 73-75 — the verifier singles this out as the one place the residual was stated correctly. Copy its register for the rewrite of `index.ts:1075-1082` and `index.ts:102` (`missing:` item 1, second branch):
 
-**`busy()` today** (lines 77-85) — this full-event scan per lesson is what the `turns` table replaces:
-```typescript
-const busy = (id: string) => {
-  if (isBusy(id)) return true;
-  const lesson = getLesson(id);
-  if (lesson?.mode !== 'external') return false;
-  if (hasPending(id)) return true;
-  const events = listEvents(id);
-  const last = [...events].reverse().find((e) => e.type === 'turn_start' || e.type === 'turn_end');
-  return last?.type === 'turn_start';
-};
-```
-**Boot restart-recovery loop** (lines 53-61) — same scan across every lesson, same replacement:
-```typescript
-for (const l of listLessons()) {
-  const events = listEvents(l.id);
-  const last = [...events].reverse().find((e) => e.type === 'turn_start' || e.type === 'turn_end');
-  if (l.mode === 'agent' && last?.type === 'turn_start') emit(l.id, 'turn_end', { ok: true, interrupted: true, reason: 'server restarted' });
-}
-```
-Keep emitting `turn_end` — the browser reducer still needs the event; only the *read* moves to `turns`.
-
-**Auth middleware placement:** register it with the same `app.use('/api/*', ...)` form as `cors`, before the routes. Exempt `/api/health`. `learnerOf` (lines 71-75) is the model for a small documented `const` helper reading a header with a fallback.
-
----
-
-### `server/src/config.ts` — version + new env (single-source)
-
-**Analog:** the whole file (23 lines, read in full). Every constant is `export const`, env read exactly once, each with a one-line `/** */`:
-```typescript
-export const PORT = Number(process.env.PORT ?? 4310);
-export const DATA_DIR = resolve(process.env.DERIVE_DATA_DIR ?? join(homedir(), '.derive'));
-export const DB_PATH = join(DATA_DIR, 'derive.db');
-/** Optional model override. Leave unset to use the backend's own default ... */
-export const MODEL = process.env.DERIVE_MODEL || undefined;
-```
-Add `VERSION` (read from `server/package.json` — use `createRequire` as `backend.ts` already does, since `import ... with { type: 'json' }` would change the build output), `DERIVE_HOST`, `DERIVE_ORIGINS`, `TOKEN_PATH = join(DATA_DIR, 'token')`. Six literals to replace: root `package.json` `0.1.0`, `server/package.json` `0.1.0`, `plugin/.claude-plugin/plugin.json` `0.4.0`, `index.ts:97` `'0.4.0'`, `agent.ts` `version: '0.2.0'` + `CLAUDE_AGENT_SDK_CLIENT_APP: 'derive/0.2.0'`, `library.ts` `USER_AGENT` `Derive/0.3`.
-
----
-
-### `server/src/migrations.ts` (new, model/schema, batch)
-
-**Analog:** `server/src/db.ts` lines 1-137 — the block being folded into migration 1.
-
-**Import-time position is load-bearing** (lines 7-12); the runner must execute in exactly this slot, before the `q` prepared-statement object at line 213:
-```typescript
-mkdirSync(dirname(DB_PATH), { recursive: true });
-mkdirSync(DATA_DIR, { recursive: true });
-
-export const db = new DatabaseSync(DB_PATH);
-db.exec('PRAGMA journal_mode = WAL');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS lessons ( id TEXT PRIMARY KEY, topic TEXT NOT NULL, ... );
-  ...
-`);
-```
-
-**The ALTER list to fold in** (lines 107-135) — the try/catch idiom and the *why* comments must survive into the baseline migration:
-```typescript
-/** Columns added after the first release; SQLite has no ADD COLUMN IF NOT EXISTS. */
-for (const ddl of [
-  "ALTER TABLE lessons ADD COLUMN mode TEXT NOT NULL DEFAULT 'agent'",
-  "ALTER TABLE lessons ADD COLUMN learner_id TEXT NOT NULL DEFAULT 'default'",
-  // Memory state per node (FSRS), and where a review copy comes from.
-  'ALTER TABLE nodes ADD COLUMN stability REAL',
-  ...
-]) {
-  try {
-    db.exec(ddl);
-  } catch {
-    /* column exists */
-  }
-}
-db.exec('CREATE INDEX IF NOT EXISTS lessons_learner ON lessons (learner_id)');
-db.exec('CREATE INDEX IF NOT EXISTS quiz_results_node ON quiz_results (lesson_id, node_id)');
-```
-Baseline must land an existing `~/.derive/derive.db` on the same schema as a fresh one: keep `CREATE TABLE IF NOT EXISTS` + the try/catch ALTERs inside migration 1, then `PRAGMA user_version = 1`. New `turns`/`usage` tables are migration 2+, plain `CREATE TABLE` (no `IF NOT EXISTS` needed once versioned).
-
-**Module doc prose** — every server module opens with one; `server/src/backend.ts` lines 1-8 is the model:
-```typescript
-/**
- * Which tutor backend to run, and where its pieces are.
- *
- * Derive runs on a subscription, not an API key: the Claude Agent SDK on a
- * Claude Code login, or the Codex SDK on a ChatGPT login. ...
- */
-```
-
----
-
-### `server/src/db.ts` — `withTx`, `turns`, `usage` (D-13..D-16)
-
-**Analog:** the same file.
-
-**Prepared-statement pattern** (lines 213-225) — every new query goes in the `q` object, named verb-first:
-```typescript
-const q = {
-  insertLesson: db.prepare('INSERT INTO lessons (id, topic, mode, learner_id, answer_in, driver, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
-  lastExternal: db.prepare("SELECT * FROM lessons WHERE mode = 'external' ORDER BY created_at DESC LIMIT 1"),
-  setAnswerIn: db.prepare('UPDATE lessons SET answer_in = ?, updated_at = ? WHERE id = ?'),
-  ...
-};
-```
-
-**The two functions that must become transactional** — `deleteLesson` (lines 455-463), seven statements with no transaction:
-```typescript
-export function deleteLesson(id: string) {
-  q.deleteMaterialsByLesson.run(id);
-  q.deleteMemoryByLesson.run(id);
-  q.deleteMisByLesson.run(id);
-  q.deleteQuiz.run(id);
-  q.deleteNodes.run(id);
-  q.deleteEvents.run(id);
-  q.deleteLesson.run(id);
-}
-```
-`replaceGraph` (lines 505-514) — note the ad-hoc `db.prepare(...)` inside the loop, worth hoisting into `q` while wrapping:
-```typescript
-export function replaceGraph(lessonId: string, nodes: GraphNodeInput[]) {
-  const existing = new Map(listNodes(lessonId).map((n) => [n.node_id, n]));
-  const keep = new Set(nodes.map((n) => n.id));
-  for (const id of existing.keys()) {
-    if (!keep.has(id)) db.prepare('DELETE FROM nodes WHERE lesson_id = ? AND node_id = ?').run(lessonId, id);
-  }
-  for (const n of nodes) {
-    q.upsertNode.run(lessonId, n.id, n.label, n.kind, n.summary ?? null, JSON.stringify(n.depends_on ?? []));
-  }
-}
-```
-`deleteLearner` (lines 421-426) calls `deleteLesson` in a loop — `withTx` must not nest a second `BEGIN`; guard with a depth counter or a `db.isTransaction`-style check.
-
-**Type and constant conventions for the new tables** — `db.ts` lines 217-224:
-```typescript
-/**
- * What a question is for. 'probe' maps the learner before the plan, ...
- */
-export type QuizPurpose = 'probe' | 'pretest' | 'check' | 'cumulative' | 'review';
-export const QUIZ_TESTS: QuizTests[] = ['intuition', 'procedure', 'transfer'];
-```
-Apply to `type CostSource = 'provider' | 'table' | 'subscription' | 'unknown'` (D-16). Row types are `XxxRow` (`TurnRow`, `UsageRow`) with snake_case columns preserved.
-
----
-
-### `server/src/driver.ts` + `drivers/fake.ts` (new, service, streaming)
-
-**Analog for the interface + resolution:** `server/src/backend.ts` (module doc above; `backend()` resolution cached in a module-level `resolved`).
-**Analog for the sink vocabulary:** `server/src/events.ts` — read in full, 47 lines. The sink is exactly these five functions, no new event types (D-14 depends on this):
-```typescript
-export function emit(lessonId: string, type: string, payload: unknown): StoredEvent { ... }
-export function emitUpdate(lessonId: string, seq: number, type: string, payload: unknown): StoredEvent { ... }
-export function checkpoint(lessonId: string, seq: number, payload: unknown) { ... }
-export function emitEphemeral(lessonId: string, type: string, payload: unknown) { ... }
-export function subscribe(lessonId: string, l: Listener): () => void { ... }
-```
-
-**The `Active` handle that both drivers already register** (`server/src/codex.ts` line 21) — this is the existing half of the seam:
-```typescript
-export type Active = { interrupt: () => Promise<void> };
-```
-
-**The dispatch to generalise** (`server/src/agent.ts` lines 241-260) — today an `if (backend() === 'codex')` branch inside `runTurn`; the seam replaces the branch, not the surrounding bookkeeping:
-```typescript
-export async function runTurn(lessonId: string, prompt: string, opts: { echoUser?: string } = {}) {
-  const lesson = getLesson(lessonId);
-  if (!lesson) throw new Error('lesson not found');
-  if (active.has(lessonId)) throw new Error('lesson is busy');
-
-  if (opts.echoUser) emit(lessonId, 'user', { text: opts.echoUser });
-  emit(lessonId, 'turn_start', {});
-
-  const pendingNotices = takeNotices(lessonId);
-  if (pendingNotices.length) prompt = `${pendingNotices.join('\n\n')}\n\nThen, the learner's message:\n${prompt}`;
-
-  const instructions = systemPrompt(backend()) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
-  if (backend() === 'codex') {
-    try {
-      await runCodexTurn(lessonId, prompt, instructions, active, stopping);
-    } finally {
-      active.delete(lessonId);
-      stopping.delete(lessonId);
-      cancelPending(lessonId);
-    }
-    return;
-  }
-```
-`ctx` is the argument set already threaded through: `{ lessonId, prompt, instructions, model, effort, sessionId }`. The `setSessionId` callback and the `endTurn` idempotency guard are per-driver:
-```typescript
-  let ended = false;
-  const endTurn = (payload: Record<string, unknown>) => {
-    if (ended) return;
-    ended = true;
-    emit(lessonId, 'turn_end', payload);
-  };
-```
-Module-level state stays in `agent.ts` (`active`, `stopping`) per CONVENTIONS — it is deliberate and documented (lines 22-26).
-
-**`fake` driver module shape:** `server/src/notices.ts` (17 lines, read in full) is the template for a small, fully documented module with module-level state and two exported functions. The fake scripts a sequence of sink calls and resolves; no SDK import.
-
----
-
-### `server/src/secrets.ts` / `redact()` (new, utility, transform) — D-11
-
-**Analog:** `server/src/notices.ts` — module-level registry with a prose doc block, two verbs:
-```typescript
-/**
- * Things that happened while the tutor was mid-turn or idle and that it must
- * hear about at its next chance: material attached while a card was pending, ...
- */
-const notices = new Map<string, string[]>();
-
-export function addNotice(lessonId: string, text: string) { ... }
-export function takeNotices(lessonId: string): string[] { ... }
-```
-Mirror as `registerSecret(value)` / `redact(text)` / `redactErrors(text)` (the pattern backstop, errors and logs only).
-
-**Egress chokepoints to wire:**
-- `server/src/events.ts` `emit`/`emitUpdate`/`emitEphemeral` — exact-match only, no pattern backstop (a lesson about API keys must survive).
-- `server/src/export.ts` `renderMarkdown` (line 69), `exportToVault` (line 180), `mirrorToVault` (line 197) — exact-match only.
-- `server/src/index.ts` error responses — the existing `e instanceof Error ? e.message : String(e)` narrowing sites; pattern backstop applies here.
-- Console lines — the `[tag]` convention: `console.error('[turn]', e)`, `console.warn('[codex] ...')`.
-
----
-
-### `server/src/library.ts` + `server/src/repo.ts` — SSRF and path guards (D-10)
-
-**Analog / hook point:** `server/src/library.ts` line 217, the single `get()` through which every library fetch passes. The host check goes at the top and re-runs per redirect (which means replacing `redirect: 'follow'` with a manual loop):
-```typescript
-async function get(url: string, accept: string, maxBytes: number): Promise<{ type: string; buf: Buffer; url: string }> {
-  const res = await fetch(url, { headers: { 'user-agent': USER_AGENT, accept, 'accept-language': 'en, *;q=0.5' }, redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const len = Number(res.headers.get('content-length') ?? 0);
-  if (len > maxBytes) throw new Error(`larger than ${Math.round(maxBytes / 1024 / 1024)} MB`);
-  ...
-}
-```
-Error-message style to match: lowercase, no code, `larger than 6 MB`. `normalizeUrl` (line 46) is where a scheme allowlist belongs. `fetchVideo` (line 233) and `fetchPage` (line 281) both route through `get`, so one guard covers them.
-
-**Repo root check** (`server/src/repo.ts` lines 131-135) — the `~`/`/` refusal and the deny-list go here and in `walk`:
-```typescript
-export function fromDirectory(rawPath: string): RepoSource {
-  const dir = expandHome(rawPath);
-  const st = statSync(dir, { throwIfNoEntry: false });
-  if (!st?.isDirectory()) throw new Error(`Not a directory: ${rawPath}`);
-  const all = (gitListFiles(dir) ?? walk(dir)).filter((p) => !inSkippedDir(p) && isTextName(p));
-```
-The existing `.filter((p) => !inSkippedDir(p) && isTextName(p))` is the exact slot for a `!isSecretName(p)` conjunct.
-
-**`https://` restriction** (`server/src/repo.ts` lines 232-236) — note `fromGitClone` shells out with the URL, so the scheme check must precede `execFileSync`:
-```typescript
-function fromGitClone(url: string): RepoSource {
-  const tmp = mkdtempSync(join(DATA_DIR, 'clone-'));
-  try {
-    execFileSync('git', ['clone', '--depth', '1', '--quiet', url, tmp], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000 });
-```
-
----
-
-### `method/*.md` + render script (D-01..D-04)
-
-**Analog for the canonical prose:** `server/src/prompt.ts` — the `PROMPT` template is the spine (D-03). Its structure is already section-per-heading, which is the split the `method/` directory takes:
-```
-# The philosophy (internalize it)
-## Principle i: unconditional truths first
-## Principle ii: "How could I have discovered this?"
-# Your tools
-# Writing quiz options (construction procedure, every time)
-```
-
-**The placeholder mechanism to generalise** (`prompt.ts` line 39 and 106-108):
-```typescript
-- {{WEB_TOOLS}}: verify. Accuracy is non-negotiable; the moment you are even slightly unsure of a fact, formula, name or date, check it before teaching it. ...
-```
-```typescript
-export function systemPrompt(backend: 'claude' | 'codex'): string {
-  const web = ...;
-  return PROMPT.replace('{{WEB_TOOLS}}', web);
-}
-```
-D-02's per-surface preamble is exactly this, one level up: shared body + `.replace()` of tool-naming tokens. Keep `warmupBrief`, `firstTurnPrompt`, `materialAttachedPrompt`, `reviewTurnPrompt` (lines 116-175) where they are — they are turn prompts, not method text.
-
-**Rules to fold in from the other copies (D-03):** `plugin/skills/teach/SKILL.md` ("Warm-up first", "The cumulative quiz", "Do not let them be lazy"); `plugin/commands/learn.md` steps 4-6 (read above — "A bare sequence of quizzes with one-line remarks between them is a failed lesson", "Never end your turn in the teach phase without a card pending").
-
-**Generated frontmatter target** (`plugin/commands/learn.md` lines 1-5) — the 21-name list the registry emits (21, not 22: `library` is excluded from the command allow-list):
-```yaml
----
-description: Learn a topic from first principles with Derive (probe -> plan -> teach, rendered live in the browser)
-argument-hint: <topic you want to actually understand> [paths to course slides, PDFs, notes, a repo folder or a GitHub URL] [--terminal] [--learner <name>]
-allowed-tools: mcp__plugin_derive_derive__start_lesson, mcp__plugin_derive_derive__attach_material, ..., WebSearch, WebFetch, Skill
----
-```
-`WebSearch, WebFetch, Skill` are not registry tools — the render step appends them as a fixed tail.
-
-**Script pattern:** `scripts/doctor.mjs` lines 1-18 — `.mjs`, shebang, prose doc block, collector functions, no dependencies:
 ```javascript
-#!/usr/bin/env node
-/**
- * `pnpm check`: checks everything Derive needs before the first lesson, and
- * says what to do about each thing it finds missing. Read-only.
- */
-import { execFileSync } from 'node:child_process';
-...
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const results = [];
-const ok = (name, detail) => results.push({ level: 'ok', name, detail });
-const fail = (name, detail, fix) => results.push({ level: 'fail', name, detail, fix });
+// How everything on this machine except the browser authenticates: the MCP server, the plugin hook and the Vite dev proxy all read this file.
+// The browser never sees it — the server hands the page a separate derived cookie instead. Anyone who can read this file, or who can reach the
+// port from this machine, can drive the learner's lessons and read anything Derive can read.
 ```
-`scripts/` has no `package.json` and is not a workspace package — scripts must run on bare Node with zero imports outside `node:*`. The render script therefore cannot import `server/src/tools.ts` directly; run it through `tsx` from the `server` package, or render from `server/dist`.
+
+Two specific sentences must go or change:
+- `index.ts:102` — "never logged, never emitted, and **never returned by any route**". Falsified by `GET /api/materials/:id?text=1` through the symlink read. Either the repo.ts fix makes it true again (preferred, since item 2 closes it) or the sentence narrows to what holds.
+- `index.ts:1075-1077` — "The document routes are protected **at least as well as** the API they unlock." Strictly false while the loopback early-return stands. Per CLAUDE.md comment conventions, replace with prose that says *why* the posture is what it is, not a guarantee.
 
 ---
 
-### Tests (FOUND-04)
+### `server/src/repo.ts` — refuse symlinks, filter the tarball, pin the clone
 
-**Analog for the MCP smoke test:** `server/test/api.test.ts` lines 1-70 — the spawn-a-built-server-on-a-random-port harness, read in full above. Key excerpt:
+**Analog (in-file, the existing refusal shape):** `fromDirectory` 147-150 — a one-sentence `//` comment giving the *why*, then a lowercase-sentence `throw new Error(...)`:
+
 ```typescript
-before(async () => {
-  assert.ok(existsSync(entry), `build first: ${entry} is missing`);
-  dataDir = mkdtempSync(join(tmpdir(), 'derive-api-'));
-  const port = 4400 + Math.floor(Math.random() * 500);
-  base = `http://127.0.0.1:${port}`;
-  server = spawn(process.execPath, [entry], { env: { ...process.env, PORT: String(port), DERIVE_DATA_DIR: dataDir, DERIVE_BACKEND: 'claude' }, stdio: ['ignore', 'pipe', 'pipe'] });
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
+// Importing a whole home directory or a whole disk is never what the learner meant, and both are full of things the tutor should not read.
+if (dir === parse(dir).root || dir === homedir()) throw new Error('that is your home folder or the whole disk, not a project: name the project folder instead');
+```
+
+**1. `walk()` 122-143 — `statSync` → `lstatSync`.** Current:
+
+```typescript
+    let st;
     try {
-      const r = await fetch(`${base}/api/health`);
-      if (r.ok) return;
+      st = statSync(full);
     } catch {
-      /* not up yet */
+      continue;
     }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error('server did not start');
-});
-
-after(() => {
-  server?.kill();
-  if (dataDir) rmSync(dataDir, { recursive: true, force: true });
-});
+    if (st.isDirectory()) {
+      if (!SKIP_DIRS.has(e)) walk(full, root, out);
+    } else if (st.isFile() && !isSecretName(e)) out.push(relative(root, full).split(sep).join('/'));
 ```
-The MCP smoke test spawns `server/dist/mcp.js` the same way with `DERIVE_URL` pointed at the scratch server, and speaks JSON-RPC over stdin/stdout. It must set the token env for the hardened server.
 
-**Helper style to copy** (`api.test.ts` lines 30-46) — short `const` arrows, terminal-answered cards so no model is needed, `teachProse` for the 240-char `teachingGap`:
+`lstatSync` makes a symlink neither `isDirectory()` nor `isFile()`, so both branches fall through and the entry is silently skipped — no new control flow, and it closes advisory finding 5 (the directory-symlink cycle) in the same edit. Keep the `try/catch { continue }`; keep the `catch { /* ... */ }` empty-catch-with-a-reason convention from CLAUDE.md if a comment is added.
+
+**2. `fromDirectory` read loop 161-170 — same substitution.** The second `statSync(full)` (the one guarding `fst.size > READ_BYTES`) must also be `lstatSync`, because `gitListFiles` can hand back a symlink path that `walk` never saw. The `git ls-files` path additionally needs the `realpathSync` root pin named in `missing:` item 2 — resolve each candidate and require it to stay under `realpathSync(dir)`.
+
+**3. `fromGitHub` 255 — add `isSecretName` to the filter.** The two lines are meant to be twins:
+
 ```typescript
-const act = (lesson: string, action: string, body: unknown) => api(`/api/external/lessons/${lesson}/${action}`, body);
-/** Open a terminal card and answer it in one go, returning the graded result. */
-const askAndAnswer = async (lesson: string, quiz: Record<string, unknown>, reply: string) => {
-  const opened = await act(lesson, 'quiz', quiz);
-  assert.equal(opened.status, 200, JSON.stringify(opened.json));
-  assert.equal(opened.json.status, 'pending');
-  const answered = await act(lesson, 'answer', { reply });
-  ...
-};
-const teachProse = (lesson: string, node: string) =>
-  act(lesson, 'mirror', { role: 'assistant', text: `Teaching ${node}. `.repeat(30), uid: `${node}-prose` });
+// fromDirectory:151
+const all = (gitListFiles(dir) ?? walk(dir)).filter((p) => !inSkippedDir(p) && !isSecretName(p) && isTextName(p));
+// fromGitHub:255 — missing the middle term
+const paths = orderFiles([...byPath.keys()].filter((p) => !inSkippedDir(p) && isTextName(p)));
 ```
 
-**Analog for the wire-surface snapshot test:** `server/test/reply.test.ts` — the import-order trick, mandatory for any test that imports a module transitively pulling in `db.ts` (which opens SQLite at import time): set `process.env.DERIVE_DATA_DIR` to a `mkdtempSync` dir *before* a dynamic `await import(...)`. The registry module itself should be import-side-effect-free so the snapshot test can skip this.
+`isSecretName`'s own doc comment at 54-59 already promises "both when the list is built and when the tree is walked", so this makes the comment true rather than needing a new one.
 
-**CI step pattern** (`.github/workflows/ci.yml`) — add drift/snapshot/smoke as siblings of these, after Build:
-```yaml
-      - name: Test
-        run: pnpm test
-        env:
-          CI: 'true'
+**4. `fromGitClone` 274-279 — pin the clone to the judged URL.** The egress analog is `server/src/library.ts` `fetchPublic` 322-345, whose doc comment states exactly the principle the clone path is missing:
 
-      - name: Doctor script runs
-        run: node scripts/doctor.mjs || true
+```typescript
+/**
+ * The one door every library fetch goes through, and therefore the one place
+ * the host guard has to hold. Redirects are followed by hand rather than by
+ * `fetch`, because a public URL is free to redirect to 127.0.0.1 and the
+ * only honest way to catch that is to check each hop before taking it.
+ */
+export async function fetchPublic(url: string, ...) {
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    await (guard ?? assertPublicHost)(current);
+    const res = await fetch(current, { ..., redirect: 'manual', ... });
 ```
-Do **not** copy the `|| true` — the method drift check must fail CI (D-04).
+
+`git` cannot re-check per hop, so the equivalent is to forbid the hop. Extend the existing `execFileSync` call — its current form:
+
+```typescript
+execFileSync('git', ['clone', '--depth', '1', '--quiet', url, tmp], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000 });
+```
+
+with `-c http.followRedirects=false -c protocol.allow=never -c protocol.https.allow=always` and `env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }` (`missing:` item 4). The existing comment at 274 is already the right shape (one long `//` sentence explaining why both checks run before the spawn) — extend it with the redirect reason, citing `fetchPublic`'s per-hop check as the thing being matched.
 
 ---
 
-### `web/vite.config.ts` — dev proxy token header (D-09)
+### `server/test/guards.test.ts` — the symlink-refusal case
 
-**Analog:** the file itself (12 lines, read in full). The `proxy` object gains `headers`; the token is read at config-evaluation time from `~/.derive/token`:
+**Analog:** the last case of `describe('importing a folder')`, 195-206. Copy its structure exactly — `mkdtempSync` into `tmpdir()`, write fixtures, assert on `src.files.map((f) => f.path)` with `assert.deepEqual`:
+
 ```typescript
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  server: {
-    port: 5173,
-    proxy: { '/api': { target: 'http://localhost:4310', changeOrigin: true } },
-  },
-  build: { chunkSizeWarningLimit: 2000 },
-});
+  it('imports the ordinary file and nothing else', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'derive-repo-'));
+    mkdirSync(join(dir, 'config'));
+    for (const [name, body] of [['credentials', 'aws_secret_access_key = hunter2'], ..., ['README.md', '# a project\n\nwith some words in it.']] as const) {
+      writeFileSync(join(dir, name), body);
+    }
+    const src = fromDirectory(dir);
+    assert.deepEqual(
+      src.files.map((f) => f.path),
+      ['README.md'],
+    );
+  });
 ```
-Note: this is the one file in the repo with `export default` (`defineConfig`) — the named-exports-only rule does not apply here.
+
+The new case builds a repo holding `README.md` plus `notes.md -> <a file outside the tree>` (use `symlinkSync`, added to the `node:fs` import list at line 24) and asserts the same `['README.md']`. `missing:` item 2 specifies this assertion verbatim. A companion case for the directory-symlink cycle (`link -> dir` pointing at its own ancestor) closes advisory 5 and must not hang.
+
+**Doc-comment analog:** this suite's own header 1-19 was already rewritten in the gap closure to enumerate only what its cases drive ("What these cases exercise, one guard at a time: ..."). Extend that enumeration with the symlink clause rather than adding a new paragraph — and do not add a redirect clause unless a case actually drives one (git has no outbound HTTP in this environment; the honest form is the `readFileSync`-the-source assertion already used at guards.test.ts:174-177 for `AbortSignal.timeout`, which is the established pattern for "the absence of this flag is exactly the regression to catch").
+
+---
+
+### `server/test/security.test.ts` — the suite doc comment and the document-route cases
+
+**Analog (an honest doc comment in this same file):** the `describe('a widened bind')` block comment, 222-232:
+
+```typescript
+/**
+ * DERIVE_HOST is read once at boot, so this needs a server of its own. What
+ * it proves is the defect the verification found, inverted: the allowed Host
+ * names come from the address the connection landed on, so loopback still
+ * works over loopback and a loopback name arriving from the network does not.
+ */
+```
+
+That is the register: *what this proves*, stated as the inverse of a specific defect, with nothing claimed beyond the cases below it.
+
+**What must change at 5-8:** "used to be open to any process on the machine … These cases are the proof that it is not." Every document-route case (280-337) exercises the credential-issuing path and asserts it *succeeds*; none bounds who may reach it. Two acceptable outcomes, matching `missing:` item 1:
+- If the planner closes the loopback hole, add the bounding case first (an unauthenticated `GET /` on loopback is 401 / issues no cookie), then the sentence becomes true.
+- If a local process is accepted as trusted, rewrite 5-8 to say what `doctor.mjs:74-75` says — open to any process on *this machine*, closed to the network and to any page.
+
+Either way, plan 01-09's standing prohibition applies: **never make a test pass by narrowing what it asserts.** Narrow the *claim*, not the assertion.
+
+Also in this file, per the anti-pattern table: the 199-202 "no Host header" case passes because node's parser rejects it (comment already says so — consider moving it out of `describe('the Host check')`), and the 4900+/5000+ fixed port ranges have no `EADDRINUSE` retry.
+
+**Case-writing analog** (for any new document-route case) — 280-296:
+
+```typescript
+  it('refuse a foreign Host before any HTML is written', async () => {
+    const res = await raw('/', { host: 'evil.com' });
+    assert.equal(res.status, 403);
+    assert.ok(!res.body.includes(token));
+  });
+```
+
+`raw()` for header control, `req()` for the ordinary path, `cookieFrom`/`cookieValue` for the cookie, and every negative assertion carries a message string.
+
+---
+
+### `web/src/lib/api.ts` and `web/src/lib/useLesson.ts` — delete the dead token path
+
+**Analog:** `web/src/lib/api.ts` 3-15, the neighbouring credential helper — a `/** */` block explaining what the value is and where it comes from, then a small `const` arrow with a `try/catch { /* private mode */ }`:
+
+```typescript
+/**
+ * The selected learner profile, kept in this browser. Sent on every request
+ * so lessons, the atlas and the review queue are theirs. Empty means the
+ * first learner.
+ */
+const LEARNER_KEY = 'derive.learner';
+export const currentLearner = (): string => { ... };
+```
+
+**Delete** `api.ts` 24-33 (the `deriveToken` doc block, the `token` module variable and the getter) and the `t` term in `headers()` 34-39, leaving:
+
+```typescript
+const headers = (extra: Record<string, string> = {}) => {
+  const l = currentLearner();
+  return { ...extra, ...(l ? { 'x-derive-learner': l } : {}) };
+};
+```
+
+In its place put a short block in `currentLearner`'s register saying the browser authenticates with the HttpOnly `derive_session` cookie the document response set, which the page cannot read and does not need to send by hand (`missing:` item 6). Dev is unchanged: `web/vite.config.ts` adds `x-derive-token` on the proxy.
+
+**Delete** `useLesson.ts` ~254-256 — the comment and the `auth` term:
+
+```typescript
+        // EventSource cannot set a header, so this is the one request that carries the install token in the query string.
+        const auth = deriveToken() ? `&token=${encodeURIComponent(deriveToken())}` : '';
+        es = new EventSource(`/api/lessons/${id}/stream?after=${lastSeq.current}${auth}`);
+```
+
+becomes the bare URL, with a one-line comment noting the cookie rides along because `EventSource` is same-origin. Drop `deriveToken` from the import at the top of the file (`noUnusedLocals` is on in `web/tsconfig.app.json`, so a stale import fails the build — that is the build's own check that the deletion is complete).
+
+**Server side:** `index.ts:234`'s `/stream` query-token branch is now callerless. Removing it is in scope of the same edit; if it is kept for curl and the test harness, say so — `security.test.ts` drives the SSE stream with `?token=` today, so deleting it breaks a real case.
 
 ---
 
 ## Shared Patterns
 
-### Module doc block
-**Source:** `server/src/backend.ts` lines 1-8; `server/src/notices.ts` lines 1-6; `server/src/codex.ts` lines 1-11.
-**Apply to:** every new server module (`driver.ts`, `migrations.ts`, `secrets.ts`, `drivers/fake.ts`).
-Prose paragraphs, what it is for *and why*, never bullet lists.
-```typescript
-/**
- * The Codex backend: one lesson turn through the Codex SDK, on the
- * learner's ChatGPT login.
- *
- * Each turn is a `codex exec` run (resumed on the lesson's thread after the
- * first). The tutor's tools reach it as an MCP server: ...
- */
-```
+### Fail closed on an unknown address
+**Source:** `server/src/index.ts` `hostNames` ~145-160
+**Apply to:** `index.ts:1092-1093` (the document middleware)
+The one file already contains both polarities; the fix is to make the second match the first.
 
-### Error handling
-**Source:** `server/src/db.ts:422`, `server/src/index.ts` route handlers, `server/src/mcp.ts` `api()`.
-**Apply to:** every new module.
-Plain `Error`, lowercase human sentence the model or learner can read as-is:
-```typescript
-if (id === DEFAULT_LEARNER_ID) throw new Error('the first learner cannot be removed; rename it instead');
-```
-```typescript
-if (!lesson) return c.json({ error: 'not found' }, 404);
-```
-Narrow every catch with `e instanceof Error ? e.message : String(e)`. Best-effort catches carry a one-word reason: `catch { /* column exists */ }`, `catch { /* not up yet */ }`.
+### One destination guard, re-checked on every hop
+**Source:** `server/src/library.ts` `fetchPublic` 322-345 and `assertPublicHost` 152-175
+**Apply to:** `repo.ts fromGitClone`
+`repo.ts:14-15` already carries the comment explaining why a second copy of `assertPublicHost` is "exactly the wrong answer: two destination guards drift apart, and then one egress is weaker than the rest." That reasoning is why the clone fix is flags-on-git, not a new guard.
 
-### Import conventions
-**Source:** `server/src/agent.ts` lines 1-15, `server/src/codex.ts` lines 12-19.
-**Apply to:** all new server files.
-`node:` builtins first, then packages, then local with the `.js` extension, alphabetical:
-```typescript
-import { randomUUID } from 'node:crypto';
-import { createSdkMcpServer, query, tool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { z } from 'zod';
-import * as actions from './actions.js';
-import { backend } from './backend.js';
-import { DATA_DIR, EFFORT, MODEL } from './config.js';
-import { getLesson, learnerProfile, setSessionId, type GraphNodeInput } from './db.js';
-```
-Inline `type` modifiers, never a separate `import type` line on the server.
+### Errors are lowercase human sentences on plain `Error`
+**Source:** `repo.ts:148`, `repo.ts:275`, `index.ts:95-98`
+**Apply to:** every new refusal in `repo.ts` and `index.ts`
+No custom error classes, no codes. Narrow a caught value with `e instanceof Error ? e.message : String(e)`.
 
-### Logging
-**Source:** `server/src/index.ts:836-837`, `agent.ts` `console.error('[turn]', e)`.
-**Apply to:** the startup warning of D-12, migration failures, token-file failures.
-`[tag]`-prefixed, failures and startup facts only, never per-request.
+### A comment states the mechanism, never a guarantee the code does not deliver
+**Source:** `scripts/doctor.mjs` 73-75; `server/test/guards.test.ts` 1-19 (both corrected in the last gap closure)
+**Apply to:** `index.ts:102`, `index.ts:1075-1082`, `security.test.ts:5-8`
+This is the single recurring defect of the phase — three green suites and two comments have now stated guarantees the code did not have. Every comment touched by this run must be checkable against a case or a line.
 
-### Config constants
-**Source:** `server/src/config.ts` (whole file).
-**Apply to:** every new env variable. Read `process.env` only here, one `/** */` line each, `resolve()` paths, `|| undefined` for optional strings.
+### Secrets never reach an egress
+**Source:** `server/src/secrets.ts` `registerSecret`/`redact`/`redactDeep`, wired at `events.ts:18,30,40,45` and `export.ts:176`; registration at `index.ts:113-114`
+**Apply to:** context only, not a change
+The chokepoint is correct and correctly kept off lesson content (D-11). It cannot catch the material-text path (`materialEvent` at `index.ts:475` carries metadata only), which is precisely why the `repo.ts` symlink fix is the real closure and not a redaction change. Do **not** solve the token leak by extending pattern redaction onto material text — D-11 forbids it and it would corrupt a lesson that teaches about credentials.
 
----
+### Test fixtures are offline and scratch-scoped
+**Source:** `server/test/guards.test.ts` 28-29 (`DERIVE_DATA_DIR` set to a `mkdtempSync` dir *before* a dynamic `await import`), `server/test/security.test.ts` `startServer`
+**Apply to:** the new `guards.test.ts` case
+db.ts opens SQLite at import time; the env var must be set first. Never touch the learner's real `~/.derive`.
 
 ## No Analog Found
 
-| File | Role | Data Flow | Reason |
-|------|------|-----------|--------|
-| `server/test/wire-surface.json` | fixture | batch | No committed JSON fixture exists in the repo; the three test files assert inline. Shape is defined by D-08 (name, description, JSON-Schema input) rather than by precedent. |
-| `codex/skills/derive-{learn,review}/SKILL.md` | content | transform | No `SKILL.md` body exists under `codex/` today (only the 8-line `agents/openai.yaml` manifests). Structure comes from `plugin/skills/teach/SKILL.md` as the nearest template, but the Codex skill frontmatter has no precedent in-repo. |
+None. Every file in this gap-closure run is a modification of code this phase already wrote, and each fix has a sibling in the same file or in `library.ts`.
 
 ## Metadata
 
-**Analog search scope:** `server/src/` (19 files), `server/test/` (3 files), `scripts/`, `plugin/`, `codex/`, `web/`, `.github/workflows/`
-**Files scanned:** 24; read or targeted-read: 20
-**Pattern extraction date:** 2026-09-17
+**Analog search scope:** `server/src/`, `server/test/`, `web/src/lib/`, `scripts/`
+**Files read:** 9 (`index.ts`, `repo.ts`, `library.ts`, `guards.test.ts`, `security.test.ts`, `api.ts`, `useLesson.ts`, `doctor.mjs`, plus the two upstream planning docs)
+**Pattern extraction date:** 2026-09-19
