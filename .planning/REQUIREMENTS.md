@@ -15,7 +15,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **FOUND-02**: The teaching method text is defined once and rendered for the app system prompt, the Claude Code plugin skill, the Codex skills and the docs; CI fails when a rendered copy drifts from the source
 - [ ] **FOUND-03**: Every driver runs behind one driver interface and reports through one event sink, so adding a provider changes neither the web UI, the SSE stream, nor the terminal mirrors
 - [ ] **FOUND-04**: The Claude Code plugin and Codex paths keep working through the refactor, proven by a wire-surface snapshot and a stdio MCP smoke test that needs no model
-- [ ] **FOUND-05**: SQLite schema changes run through a numbered, transactional migration runner; `replaceGraph` and `deleteLesson` are transactional; existing databases migrate forward
+- [x] **FOUND-05**: SQLite schema changes run through a numbered, transactional migration runner; `replaceGraph` and `deleteLesson` are transactional; existing databases migrate forward
 - [ ] **FOUND-06**: The local server binds loopback only, checks Host and Origin, requires a per-install token, and redacts secrets from every error, log, event and export path before any key is stored
 
 ### Providers
@@ -44,7 +44,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Cost
 
-- [ ] **COST-01**: Every turn persists raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
+- [x] **COST-01**: Every turn persists raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
 - [ ] **COST-02**: Learner sees the estimated cost of each lesson in the lesson header and on Home, labelled billed, estimated, or not billed
 - [ ] **COST-03**: Learner sees a usage page with a running total per learner, by provider, model and lesson, and tokens-only lines for subscription and local paths
 - [ ] **COST-04**: Prices come from a versioned pricing table with a "prices as of" date the learner can override locally
@@ -144,7 +144,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUND-02 | Phase 1 | Gaps Found |
 | FOUND-03 | Phase 1 | Gaps Found |
 | FOUND-04 | Phase 1 | Gaps Found |
-| FOUND-05 | Phase 1 | Gaps Found |
+| FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Gaps Found |
 | PROV-01 | Phase 3 | Pending |
 | PROV-02 | Phase 3 | Pending |
@@ -164,7 +164,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SET-04 | Phase 2 | Pending |
 | SET-05 | Phase 2 | Pending |
 | SET-06 | Phase 2 | Pending |
-| COST-01 | Phase 1 | Gaps Found |
+| COST-01 | Phase 1 | Complete |
 | COST-02 | Phase 3 | Pending |
 | COST-03 | Phase 4 | Pending |
 | COST-04 | Phase 3 | Pending |

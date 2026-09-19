@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-10-PLAN.md
-last_updated: "2026-09-19T14:26:18.569Z"
+stopped_at: Completed 01-11-PLAN.md
+last_updated: "2026-09-19T14:36:03.647Z"
 last_activity: 2026-09-19
 last_activity_desc: Phase 01 execution started
-state_head: bf9044893e241c6d4e41c9c40f0f915f2df4063c
+state_head: 0afe2829bec3a1ca4031839a83c45e127779ec43
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 ## Current Position
 
 Phase: 01 (Foundation) — EXECUTING
-Plan: 3 of 12
+Plan: 4 of 12
 Status: Ready to execute
 Last activity: 2026-09-19 — Phase 01 execution started
 
@@ -68,6 +68,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P08 | 52 min | 3 tasks | 12 files |
 | Phase 01 P09 | 28 min | 2 tasks | 4 files |
 | Phase 01 P10 | 4 min | 2 tasks | 5 files |
+| Phase 01 P11 | 6 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,8 @@ Recent decisions affecting current work:
 - [Phase 01]: assertPublicHost is imported into repo.ts rather than copied, accepting a real repo -> library -> materials -> repo import ring: two copies of a destination guard drift apart until one egress is weaker than the rest
 - [Phase 01]: The https-only scheme check stays ahead of the host guard, and the host guard stays ahead of mkdtempSync, so a refusal keeps its own sentence and leaves no scratch directory
 - [Phase 01]: A load-bearing import-ring condition is recorded at the line that would break it (library.ts:31), not only in the module that closes the ring
+- [Phase 01]: deleteLesson and deleteLearner clear the turns and usage rows in the transaction they already open; the learner-scoped pair stays because recordUsage/startTurn denormalise learner_id, so a row can outlive its lesson row
+- [Phase 01]: A per-lesson or per-learner table is not finished until the delete functions clear it and a case counts the rows; tx.test.ts compares whole row-count objects so a forgotten table shows up as a diff
 
 ### Pending Todos
 
@@ -133,6 +136,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-19T14:26:09.923Z
-Stopped at: Completed 01-10-PLAN.md
+Last session: 2026-09-19T14:35:54.186Z
+Stopped at: Completed 01-11-PLAN.md
 Resume file: None
