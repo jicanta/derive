@@ -73,13 +73,19 @@ Plans:
 
 **Gap closure** *(from 01-VERIFICATION.md, status gaps_found at 3/5 — run with `/gsd-execute-phase 1 --gaps-only`)*
 
-**Gap wave 1** *(three plans, no shared file, run in parallel)*
+**Gap wave 1**
 
 - [ ] 01-09-PLAN.md — The document routes guarded like the API they unlock: no token in the markup, an HttpOnly derived session cookie, and a Host check bound to the address the request arrived on (gap wave 1)
-- [ ] 01-10-PLAN.md — `assertPublicHost` in `fromGitClone` before the scratch directory and the git spawn, with the private-address case `guards.test.ts` never had, and the new import ring written down at both ends of itself (gap wave 2)
-- [ ] 01-11-PLAN.md — `deleteLesson` and `deleteLearner` clear the `turns` and `usage` rows their own comments promise (WR-01) (gap wave 3)
 
 **Gap wave 2** *(blocked on gap wave 1 completion)*
+
+- [ ] 01-10-PLAN.md — `assertPublicHost` in `fromGitClone` before the scratch directory and the git spawn, with the private-address case `guards.test.ts` never had, and the new import ring written down at both ends of itself (gap wave 2)
+
+**Gap wave 3** *(blocked on gap wave 2 completion)*
+
+- [ ] 01-11-PLAN.md — `deleteLesson` and `deleteLearner` clear the `turns` and `usage` rows their own comments promise (WR-01) (gap wave 3)
+
+**Gap wave 4** *(blocked on gap wave 3 completion)*
 
 - [ ] 01-12-PLAN.md — Re-run every failed spot-check with the verifier's own instrument, then the plugin and Codex parity run as a human check (gap wave 4)
 
