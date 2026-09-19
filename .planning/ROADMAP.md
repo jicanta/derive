@@ -39,7 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. An existing `~/.derive` database opens on the new version and migrates forward under a numbered, transactional runner; an interrupted `replaceGraph` or `deleteLesson` leaves no partial state
   5. The server answers only on 127.0.0.1 with a per-install token, rejects foreign Host and Origin, and no secret appears in any error, log, event, export or vault-mirror path; every turn stores raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
 
-**Plans**: 11/12 plans executed, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening); plus 4 gap-closure plans (01-09..01-12) in 4 waves — serialised because each runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files — closing the Success Criterion 5 authentication gaps found at verification and running the outstanding Criterion 1 parity check
+**Plans**: 12/12 plans executed, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening); plus 4 gap-closure plans (01-09..01-12) in 4 waves — serialised because each runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files — closing the Success Criterion 5 authentication gaps found at verification and running the outstanding Criterion 1 parity check
 
 Plans:
 **Wave 1**
@@ -87,7 +87,7 @@ Plans:
 
 **Gap wave 4** *(blocked on gap wave 3 completion)*
 
-- [ ] 01-12-PLAN.md — Re-run every failed spot-check with the verifier's own instrument, then the plugin and Codex parity run as a human check (gap wave 4)
+- [x] 01-12-PLAN.md — Re-run every failed spot-check with the verifier's own instrument, then the plugin and Codex parity run as a human check (gap wave 4)
 
 **Cross-cutting constraints:**
 
@@ -210,7 +210,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 11/12 | In Progress|  |
+| 1. Foundation | 12/12 | In Progress|  |
 | 2. Settings and Secrets | 0/TBD | Not started | - |
 | 3. Owned Loop: API Keys and Gateways | 0/TBD | Not started | - |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |

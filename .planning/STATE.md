@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-11-PLAN.md
-last_updated: "2026-09-19T14:36:03.647Z"
+stopped_at: Completed 01-12-PLAN.md
+last_updated: "2026-09-19T14:46:07.259Z"
 last_activity: 2026-09-19
 last_activity_desc: Phase 01 execution started
-state_head: 0afe2829bec3a1ca4031839a83c45e127779ec43
+state_head: 1ea5674047d87978b5e82b534ff2d6b976f56143
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 12
-  completed_plans: 11
+  completed_plans: 12
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 ## Current Position
 
 Phase: 01 (Foundation) — EXECUTING
-Plan: 4 of 12
+Plan: 5 of 12
 Status: Ready to execute
 Last activity: 2026-09-19 — Phase 01 execution started
 
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P09 | 28 min | 2 tasks | 4 files |
 | Phase 01 P10 | 4 min | 2 tasks | 5 files |
 | Phase 01 P11 | 6 min | 2 tasks | 2 files |
+| Phase 01 P12 | 8 min | 2 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -114,6 +115,10 @@ Recent decisions affecting current work:
 - [Phase 01]: A load-bearing import-ring condition is recorded at the line that would break it (library.ts:31), not only in the module that closes the ring
 - [Phase 01]: deleteLesson and deleteLearner clear the turns and usage rows in the transaction they already open; the learner-scoped pair stays because recordUsage/startTurn denormalise learner_id, so a row can outlive its lesson row
 - [Phase 01]: A per-lesson or per-learner table is not finished until the delete functions clear it and a case counts the rows; tx.test.ts compares whole row-count objects so a forgotten table shows up as a diff
+- [Phase 01]: Per 01-12 every ✗ FAIL row of the verification's behavioural spot-check table was re-run with the verifier's own instrument (raw curl against server/dist/index.js on a scratch DERIVE_DATA_DIR, a direct collectRepo drive, a scratch-database row count) and reproduces as a pass; none was recorded as unrunnable
+- [Phase 01]: Per 01-12 the widened-bind LAN pair was run for real on 192.168.0.166:4988 rather than inferred: an honest Host is admitted and a forged Host: 127.0.0.1 from that address is refused
+- [Phase 01]: Per 01-12 the plugin and the Codex skills are NOT installed into the user's agent configuration by a plan; the documented invocations (claude --plugin-dir ./plugin, codex/skills/* into $CODEX_HOME/skills) are recorded in the human check instead
+- [Phase 01]: Per 01-12 FOUND-04's human half (one lesson through the Claude Code plugin and one through the Codex derive-learn skill) is queued as HC-2 for the phase UAT and remains the phase's last open question
 
 ### Pending Todos
 
@@ -125,6 +130,7 @@ None yet.
 - [Phase 3]: AI SDK 7 API shapes, OpenRouter per-response cost field path, and context compaction strategy are unverified in this repo
 - [Phase 4]: No measurement yet of which local models pass the understanding gate; the harness produces the answer
 - [Phase 7]: npm package name not yet reserved (`derive` is taken)
+- [Phase 01]: HC-1 (browser session-cookie smoke) and HC-2 (plugin + Codex parity run, FOUND-04's human half) are recorded in 01-12-SUMMARY.md and not yet performed; the phase should not be marked verified until HC-2 runs
 
 ## Deferred Items
 
@@ -136,6 +142,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-19T14:35:54.186Z
-Stopped at: Completed 01-11-PLAN.md
+Last session: 2026-09-19T14:45:54.321Z
+Stopped at: Completed 01-12-PLAN.md
 Resume file: None
