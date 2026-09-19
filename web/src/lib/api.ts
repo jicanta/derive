@@ -22,20 +22,17 @@ export const selectLearner = (id: string) => {
   }
 };
 /**
- * The install token, put into this document by the server that served it.
- * Empty in development, where the page comes from Vite and its /api proxy
- * adds the header instead. Read once; never stored anywhere else and never
- * logged, since it is already in the document the page arrived as.
+ * How this page is allowed to call the API: with the HttpOnly derive_session
+ * cookie the document response set when the page was opened with the install
+ * token in its URL. Nothing below sends it by hand — the page cannot read an
+ * HttpOnly cookie, and a same-origin fetch carries it by default. In
+ * development the page comes from Vite instead, whose /api proxy adds the
+ * x-derive-token header on the way through (see web/vite.config.ts). So there
+ * is no credential in this file, and that is the mechanism, not an omission.
  */
-let token: string | null = null;
-export const deriveToken = (): string => {
-  if (token === null) token = document.querySelector<HTMLMetaElement>('meta[name="derive-token"]')?.content ?? '';
-  return token;
-};
 const headers = (extra: Record<string, string> = {}) => {
   const l = currentLearner();
-  const t = deriveToken();
-  return { ...extra, ...(t ? { 'x-derive-token': t } : {}), ...(l ? { 'x-derive-learner': l } : {}) };
+  return { ...extra, ...(l ? { 'x-derive-learner': l } : {}) };
 };
 const get = (url: string) => fetch(url, { headers: headers() });
 const del = (url: string) => fetch(url, { method: 'DELETE', headers: headers() });

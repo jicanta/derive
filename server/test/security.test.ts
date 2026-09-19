@@ -12,9 +12,10 @@
  * off this server; the browser then drives the whole API on that derived
  * HttpOnly cookie, which is not the token; a foreign Host or a near-miss
  * Origin is refused on / exactly as it is on /api/*, health included; health
- * is the one route exempt from the credential and nothing else is; and the
- * install token appears in no body and no header of any response these cases
- * make.
+ * is the one route exempt from the credential and nothing else is; a token
+ * offered in a query string is refused on the lesson stream, because that
+ * source is gone now that no browser needs it; and the install token appears
+ * in no body and no header of any response these cases make.
  *
  * Needs `pnpm build` first (it runs server/dist/index.js).
  */
@@ -162,6 +163,15 @@ describe('a request without the right token', () => {
     assert.equal(res.status, 401);
   });
 
+  it('is refused on the lesson stream when the token rides in the query string', async () => {
+    // The one credential source a browser no longer needs, deleted: web/src/lib/useLesson.ts was its only caller.
+    assert.equal((await req(`/api/lessons/does-not-matter/stream?after=0&token=${token}`)).status, 401);
+  });
+
+  it('is not needed by health, which the doctor and the test harnesses poll before there is one', async () => {
+    assert.equal((await req('/api/health')).status, 200);
+  });
+
   it('is let in with the right token', async () => {
     const res = await req('/api/lessons', { 'x-derive-token': token });
     assert.equal(res.status, 200);
@@ -183,6 +193,10 @@ describe('the Origin allowlist', () => {
     assert.ok(!(await res.text()).includes(token));
   });
 
+  it('refuses a foreign origin on health too, which is exempt from the credential and not from this', async () => {
+    assert.equal((await req('/api/health', { origin: 'http://evil.example' })).status, 403);
+  });
+
   it('matches whole, so a longer port is a different origin', async () => {
     assert.equal((await req('/api/lessons', { 'x-derive-token': token, origin: 'http://localhost:51730' })).status, 403);
     assert.equal((await req('/api/lessons', { 'x-derive-token': token, origin: 'http://localhost:5173.evil.example' })).status, 403);
@@ -194,6 +208,17 @@ describe('the Host check', () => {
     const res = await raw('/api/lessons', { 'x-derive-token': token, host: 'derive.example.com' });
     assert.equal(res.status, 403);
     assert.ok(!res.body.includes(token));
+  });
+
+  it('judges a Host with no port as the scheme default, which on any port but 80 is not this server', async () => {
+    // A browser omits the port only when it is the scheme's default, which is why an absent part is read as 80 rather than refused outright. The case that change exists for — PORT=80 accepting an unported Host — needs a privileged port and is not driven here.
+    assert.equal((await raw('/api/lessons', { 'x-derive-token': token, host: '127.0.0.1' })).status, 403);
+  });
+
+  it('refuses a foreign Host on health too, so a rebound page cannot read the version and the backend', async () => {
+    const res = await raw('/api/health', { host: 'evil.com' });
+    assert.equal(res.status, 403);
+    assert.ok(!res.body.includes('backend'), res.body);
   });
 
   it('refuses loopback on a port that is not this one', async () => {

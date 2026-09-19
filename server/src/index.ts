@@ -191,7 +191,11 @@ app.use('/api/*', cors({ origin: ALLOWED_ORIGINS, allowHeaders: ['content-type',
  * is what defeats a DNS rebind that keeps the origin plausible and a forged
  * loopback name arriving from the network. The unspecified addresses are
  * refused as names first, whatever the bind, because no client addresses a
- * server by one. Then an Origin, when the browser sends one, must match the
+ * server by one. A browser omits the port when it is the scheme's default, so
+ * an absent port part is judged as that default — 80, for the plain http this
+ * server speaks — rather than refused outright, which would turn PORT=80 into
+ * a server no browser can address; a port that is present still has to match
+ * exactly. Then an Origin, when the browser sends one, must match the
  * allowlist whole (a same-origin fetch, curl and the stdio MCP proxy send
  * none, so an absent Origin passes). Returns the refusal, or null when both
  * pass.
@@ -199,7 +203,7 @@ app.use('/api/*', cors({ origin: ALLOWED_ORIGINS, allowHeaders: ['content-type',
 function guardLocal(c: Context): Response | null {
   const here = localAddress(c);
   const { host, port } = splitHost(c.req.header('host') ?? '');
-  if (UNSPECIFIED_NAMES.has(host) || !hostNames(c).has(host) || port !== String(PORT)) {
+  if (UNSPECIFIED_NAMES.has(host) || !hostNames(c).has(host) || (port || '80') !== String(PORT)) {
     return c.json({ error: `derive answers on ${here ?? 'this machine'} at port ${PORT}, and a request has to name it` }, 403);
   }
 
@@ -214,26 +218,32 @@ function guardLocal(c: Context): Response | null {
  *
  * Everything the API can do — read every lesson, import any readable folder
  * as course material, fetch a URL — used to be open to any process or any
- * page that could reach the port. The checks close that, in order: health is
- * exempt because the doctor and the test harnesses poll it before there is
- * anything to authenticate with; then the shared Host and Origin guard; then
- * a credential. Three credentials are accepted and any one is enough — the
- * x-derive-token header, which is how the MCP server, the plugin hook and
- * the Vite dev proxy call in; the token as a query parameter on the lesson
- * stream only, because EventSource cannot set a header; and the browser's
- * derive_session cookie, which is the derived value and not the token. An
- * empty or whitespace-only value is absent, never something to compare.
+ * page that could reach the port. The checks close that, in order: the shared
+ * Host and Origin guard, which every route runs, health included, because a
+ * page that reached the port by a rebind must not read the version and the
+ * backend either; then a credential, which health alone is exempt from,
+ * because the doctor and the test harnesses poll it before there is anything
+ * to authenticate with. Two credentials are accepted and either is enough —
+ * the x-derive-token header, which is how the MCP server, the plugin hook and
+ * the Vite dev proxy call in; and the browser's derive_session cookie, which
+ * is the derived value and not the token. The token was also accepted as a
+ * query parameter on the lesson stream until the browser stopped needing it:
+ * a credential in a URL comes to rest in server logs, browser history and
+ * Referer, and that term carried one on every reconnect for the life of a
+ * lesson. The document handoff keeps its query parameter for the opposite
+ * reason — it exists so the credential does not come to rest, and its 302
+ * drops it on the first response. An empty or whitespace-only value is
+ * absent, never something to compare.
  */
 app.use('/api/*', async (c, next) => {
-  if (c.req.path === '/api/health') return next();
-
   const refusal = guardLocal(c);
   if (refusal) return refusal;
 
+  if (c.req.path === '/api/health') return next();
+
   const header = offered(c.req.header('x-derive-token'));
-  const query = c.req.path.endsWith('/stream') ? offered(c.req.query('token')) : '';
   const cookie = offered(getCookie(c, SESSION_COOKIE));
-  const ok = (header && sameValue(header, TOKEN_BUF)) || (query && sameValue(query, TOKEN_BUF)) || (cookie && sameValue(cookie, SESSION_BUF));
+  const ok = (header && sameValue(header, TOKEN_BUF)) || (cookie && sameValue(cookie, SESSION_BUF));
   if (!ok) return c.json({ error: `send the x-derive-token header, with the token in ${TOKEN_PATH}` }, 401);
 
   return next();
