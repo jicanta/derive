@@ -99,7 +99,7 @@ function ensureToken(): string {
   return token;
 }
 
-/** This install's token. Deliberate module state: read once at boot, compared on every request, never logged, never emitted, and never returned by any route. The browser is handed the derived value below instead, so the token itself never leaves this process. */
+/** This install's token. Deliberate module state: read once at boot, compared on every request, never emitted, and never returned by any route. The one place it is written out is the startup line, which prints the link the learner opens the app with once per browser — a browser cannot read the 0600 file and has no other way to present it. Every response is handed the derived value below instead, so no body, no header and no markup ever carries the token itself. */
 const TOKEN = ensureToken();
 const TOKEN_BUF = Buffer.from(TOKEN);
 
@@ -1049,13 +1049,14 @@ if (existsSync(distDir)) {
   // serveStatic resolves its root against process.cwd(), so this is the path from wherever the server was started, whatever that is.
   const relRoot = relative(process.cwd(), distDir).split(sep).join('/') || '.';
   /**
-   * The app is handed its credential here and nowhere else: as an HttpOnly,
-   * SameSite=Strict cookie on a document response that has already passed
-   * the Host and Origin checks. The value is derived from the install token
-   * and is never the token. It is never written into the markup, because
-   * markup that can be fetched is a secret that can be scraped — which is
-   * exactly what the injection this replaces turned out to be. A hostile
-   * page has nothing to call and nothing to read.
+   * The app is handed its credential in one place and nowhere else: the
+   * one-time handoff in the document middleware below, as an HttpOnly,
+   * SameSite=Strict cookie on the 302 that drops the token from the URL. The
+   * value is derived from the install token and is never the token. It is
+   * never written into the markup, because markup that can be fetched is a
+   * secret that can be scraped — which is exactly what the injection this
+   * replaces turned out to be. A hostile page has nothing to call and
+   * nothing to read.
    */
   const indexPath = join(distDir, 'index.html');
   const rawIndex = readFileSync(indexPath, 'utf8');
@@ -1065,32 +1066,32 @@ if (existsSync(distDir)) {
     setCookie(c, SESSION_COOKIE, SESSION, { httpOnly: true, sameSite: 'Strict', path: '/' });
   }
 
-  /** The app, exactly as it is on disk, plus the cookie that lets it call the API. */
+  /** The app, exactly as it is on disk. The cookie that lets it call the API was set by the handoff that let this request past the middleware, so serving is only serving. */
   function serveApp(c: Context) {
-    issueSession(c);
     return c.html(rawIndex);
   }
 
   /**
-   * The document routes are protected at least as well as the API they
-   * unlock. One place covers both of them, serveStatic and the catch-all;
-   * /api/* has its own middleware with its own credential step and passes
-   * straight through here.
+   * Reaching the port is not a credential. The token in the 0600 file is.
    *
-   * On loopback the browser is on this machine and is handed its cookie for
-   * nothing, which is the default and the only quiet case. On a widened bind
-   * it is not, and D-12 says widening weakens no check: a device on the
-   * network presents the install token once, in the URL, and gets a 302 back
-   * to the same path with the query string dropped so the token does not
-   * come to rest in the history. Afterwards it holds only the cookie.
+   * One place covers both document routes, serveStatic and the catch-all;
+   * /api/* has its own middleware with its own credential step and passes
+   * straight through here. A browser presents the install token once, in the
+   * URL, and is answered with a 302 to the same path with the query string
+   * dropped, so the token does not come to rest in the history; afterwards it
+   * holds only the HttpOnly cookie, which is what the whole API runs on. A
+   * browser cannot read the token file, so the learner opens the app from the
+   * link the startup line prints.
+   *
+   * Loopback and a widened bind take the identical path, which is why there
+   * is no branch left here to get the polarity of wrong: the connection's
+   * local address is not consulted at all, and a request that arrived on an
+   * address this process cannot name still has to present the token.
    */
   app.use('/*', async (c, next) => {
     if (c.req.path.startsWith('/api/')) return next();
     const refusal = guardLocal(c);
     if (refusal) return refusal;
-
-    const here = localAddress(c);
-    if (!here || isLoopback(here)) return next();
 
     const cookie = offered(getCookie(c, SESSION_COOKIE));
     if (cookie && sameValue(cookie, SESSION_BUF)) return next();
@@ -1098,11 +1099,12 @@ if (existsSync(distDir)) {
     const presented = offered(c.req.header('x-derive-token')) || offered(c.req.query('token'));
     if (presented && sameValue(presented, TOKEN_BUF)) {
       issueSession(c);
-      return c.redirect(c.req.path, 302);
+      // A caller-supplied path is not a Location: resolving it against a fixed base collapses a protocol-relative "//elsewhere" to a path on this server and percent-encodes a control character that would otherwise split the header.
+      return c.redirect(new URL(c.req.path, 'http://127.0.0.1').pathname, 302);
     }
-    return c.json({ error: `open this page once as ${c.req.path}?token=<the token in ${TOKEN_PATH}> to let this device in` }, 401);
+    return c.json({ error: `open this page once as ${c.req.path}?token=<the token in ${TOKEN_PATH}> to let this browser in` }, 401);
   });
-  // Ahead of serveStatic, which would otherwise hand out the file on disk for "/" and never set a cookie.
+  // Ahead of serveStatic, which resolves "/" against the folder rather than the index this server holds in memory.
   app.get('/', serveApp);
   app.get('/index.html', serveApp);
   app.use('/*', serveStatic({ root: relRoot }));
@@ -1110,14 +1112,15 @@ if (existsSync(distDir)) {
 }
 
 serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
-  console.log(`derive server on http://localhost:${info.port}${existsSync(distDir) ? '' : ' (API only; run the web dev server too)'}`);
+  // The learner's next step is a link, not a lookup: a browser cannot read the 0600 token file, so the one-time handoff URL is printed where they already are.
+  console.log(existsSync(distDir) ? `derive server on http://localhost:${info.port}/?token=${TOKEN} — open that link once per browser; the token drops out of the URL and a cookie takes over` : `derive server on http://localhost:${info.port} (API only; run the web dev server too)`);
   console.log(`tutor runs on ${backend() === 'codex' ? 'Codex (your ChatGPT login)' : 'Claude (your Claude Code login)'}${backendSource() === 'auto' ? ', picked automatically; set DERIVE_BACKEND to choose' : ''}`);
   // D-12: binding wider than loopback is a deliberate choice, and it says exactly what it opened and what still holds.
   if (!HOST_IS_LOOPBACK) {
     console.warn(
       `[derive] DERIVE_HOST=${HOST}: every device that can reach this machine on port ${info.port} can reach your lessons, your library and the folders derive can read. ` +
         `Host is checked against the address each request actually arrived on, so a request from the network naming 127.0.0.1 is refused. ` +
-        `A browser on this machine is handed its credential automatically; a browser on another device has to open the page once with ?token=<the token in ${TOKEN_PATH}>, and holds a cookie afterwards. ` +
+        `Every browser, on this machine or another device, opens the page once with ?token=<the token in ${TOKEN_PATH}> and holds a cookie afterwards. ` +
         `Everything else sends that token as the x-derive-token header. Browser origins allowed: ${ALLOWED_ORIGINS.join(', ')} (add more with DERIVE_ORIGINS).`,
     );
   }

@@ -4,13 +4,17 @@
  * Everything the API can do — read every lesson, import any readable folder
  * as course material, fetch a URL on the learner's behalf — used to be open
  * to any process on the machine and, on a shared network, to anyone on it.
- * These cases are the proof that it is not, and they drive the document
- * routes as well as /api/*, because the page is what unlocks the API: health
- * answers without a credential and nothing else does; a foreign Host or a
- * near-miss Origin is refused on / exactly as it is on /api/*; the install
- * token appears in no body and no header of any response these cases make;
- * and the browser drives the whole API on a derived HttpOnly cookie that is
- * not the token.
+ * These cases are that defect inverted, one clause per case below. They drive
+ * the document routes as well as /api/*, because the page is what unlocks the
+ * API: an unauthenticated GET / is refused and handed no cookie, whatever
+ * address it arrived on; the install token opens the page once in the URL and
+ * is dropped by the 302 that hands out the cookie; that 302 cannot be aimed
+ * off this server; the browser then drives the whole API on that derived
+ * HttpOnly cookie, which is not the token; a foreign Host or a near-miss
+ * Origin is refused on / exactly as it is on /api/*, health included; health
+ * is the one route exempt from the credential and nothing else is; and the
+ * install token appears in no body and no header of any response these cases
+ * make.
  *
  * Needs `pnpm build` first (it runs server/dist/index.js).
  */
@@ -251,11 +255,14 @@ describe('a widened bind', () => {
     assert.equal((await raw('/api/lessons', { 'x-derive-token': w.token, host: `127.0.0.1:${w.port}` }, { host: lan, port: w.port })).status, 403);
   });
 
-  it('hands a loopback browser its cookie as before', async () => {
+  it('holds a loopback browser to the same one-time handoff as a device on the network', async () => {
     const w = wide!;
-    const res = await fetch(`${w.base}/`);
-    assert.equal(res.status, 200);
-    assert.ok(cookieFrom(res), 'loopback was not handed a session cookie');
+    const bare = await fetch(`${w.base}/`);
+    assert.equal(bare.status, 401);
+    assert.equal(cookieFrom(bare), '', 'loopback was handed a session cookie for nothing');
+    const res = await fetch(`${w.base}/?token=${w.token}`, { redirect: 'manual' });
+    assert.equal(res.status, 302);
+    assert.ok(cookieFrom(res), 'the loopback handoff handed out no cookie');
   });
 
   it('hands a device on the network nothing until it presents the token', { skip: lanAddress() ? false : 'no non-loopback interface on this machine' }, async () => {
@@ -277,9 +284,46 @@ describe('a widened bind', () => {
   });
 });
 
+/** The one-time handoff: the install token in the URL, answered with the 302 that sets the cookie. `redirect: 'manual'` so a case sees that response rather than what it points at. */
+const handoff = (path = '/') => fetch(`${base}${path}${path.includes('?') ? '&' : '?'}token=${token}`, { redirect: 'manual' });
+
+/** The session cookie value a fresh handoff hands out, which is how a case gets a credentialled browser. */
+const sessionValue = async () => cookieValue(cookieFrom(await handoff()));
+
 describe('the document routes', () => {
-  it('serve the app with no token in the markup and none in a header', async () => {
+  it('refuse a request that presented nothing, and hand it no cookie, on loopback as anywhere else', async () => {
     const res = await req('/');
+    assert.equal(res.status, 401);
+    assert.equal(cookieFrom(res), '', 'an unauthenticated document response handed out a session cookie');
+    const body = await res.text();
+    assert.ok(body.includes('?token='), body);
+    assert.ok(!body.includes(token), 'the refusal shipped the install token');
+    assert.ok(!headerText(res).includes(token), 'a header shipped the install token');
+  });
+
+  it('refuse a session cookie of the right shape that this server did not issue', async () => {
+    assert.equal((await req('/', { cookie: `${SESSION_COOKIE}=${'a'.repeat(64)}` })).status, 401);
+  });
+
+  it('let the install token in once, on a 302 that drops it from the URL', async () => {
+    const res = await handoff();
+    assert.equal(res.status, 302);
+    const location = res.headers.get('location') ?? '';
+    assert.ok(!location.includes('?'), `the token stayed in the URL: ${location}`);
+    const line = cookieFrom(res);
+    assert.ok(line, 'the handoff handed out no session cookie');
+    assert.ok(!line.includes(token), 'the handoff handed out the install token');
+  });
+
+  it('cannot be turned into a redirect off this server', async () => {
+    const res = await fetch(`${base}//evil.example?token=${token}`, { redirect: 'manual' });
+    assert.equal(res.status, 302);
+    const location = res.headers.get('location') ?? '';
+    assert.ok(!location.startsWith('//'), `a caller-supplied path became an off-site Location: ${location}`);
+  });
+
+  it('serve the app to a browser holding the cookie, with no token in the markup and none in a header', async () => {
+    const res = await req('/', { cookie: `${SESSION_COOKIE}=${await sessionValue()}` });
     assert.equal(res.status, 200);
     const body = await res.text();
     assert.ok(body.includes('<div id="root"'), 'that was not the app');
@@ -287,8 +331,9 @@ describe('the document routes', () => {
     assert.ok(!headerText(res).includes(token), 'a header shipped the install token');
   });
 
-  it('serve the app from the catch-all with no token either', async () => {
-    const res = await req('/anything/at/all');
+  it('hold the catch-all to the same credential, and serve it on the cookie with no token either', async () => {
+    assert.equal((await req('/anything/at/all')).status, 401);
+    const res = await req('/anything/at/all', { cookie: `${SESSION_COOKIE}=${await sessionValue()}` });
     assert.equal(res.status, 200);
     const body = await res.text();
     assert.ok(body.includes('<div id="root"'), 'that was not the app');
@@ -308,9 +353,9 @@ describe('the document routes', () => {
 });
 
 describe('the browser session cookie', () => {
-  it('is set on the document, is not the install token, and cannot be read by script or sent cross-site', async () => {
-    const line = cookieFrom(await req('/'));
-    assert.ok(line, 'the document handed out no session cookie');
+  it('is issued only against the install token, is not that token, and cannot be read by script or sent cross-site', async () => {
+    const line = cookieFrom(await handoff());
+    assert.ok(line, 'the handoff handed out no session cookie');
     assert.match(cookieValue(line), /^[0-9a-f]{64}$/);
     assert.notEqual(cookieValue(line), token);
     assert.ok(/HttpOnly/i.test(line), line);
@@ -318,8 +363,7 @@ describe('the browser session cookie', () => {
   });
 
   it('drives the whole API on its own', async () => {
-    const value = cookieValue(cookieFrom(await req('/')));
-    const res = await req('/api/lessons', { cookie: `${SESSION_COOKIE}=${value}` });
+    const res = await req('/api/lessons', { cookie: `${SESSION_COOKIE}=${await sessionValue()}` });
     assert.equal(res.status, 200);
     const body = await res.text();
     assert.ok(!body.includes(token), 'a listing returned the install token');

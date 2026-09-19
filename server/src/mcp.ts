@@ -181,6 +181,25 @@ async function attach(lesson: string, sources: string[]): Promise<Attached> {
 
 const materialsBrief = (lesson: string) => api<{ materials: Material[]; brief: string }>(`/api/external/lessons/${lesson}/materials`);
 
+/**
+ * The companion page's one-time handoff, added here rather than server-side:
+ * this process already read the 0600 file, and putting the token in the `url`
+ * field of a response would be the server handing it back out. The server
+ * answers that URL with a 302 that drops the token and sets the session
+ * cookie, so it rides in the address bar for exactly one request.
+ */
+function withToken(url: string) {
+  if (!TOKEN) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.set('token', TOKEN);
+    return u.toString();
+  } catch {
+    /* not a URL we can extend; let the page ask for the token itself */
+    return url;
+  }
+}
+
 function openBrowser(url: string) {
   const cmd = process.platform === 'darwin' ? `open "${url}"` : process.platform === 'win32' ? `start "" "${url}"` : `xdg-open "${url}"`;
   exec(cmd, () => undefined);
@@ -222,7 +241,7 @@ const handlers: Record<string, (a: Record<string, unknown>) => Promise<unknown>>
     const l = await api<{ id: string; url: string; learner_id: string; review?: unknown; library?: string; warmup?: string }>('/api/external/lessons', { topic, answer_in: where, learner: learner ?? LEARNER, review: !!review, driver: DRIVER });
     lessonId = l.id;
     watchCodexSession(l.id);
-    if (open_browser !== false && DRIVER !== 'app') openBrowser(l.url);
+    if (open_browser !== false && DRIVER !== 'app') openBrowser(withToken(l.url));
     const profile = await api<{ profile: string; learner?: { name: string } }>(`/api/profile?learner=${encodeURIComponent(l.learner_id)}`).catch(() => ({ profile: '', learner: undefined }));
     let material: (Attached & { brief?: string }) | undefined;
     if (files?.length) {
