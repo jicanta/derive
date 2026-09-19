@@ -105,7 +105,7 @@ Plans:
 
 **Cross-cutting constraints:**
 
-- web/src/lib/useLesson.ts is untouched by this plan: git diff --quiet -- web/ exits 0.
+- `web/` was untouched through plans 01-01..01-12 and through the first gap wave, and that is what let the credential change of 01-09 ship without a browser change at all. The second gap wave deliberately ends it: 01-14 edits `web/src/lib/api.ts` and `web/src/lib/useLesson.ts` to delete a credential path the server no longer serves, on the re-verification's own instruction, so the browser reads no token from markup that no longer carries one. `noUnusedLocals` in `web/tsconfig.app.json` is the check that the deletion is complete — a leftover helper or import fails the build rather than sitting dead.
 
 **Research**: Not needed — standard patterns (zod raw shapes accepted by all three tool APIs, Hono middleware, `PRAGMA user_version`, 0600 files). Internal order matters: contract and method first with no behaviour change (existing API suite, snapshot fixture and MCP smoke test as the net), then seam, sink, migrations, ledger and hardening. (Migrations before ledger: the `turns` and `usage` tables of 01-06 are authored as migrations under 01-05's runner, so the runner has to exist first. This matches the Plans list above; an earlier draft of this note had the two transposed.) Pin the Claude Agent SDK to a caret range; version string from `package.json`; decide deliberately which wording wins where `prompt.ts` and `SKILL.md` disagree.
 

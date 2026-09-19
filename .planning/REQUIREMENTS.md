@@ -11,11 +11,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Foundation (contract, seam, hardening)
 
-- [ ] **FOUND-01**: The 14 tutor tools are defined once (name, description, zod schema) and every driver, the MCP server and the HTTP action validation derive from that single definition
-- [ ] **FOUND-02**: The teaching method text is defined once and rendered for the app system prompt, the Claude Code plugin skill, the Codex skills and the docs; CI fails when a rendered copy drifts from the source
-- [ ] **FOUND-03**: Every driver runs behind one driver interface and reports through one event sink, so adding a provider changes neither the web UI, the SSE stream, nor the terminal mirrors
+- [x] **FOUND-01**: The 14 tutor tools are defined once (name, description, zod schema) and every driver, the MCP server and the HTTP action validation derive from that single definition
+- [x] **FOUND-02**: The teaching method text is defined once and rendered for the app system prompt, the Claude Code plugin skill, the Codex skills and the docs; CI fails when a rendered copy drifts from the source
+- [x] **FOUND-03**: Every driver runs behind one driver interface and reports through one event sink, so adding a provider changes neither the web UI, the SSE stream, nor the terminal mirrors
 - [ ] **FOUND-04**: The Claude Code plugin and Codex paths keep working through the refactor, proven by a wire-surface snapshot and a stdio MCP smoke test that needs no model
-- [ ] **FOUND-05**: SQLite schema changes run through a numbered, transactional migration runner; `replaceGraph` and `deleteLesson` are transactional; existing databases migrate forward
+- [x] **FOUND-05**: SQLite schema changes run through a numbered, transactional migration runner; `replaceGraph` and `deleteLesson` are transactional; existing databases migrate forward
 - [ ] **FOUND-06**: The local server binds loopback only, checks Host and Origin, requires a per-install token, and redacts secrets from every error, log, event and export path before any key is stored
 
 ### Providers
@@ -140,11 +140,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | Phase 1 | Gaps Found |
-| FOUND-02 | Phase 1 | Gaps Found |
-| FOUND-03 | Phase 1 | Gaps Found |
-| FOUND-04 | Phase 1 | Gaps Found |
-| FOUND-05 | Phase 1 | Gaps Found |
+| FOUND-01 | Phase 1 | Complete |
+| FOUND-02 | Phase 1 | Complete |
+| FOUND-03 | Phase 1 | Complete |
+| FOUND-04 | Phase 1 | Needs Human |
+| FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Gaps Found |
 | PROV-01 | Phase 3 | Pending |
 | PROV-02 | Phase 3 | Pending |
@@ -164,7 +164,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SET-04 | Phase 2 | Pending |
 | SET-05 | Phase 2 | Pending |
 | SET-06 | Phase 2 | Pending |
-| COST-01 | Phase 1 | Gaps Found |
+| COST-01 | Phase 1 | Complete |
 | COST-02 | Phase 3 | Pending |
 | COST-03 | Phase 4 | Pending |
 | COST-04 | Phase 3 | Pending |
@@ -191,6 +191,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ADOPT-07 | Phase 7 | Pending |
 | ADOPT-08 | Phase 7 | Pending |
 
+**Phase 1 status basis (gap run 01-13..01-15):** exposure was decided per requirement, not from a file list: the surface each requirement's own sentence above names was written down first, then intersected with `git diff --name-only cc1f818..HEAD` — every path this gap run changed since the tree the re-verification report describes. A later reader should re-run that diff against the tree they have rather than trust the reading below, which was taken on 2026-09-19.
+
+- **FOUND-01** — its sentence names the registry, every driver, the MCP server and the HTTP action validation. The run is on `server/src/mcp.ts` and `server/src/index.ts`, so it is exposed, and the status rests on the wire-surface fixture staying byte-identical (`git diff --quiet 239d5f1..HEAD -- server/test/wire-surface.json`, exit 0) with `mcp.test.ts` green, both measured after those edits.
+- **FOUND-02** — its sentence names the method source, its six rendered copies and the CI gate over them. Nothing under `method/`, neither render script and no rendered copy appears in the diff, so the run did not touch it; `scripts/check-method.mjs` ("6 rendered copies match") is run regardless, so the record rests on a gate rather than on an absence alone.
+- **FOUND-03** — its sentence names the driver interface, the event sink, the web UI, the SSE stream and the terminal mirrors. The run is on `web/src/lib/api.ts`, `web/src/lib/useLesson.ts` and the `/api/*` stream step in `server/src/index.ts`, so it is exposed, and the status rests on `driver.test.ts`, which carries a copy of `EVENT_TYPES` taken from `web/src/lib/useLesson.ts` and asserts a whole turn's event types against it — a browser-side change that moved the seam's vocabulary is what it fails on.
+- **FOUND-04** — its machine half sits on the same surface as FOUND-01 and rides the same wire-surface and `mcp.test.ts` gates, both green after this run. Its human half is one real lesson through the Claude Code plugin and one through the Codex skills; a person runs that or it stays outstanding, and no summary's word substitutes for it.
+- **FOUND-05** — its sentence names the numbered migration runner and the transactional writes, both in `server/src/db.ts`, which this run edits, so it is exposed. The status rests on the migration suite green under `pnpm test` (`# fail 0`) after that edit.
+- **FOUND-06** — its sentence names the bind, the Host and Origin checks, the per-install token and the redaction paths, which is most of what this run changes. It is deliberately not promoted: the verifier recorded it blocked, and the run repairing it has not itself been re-verified, so no gate inside that run can stand in for the verifier.
+- **COST-01** — its sentence names the per-turn usage ledger in `server/src/db.ts`, which this run edits, so it is exposed. The status rests on the restart-sweep case in `tx.test.ts`, on `usage.test.ts`, and on `pnpm test` at `# fail 0`, all measured after `closeOpenTurns` gained its `closeUsage` call.
+
 **Coverage:**
 
 - v1 requirements: 50 total
@@ -209,4 +219,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-09-17*
-*Last updated: 2026-09-17 after the simplicity trim (traceability rewritten for 50 v1 requirements)*
+*Last updated: 2026-09-19 — Phase 1 statuses set to what the re-verification's own coverage table found, each one met by the basis block under the traceability table*
