@@ -111,6 +111,8 @@ const q = {
   updateResourceText: db.prepare('UPDATE resources SET text = ?, chars = ?, fetched_at = ?, fetch_error = ?, updated_at = ? WHERE id = ?'),
   deleteResource: db.prepare('DELETE FROM resources WHERE id = ?'),
   deleteResourcesOfLearner: db.prepare('DELETE FROM resources WHERE learner_id = ?'),
+  deleteUsageOfLearner: db.prepare('DELETE FROM usage WHERE learner_id = ?'),
+  deleteTurnsOfLearner: db.prepare('DELETE FROM turns WHERE learner_id = ?'),
   insertMemory: db.prepare('INSERT INTO memory (fact, kind, lesson_id, ts) VALUES (?, ?, ?, ?)'),
   listMemory: db.prepare(`
     SELECT m.* FROM memory m JOIN lessons l ON l.id = m.lesson_id
@@ -142,6 +144,8 @@ const q = {
   deleteNodes: db.prepare('DELETE FROM nodes WHERE lesson_id = ?'),
   deleteNode: db.prepare('DELETE FROM nodes WHERE lesson_id = ? AND node_id = ?'),
   deleteQuiz: db.prepare('DELETE FROM quiz_results WHERE lesson_id = ?'),
+  deleteUsageByLesson: db.prepare('DELETE FROM usage WHERE lesson_id = ?'),
+  deleteTurnsByLesson: db.prepare('DELETE FROM turns WHERE lesson_id = ?'),
   insertMaterial: db.prepare(
     'INSERT INTO materials (id, lesson_id, name, kind, unit, pages, chars, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   ),
@@ -346,12 +350,22 @@ export function renameLearner(id: string, name: string): Learner {
   return getLearner(id)!;
 }
 
-/** Removes the learner and everything they learned. The default learner cannot be removed. */
+/**
+ * Removes the learner and everything they learned: their lessons (and so every
+ * row hanging off those), their resources and their whole usage ledger, turns
+ * included. Nothing of what a removed learner did survives this. The default
+ * learner cannot be removed.
+ */
 export function deleteLearner(id: string) {
   if (id === DEFAULT_LEARNER_ID) throw new Error('the first learner cannot be removed; rename it instead');
   withTx(() => {
     for (const { id: lessonId } of q.lessonsOfLearner.all(id) as { id: string }[]) deleteLesson(lessonId);
     q.deleteResourcesOfLearner.run(id);
+    // Not redundant with the loop above: recordUsage and startTurn denormalise
+    // learner_id onto every row deliberately, so a usage row or a turn can
+    // outlive the lesson row it names. These two are what catch those.
+    q.deleteUsageOfLearner.run(id);
+    q.deleteTurnsOfLearner.run(id);
     q.deleteLearner.run(id);
   });
 }
@@ -383,7 +397,11 @@ export function listLessons(learnerId?: string): Lesson[] {
   return (learnerId ? q.listLessons.all(learnerId) : q.listAllLessons.all()) as Lesson[];
 }
 
-/** Removes a lesson and everything hanging off it. One transaction: a crash partway would otherwise orphan events and nodes. */
+/**
+ * Removes a lesson and everything hanging off it: its materials, memory,
+ * misconceptions, quiz results, nodes, events, usage rows and turns. One
+ * transaction: a crash partway would otherwise orphan events and nodes.
+ */
 export function deleteLesson(id: string) {
   withTx(() => {
     q.deleteMaterialsByLesson.run(id);
@@ -392,6 +410,11 @@ export function deleteLesson(id: string) {
     q.deleteQuiz.run(id);
     q.deleteNodes.run(id);
     q.deleteEvents.run(id);
+    // Usage before turns: a usage row names the turn it was recorded against,
+    // so clearing usage first means no state inside the transaction has a row
+    // pointing at a turn that is already gone.
+    q.deleteUsageByLesson.run(id);
+    q.deleteTurnsByLesson.run(id);
     q.deleteLesson.run(id);
   });
 }
