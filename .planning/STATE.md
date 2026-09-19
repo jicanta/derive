@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-12-PLAN.md
-last_updated: "2026-09-19T16:15:21.683Z"
+stopped_at: Completed 01-13-PLAN.md
+last_updated: "2026-09-19T17:53:46.874Z"
 last_activity: 2026-09-19
 last_activity_desc: Phase 01 execution started
-state_head: e073a5a758b30e902801d62c61bf15722a717a67
+state_head: 150865757180fef57dc9a53bda352e852f68831b
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 
 ## Current Position
 
-Phase: 01 (Foundation) — READY TO EXECUTE
-Plan: 5 of 12
+Phase: 01 (Foundation) — EXECUTING
+Plan: 2 of 15
 Status: Ready to execute
 Last activity: 2026-09-19 — Phase 01 execution started
 
@@ -70,6 +70,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P10 | 4 min | 2 tasks | 5 files |
 | Phase 01 P11 | 6 min | 2 tasks | 2 files |
 | Phase 01 P12 | 8 min | 2 tasks | 0 files |
+| Phase 01 P13 | 8 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -119,6 +120,10 @@ Recent decisions affecting current work:
 - [Phase 01]: Per 01-12 the widened-bind LAN pair was run for real on 192.168.0.166:4988 rather than inferred: an honest Host is admitted and a forged Host: 127.0.0.1 from that address is refused
 - [Phase 01]: Per 01-12 the plugin and the Codex skills are NOT installed into the user's agent configuration by a plan; the documented invocations (claude --plugin-dir ./plugin, codex/skills/* into $CODEX_HOME/skills) are recorded in the human check instead
 - [Phase 01]: Per 01-12 FOUND-04's human half (one lesson through the Claude Code plugin and one through the Codex derive-learn skill) is queued as HC-2 for the phase UAT and remains the phase's last open question
+- [Phase 01]: Per 01-13 the repo-import token disclosure is closed at the importer, not by redaction: walk() and fromDirectory lstat the entry so a symlink is neither a file nor a directory, and every git ls-files candidate must realpath under realpathSync(dir) compared on the separator
+- [Phase 01]: Per 01-13 the same lstatSync substitution closes the directory-symlink cycle (advisory finding 5) as a consequence rather than a second mechanism, and an out-of-tree candidate increments the existing skipped count so the number the UI shows stays honest
+- [Phase 01]: Per 01-13 git clone is pinned with git config flags (http.followRedirects off, every protocol denied, https re-allowed) plus a disabled terminal prompt rather than a second copy of assertPublicHost, because git cannot re-check per hop the way fetchPublic does and two destination guards drift apart
+- [Phase 01]: Per 01-13 the tarball and clone cases are source assertions, matching the suite's AbortSignal.timeout precedent: git has no outbound HTTP offline, so the honest claim is that the absence of the flags is the regression to catch, and no doc-comment clause claims a redirect is refused in practice
 
 ### Pending Todos
 
@@ -142,6 +147,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-19T14:45:54.321Z
-Stopped at: Completed 01-12-PLAN.md
+Last session: 2026-09-19T17:53:33.040Z
+Stopped at: Completed 01-13-PLAN.md
 Resume file: None

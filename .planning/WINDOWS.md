@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 5
+open_count: 6
 waived_count: 0
 fixed_count: 0
-total_count: 5
-last_updated: 2026-09-19T14:47:16.434Z
+total_count: 6
+last_updated: 2026-09-19T17:53:25.199Z
 ---
 
 # Broken Windows Ledger
@@ -20,6 +20,7 @@ last_updated: 2026-09-19T14:47:16.434Z
 | 3 | 01 | unrun-verify | server/src/library.ts |  | An ordinary public URL fetch through fetchPublic could not be exercised: the execution environment has no DNS or outbound network. Re-check during the phase UAT parity run. | open |  | 2026-09-18T13:16:03.682Z |  |
 | 4 | 01 | unrun-verify | .planning/phases/01-foundation/01-12-SUMMARY.md |  | HC-1 browser session-cookie smoke recorded but not performed (no automated test drives a real browser) | open |  | 2026-09-19T14:47:16.295Z |  |
 | 5 | 01 | unrun-verify | .planning/phases/01-foundation/01-12-SUMMARY.md |  | HC-2 plugin + Codex parity run (FOUND-04 human half) recorded but not performed; needs a real model and login on two terminals | open |  | 2026-09-19T14:47:16.434Z |  |
+| 6 | 01 | deviation | server/test/guards.test.ts |  | Clone pinning and tarball secret-name filter are asserted at the source, not driven: git has no outbound HTTP offline, so no case drives a real redirect | open |  | 2026-09-19T17:53:25.199Z |  |
 
 ````json
 [
@@ -85,6 +86,19 @@ last_updated: 2026-09-19T14:47:16.434Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-19T14:47:16.434Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 6,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "server/test/guards.test.ts",
+    "line": null,
+    "description": "Clone pinning and tarball secret-name filter are asserted at the source, not driven: git has no outbound HTTP offline, so no case drives a real redirect",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-19T17:53:25.199Z",
     "resolved_at": null,
     "milestone": null
   }
