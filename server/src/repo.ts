@@ -266,7 +266,7 @@ async function fromGitHub(owner: string, repo: string, ref?: string, subdir?: st
     raw.push({ path: sub ? path.slice(sub.length) : path, data: f.data });
   }
   const byPath = new Map(raw.map((f) => [f.path, f]));
-  const paths = orderFiles([...byPath.keys()].filter((p) => !inSkippedDir(p) && isTextName(p)));
+  const paths = orderFiles([...byPath.keys()].filter((p) => !inSkippedDir(p) && !isSecretName(p) && isTextName(p)));
   let skipped = 0;
   for (const path of paths) {
     const f = byPath.get(path)!;
@@ -285,12 +285,12 @@ async function fromGitHub(owner: string, repo: string, ref?: string, subdir?: st
 }
 
 async function fromGitClone(url: string): Promise<RepoSource> {
-  // Both checks run before the process is spawned, not inside a try around it: git over ssh would hand the learner's own keys to whatever the URL names, and a URL pointing at this machine or this network would read an internal host through git instead of through fetch. The scheme check stays first so an ssh or git URL still gets its own sentence rather than a lookup error; the host guard runs before the scratch directory exists, so a refusal leaves nothing behind.
+  // Both checks run before the process is spawned, not inside a try around it: git over ssh would hand the learner's own keys to whatever the URL names, and a URL pointing at this machine or this network would read an internal host through git instead of through fetch. The scheme check stays first so an ssh or git URL still gets its own sentence rather than a lookup error; the host guard runs before the scratch directory exists, so a refusal leaves nothing behind. What assertPublicHost judges is the URL it was handed, and git's documented http.followRedirects default is `initial` -- exactly the one hop that would carry the fetch past the judgement to 10.0.0.5 or 169.254.169.254; fetchPublic in library.ts answers this by re-checking every hop, which git cannot do, so the argv below forbids the hop instead and permits no protocol but https.
   if (!/^https:\/\//i.test(url.trim())) throw new Error(`derive only clones over https (got ${url.trim()}); an ssh or git URL would use your own keys`);
   await assertPublicHost(url.trim());
   const tmp = mkdtempSync(join(DATA_DIR, 'clone-'));
   try {
-    execFileSync('git', ['clone', '--depth', '1', '--quiet', url, tmp], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000 });
+    execFileSync('git', ['-c', 'http.followRedirects=false', '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', 'clone', '--depth', '1', '--quiet', url, tmp], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
   } catch (e) {
     rmSync(tmp, { recursive: true, force: true });
     const msg = e instanceof Error && 'stderr' in e ? String((e as { stderr?: Buffer }).stderr ?? '').trim() : '';

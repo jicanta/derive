@@ -9,10 +9,12 @@
  * resolved addresses rather than names and runs again on every redirect
  * hop; `collectRepo` refuses a scheme that is not https and then runs that
  * same host guard before it makes its scratch directory, so a refused clone
- * leaves none behind; the archive reader is capped with and without a
- * declared length; and a folder import refuses a home directory, skips the
- * files that hold credentials, and skips a symlink rather than following it,
- * including a directory link back into its own ancestor.
+ * leaves none behind; the clone argv is pinned to the URL that guard judged;
+ * the archive reader is capped with and without a declared length and runs
+ * the same secret-name refusal the folder import runs; and a folder import
+ * refuses a home directory, skips the files that hold credentials, and
+ * skips a symlink rather than following it, including a directory link back
+ * into its own ancestor.
  *
  * Offline by construction: the guards are driven directly, no private
  * address is ever connected to, and the one case that needs a server uses a
@@ -150,6 +152,15 @@ describe('cloning', () => {
     await assert.rejects(() => collectRepo('https://localhost/x.git'), /private or local address/);
     assert.deepEqual(cloneDirs(), []);
   });
+
+  it('pins the clone to the URL the guard judged', () => {
+    // Read off the source, for the reason the tarball timeout case gives: git has no outbound HTTP here, so a redirect cannot be driven offline, and the absence of these flags is exactly the regression to catch.
+    const source = readFileSync(new URL('../src/repo.ts', import.meta.url), 'utf8');
+    for (const flag of ['http.followRedirects=false', 'protocol.allow=never', 'protocol.https.allow=always']) {
+      assert.ok(source.includes(`'${flag}'`), `the clone argv is missing ${flag}`);
+    }
+    assert.match(source, /GIT_TERMINAL_PROMPT: '0'/);
+  });
 });
 
 describe('the repository archive', () => {
@@ -175,6 +186,16 @@ describe('the repository archive', () => {
   it('carries a timeout', () => {
     // Read off the source: a hung GitHub is not something this suite can stand up offline, but the absence of the signal is exactly the regression to catch.
     assert.match(readFileSync(new URL('../src/repo.ts', import.meta.url), 'utf8'), /signal: AbortSignal\.timeout\(TARBALL_TIMEOUT_MS\)/);
+  });
+
+  it('runs the same secret-name refusal the folder import runs', () => {
+    // Same reason as above: a tarball is a network fetch, so the two filter chains are compared where they are written.
+    const lines = readFileSync(new URL('../src/repo.ts', import.meta.url), 'utf8').split('\n');
+    const tarball = lines.find((l) => l.includes('byPath.keys()'));
+    const folder = lines.find((l) => l.includes('gitListFiles(dir) ?? walk(dir)'));
+    for (const [what, line] of [['the tarball filter', tarball], ['the folder filter', folder]] as const) {
+      assert.ok(line?.includes('!isSecretName(p)'), `${what} does not run the secret-name refusal`);
+    }
   });
 });
 
