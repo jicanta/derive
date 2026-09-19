@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-09-PLAN.md
-last_updated: "2026-09-19T14:16:52.954Z"
+stopped_at: Completed 01-10-PLAN.md
+last_updated: "2026-09-19T14:26:18.569Z"
 last_activity: 2026-09-19
 last_activity_desc: Phase 01 execution started
-state_head: b6cdfff33f2e2730d72fc9202d111c4753557870
+state_head: bf9044893e241c6d4e41c9c40f0f915f2df4063c
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 12
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 ## Current Position
 
 Phase: 01 (Foundation) — EXECUTING
-Plan: 2 of 12
+Plan: 3 of 12
 Status: Ready to execute
 Last activity: 2026-09-19 — Phase 01 execution started
 
@@ -67,6 +67,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P07 | 18 min | 3 tasks | 17 files |
 | Phase 01 P08 | 52 min | 3 tasks | 12 files |
 | Phase 01 P09 | 28 min | 2 tasks | 4 files |
+| Phase 01 P10 | 4 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,9 @@ Recent decisions affecting current work:
 - [Phase 01]: Per 01-09 one guardLocal(c) runs the Host and Origin checks on every route — the document routes, serveStatic and the catch-all as well as /api/* — in a fixed order (health exemption, Host, Origin, credential) so a request failing both Host and credential is a 403
 - [Phase 01]: Per 01-09 the allowed Host names are computed per request from the connection's own local address (c.env.incoming.socket.localAddress), never from the DERIVE_HOST string; the set seeds from DERIVE_ORIGINS and not ALLOWED_ORIGINS, because the built-in loopback origins would re-admit a forged Host: 127.0.0.1 from the LAN; 0.0.0.0, :: and [::] are refused as names everywhere
 - [Phase 01]: Per 01-09 D-12 is literal: on a widened bind a non-loopback document request gets no cookie until it presents the install token once, and is answered with a 302 that drops the token from the URL
+- [Phase 01]: assertPublicHost is imported into repo.ts rather than copied, accepting a real repo -> library -> materials -> repo import ring: two copies of a destination guard drift apart until one egress is weaker than the rest
+- [Phase 01]: The https-only scheme check stays ahead of the host guard, and the host guard stays ahead of mkdtempSync, so a refusal keeps its own sentence and leaves no scratch directory
+- [Phase 01]: A load-bearing import-ring condition is recorded at the line that would break it (library.ts:31), not only in the module that closes the ring
 
 ### Pending Todos
 
@@ -129,6 +133,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-19T14:16:41.357Z
-Stopped at: Completed 01-09-PLAN.md
+Last session: 2026-09-19T14:26:09.923Z
+Stopped at: Completed 01-10-PLAN.md
 Resume file: None
