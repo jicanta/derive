@@ -2,744 +2,695 @@
 phase: 01-foundation
 reviewed: 2026-09-19T00:00:00Z
 depth: standard
-files_reviewed: 59
+files_reviewed: 12
 files_reviewed_list:
-  - .env.example
-  - .github/workflows/ci.yml
-  - codex/skills/derive-learn/SKILL.md
-  - codex/skills/derive-review/SKILL.md
-  - method/00-identity.md
-  - method/10-philosophy.md
-  - method/20-tools.md
-  - method/30-quiz-options.md
-  - method/40-discipline.md
-  - method/50-checks.md
-  - method/60-process.md
-  - method/70-material.md
-  - method/80-library.md
-  - method/90-preferences.md
-  - method/95-writing-style.md
-  - method/surfaces/app.md
-  - method/surfaces/claude-code.md
-  - method/surfaces/codex-learn.md
-  - method/surfaces/codex-review.md
-  - package.json
-  - plugin/commands/learn.md
-  - plugin/commands/review.md
-  - plugin/hooks/mirror.mjs
-  - plugin/skills/teach/SKILL.md
-  - pnpm-lock.yaml
-  - scripts/check-method.mjs
-  - scripts/doctor.mjs
-  - scripts/render-method.mjs
-  - server/package.json
-  - server/src/agent.ts
-  - server/src/codex.ts
-  - server/src/config.ts
-  - server/src/db.ts
-  - server/src/driver.ts
-  - server/src/drivers/fake.ts
-  - server/src/events.ts
-  - server/src/export.ts
   - server/src/index.ts
-  - server/src/library.ts
-  - server/src/mcp.ts
-  - server/src/method.generated.ts
-  - server/src/migrations.ts
-  - server/src/prompt.ts
   - server/src/repo.ts
-  - server/src/secrets.ts
-  - server/src/tools.ts
-  - server/test/api.test.ts
-  - server/test/driver.test.ts
-  - server/test/guards.test.ts
-  - server/test/mcp.test.ts
-  - server/test/migrations.test.ts
-  - server/test/secrets.test.ts
+  - server/src/library.ts
+  - server/src/db.ts
   - server/test/security.test.ts
+  - server/test/guards.test.ts
   - server/test/tx.test.ts
-  - server/test/usage.test.ts
-  - server/test/wire-surface.json
-  - server/test/wire-surface.test.ts
-  - web/src/lib/api.ts
-  - web/src/lib/useLesson.ts
-  - web/vite.config.ts
+  - scripts/doctor.mjs
+  - .env.example
+  - .claude/CLAUDE.md
+  - .planning/codebase/ARCHITECTURE.md
+  - .planning/phases/01-foundation/01-12-SUMMARY.md
 findings:
   critical: 3
-  warning: 14
-  info: 7
-  total: 24
+  warning: 10
+  info: 5
+  total: 18
 status: issues_found
 ---
 
-# Phase 01: Code Review Report
+# Phase 01: Code Review Report (incremental re-review of the gap closure)
 
 **Reviewed:** 2026-09-19
 **Depth:** standard
-**Files Reviewed:** 59
+**Files Reviewed:** 12
 **Status:** issues_found
+**Diff base:** `239d5f1` → `HEAD` (plans 01-09, 01-10, 01-11, 01-12)
 
 ## Summary
 
-This phase adds an authentication boundary (a per-install token), a migration
-runner with transactional writes, a turns/usage ledger, a driver seam, a
-secrets-redaction chokepoint, and a single-source method renderer. The
-engineering is careful and the prose in the modules is unusually good, which
-makes the defects below easier to miss: several of them are places where a
-module's own doc comment states a guarantee the code does not deliver.
+This pass re-reviews the gap-closure work only: the `guardLocal` / `hostNames` /
+`derive_session` front door (01-09), the clone-path destination guard (01-10),
+and the `turns`/`usage` deletion (01-11). 01-12 changed no source.
 
-The headline finding is CR-01. The whole phase is built on the premise, stated
-in `server/src/index.ts:965-971` and in `scripts/doctor.mjs:80`, that the
-install token is a secret held in a 0600 file and "never as data from a route".
-It is in fact returned in full, in plain text, to **any unauthenticated GET of
-any non-`/api` path**. I started the built server against a scratch data
-directory and confirmed it: `curl http://127.0.0.1:PORT/` returns
-`<meta name="derive-token" content="<the 64 hex chars>">`, and that harvested
-value then returns 200 on `/api/lessons`. Every other control added in this
-phase — the 0600 mode, the Host check, the Origin allowlist, the constant-time
-compare — sits behind a value anyone who can open a TCP connection can read.
+**What is genuinely fixed.** Three claims I re-verified rather than took on trust:
 
-CR-02 and CR-03 are the two other places where a control announced in this
-phase does not cover the path it names: the documented `DERIVE_HOST=0.0.0.0`
-configuration rejects every legitimate remote request while a forged `Host`
-header sails through, and the `git clone` egress path never runs the
-private-destination guard the rest of the fetch code now runs on every hop.
+- The install token is no longer in the markup. `readFileSync(indexPath)` is
+  served verbatim (`index.ts:1061`, `index.ts:1071`) and nothing rewrites it.
+- The browser credential is `HMAC-SHA256(TOKEN, 'derive browser session v1')`
+  (`index.ts:107`), which is not invertible to the token, and both values are
+  handed to `registerSecret` before any route exists (`index.ts:113-114`).
+  Confirmed against the running server: the cookie is 64 hex and is **not** the
+  contents of `~/.derive/token`.
+- **Previous finding WR-01 is closed.** `deleteLesson` now issues
+  `deleteUsageByLesson` then `deleteTurnsByLesson` inside its existing `withTx`
+  (`db.ts:416-417`), and `deleteLearner` adds learner-scoped sweeps for the
+  orphaned case (`db.ts:366-368`), in that same order. `tx.test.ts:219-234`
+  covers the orphan path — a lesson row deleted out from under the ledger — and
+  `tx.test.ts:236-258` counts over the whole table rather than one lesson. This
+  is a correct and well-tested closure. It is not re-reported below.
 
-The warnings are mostly invariant drift: rows the new ledger promises but does
-not always write, rows the delete paths do not remove, and a redaction pattern
-that corrupts ordinary error text.
+**What is not fixed.** Three defects that the gap closure was specifically
+supposed to close, and did not:
 
-No structural pre-pass was supplied and no external reviewer evidence was
-provided, so every finding below is from direct reading of the submitted files,
-with the three critical ones reproduced against the built server.
+- **CR-01** — a repository import follows symlinks out of the cloned tree and
+  reads their targets into course material. I reproduced this: a repo
+  containing `notes.md -> <outside the repo>` imports the *target's* bytes.
+  `isSecretName` is applied to the in-repo path, so it is bypassed entirely by
+  naming the link anything ordinary. `~/.derive/token`, `~/.ssh/id_rsa` and
+  `~/.codex/auth.json` are all reachable this way through the same
+  `attach_material` entry point plan 01-10 hardened.
+- **CR-02** — `assertPublicHost` runs on the URL the caller supplied, then
+  `git clone` follows the first redirect (git's documented default is
+  `http.followRedirects=initial`). The per-hop discipline `fetchPublic` already
+  has (`library.ts:332-340`) is exactly what the clone path still lacks.
+- **CR-03** — on loopback the document route issues a working full-API
+  credential to a request that presented nothing. I reproduced it against the
+  live server: `GET /` → `derive_session` → `GET /api/lessons` → 200, with no
+  credential at any point. On loopback the reach of this is identical to the
+  reach of the token-in-markup defect it replaced; what improved is that page
+  script can no longer read it.
+
+Below CR-03, the pattern from the first review repeats: a module's own prose
+states a guarantee the code does not deliver. `index.ts:1075-1077` says "the
+document routes are protected at least as well as the API they unlock";
+`security.test.ts:6-8` says the API "used to be open to any process on the
+machine... These cases are the proof that it is not". Neither is true as
+written, and `doctor.mjs:74-75` — which *was* updated honestly ("or who can
+reach the port from this machine") — contradicts both.
+
+No structural pre-pass and no external reviewer evidence were supplied, so
+every finding is from direct reading, with CR-01 and CR-03 reproduced on this
+machine and CR-02 grounded in `git help config`'s stated default.
+
+## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01: The install token is handed to any unauthenticated request
+### CR-01: A repository import follows symlinks out of the tree and reads their targets
 
-**File:** `server/src/index.ts:975-980`
-**Issue:** The built app's `index.html` is rewritten at boot to carry the token
-in a `<meta>` tag, and that document is served by three routes — `/`,
-`/index.html`, and the catch-all `app.get('*')` — none of which is behind the
-`/api/*` middleware that checks Host, Origin and token. Any process, any user
-on the machine, and (with CR-02) any device on the network can read the token
-and then use it.
+**Severity:** BLOCKER
+**File:** `server/src/repo.ts:139`, `server/src/repo.ts:161-170`, reached from `server/src/repo.ts:286`
 
-Reproduced against `server/dist/index.js` on a scratch data dir:
+**Issue:** `fromDirectory` builds its file list from `git ls-files` (which lists
+symlinks as ordinary tracked paths) and then resolves each one with
+`statSync(full)` / `readFileSync(full)` — both of which follow symlinks. A link
+whose target lives outside the imported tree is read and stored as course
+material.
+
+`isSecretName` does not help: it is applied to the *repo-relative path*
+(`repo.ts:151`), so a link named `notes.md` or `token.md` passes every filter
+while pointing anywhere on disk.
+
+Reproduced on this machine:
 
 ```
-$ curl -s http://127.0.0.1:4987/ | grep -o 'derive-token[^>]*'
-derive-token" content="797ca6d9...d7b66f" /
+$ mkdir symrepo && cd symrepo && git init -q
+$ echo "SUPER SECRET KEY abc123" > ../outside.txt
+$ ln -s ../outside.txt notes.md && echo '# hi' > README.md && git add -A && git commit -qm x
 
-$ curl -s http://127.0.0.1:4987/anything/at/all | grep -c derive-token
-1                                   # the catch-all leaks it too
-
-$ curl -s -o /dev/null -w '%{http_code}\n' -H "x-derive-token: 797ca6d9...d7b66f" \
-    http://127.0.0.1:4987/api/lessons
-200
+$ node --import tsx -e "fromDirectory('.../symrepo')"
+[ { "path": "README.md", "text": "# hi\n" },
+  { "path": "notes.md",  "text": "SUPER SECRET KEY abc123\n" } ]
 ```
 
-This invalidates three claims made in this phase:
+The reachable entry point is the one `guards.test.ts:6-9` names: the tutor model
+calls `attach_material` with a repo URL, `collectRepo` routes every non-GitHub
+URL to `fromGitClone` (`repo.ts:299`), and `fromGitClone` hands the clone to
+`fromDirectory` (`repo.ts:286`). A hostile public repository — or a
+prompt-injected model choosing one — therefore reads arbitrary learner-readable
+files into the material table and into the model's context. `~/.derive/token`
+is among them, via `token.md -> ~/.derive/token`: material text goes to the
+model through `readMaterial` without passing the `emit` redaction chokepoint, so
+the install token leaves the process that way.
 
-- `server/src/index.ts:965-971` — "never as data from a route, so a hostile
-  page has nothing to call (D-09)".
-- `server/src/index.ts:101` — "read once at boot, compared on every request,
-  and never logged, emitted or returned".
-- `scripts/doctor.mjs:80` — "Anyone who can read that file can drive your
-  lessons"; the 0600 mode is checked and reported as a control, but the token
-  is obtainable without reading the file at all.
+Plan 01-10's guard stops the request from *going* somewhere private; nothing
+stops the clone from *bringing back* something private.
 
-`server/test/security.test.ts` opens by asserting "no response anywhere carries
-the token back out", but every case in it exercises `/api/*` only. The one
-route that does carry it out is the one the suite never requests (see IN-07).
-
-**Fix:** The document that carries the token must be at least as protected as
-the API it unlocks, and the token must not be scrapeable by script once
-delivered. Concretely:
+**Fix:** Refuse links rather than following them, in both the listing and the
+read, and confine every read to the import root:
 
 ```ts
-// 1. Factor the middleware's Host/Origin check into a function and run it on
-//    the document routes too, so a rebound page and a foreign Host cannot even
-//    fetch the page that holds the token.
-const addressedToUs = (c: Context) => {
-  const { host, port } = splitHost(c.req.header('host') ?? '');
-  if (!ALLOWED_HOSTS.has(host) || port !== String(PORT)) return false;
-  const origin = c.req.header('origin');
-  return !origin || ALLOWED_ORIGINS.includes(origin);
-};
+import { lstatSync, realpathSync } from 'node:fs';
 
-// 2. Hand the token as an HttpOnly, SameSite=Strict cookie on the document
-//    response rather than as readable markup, and accept the cookie in the
-//    /api middleware alongside the header. Script on the page (including a
-//    compromised dependency) can then no longer read it, and the API can drop
-//    the query-string path for SSE because the cookie rides along.
-const serveApp = (c: Context) => {
-  if (!addressedToUs(c)) return c.text('not found', 404);
-  c.header('cache-control', 'no-store');
-  c.header('set-cookie', `derive_token=${TOKEN}; Path=/; HttpOnly; SameSite=Strict`);
-  return c.html(rawIndex);       // no token in the markup at all
-};
-app.get('/', serveApp);
-app.get('/index.html', serveApp);
-app.get('*', serveApp);
+// in walk(), judge the entry itself rather than its target
+const st = lstatSync(full);
+if (st.isSymbolicLink()) continue;
+
+// in fromDirectory's read loop, replace statSync(full)
+const fst = lstatSync(full);
+if (!fst.isFile() || fst.size > READ_BYTES) { skipped += 1; continue; }
+// and pin the root for the git ls-files path, which does not go through walk()
+const rootReal = realpathSync(dir);
+const real = realpathSync(full);
+if (real !== rootReal && !real.startsWith(rootReal + sep)) { skipped += 1; continue; }
 ```
 
-Note this narrows the exposure to "any client that can connect and pass the
-Host check" rather than eliminating it — a same-machine process can still
-forge `Host: 127.0.0.1:<port>` and collect the cookie. If the token is meant
-to be an authentication boundary against other local users, the transport has
-to change (a unix domain socket, or a one-time handoff printed on the console
-that the app exchanges for the session cookie). Whichever is chosen, the
-comments at `index.ts:101`, `index.ts:965-971` and the `doctor.mjs:80` fix line
-must be corrected to state what is actually guaranteed, and
-`server/test/security.test.ts` must add a case that fetches `/` and asserts
-the token is not in the body.
+Add a case to `guards.test.ts`'s "importing a folder" block that builds the repo
+above and asserts `src.files.map((f) => f.path)` is `['README.md']` — the same
+shape as the existing secret-name case at `guards.test.ts:195-206`, which
+currently passes only because it uses real files rather than links.
 
 ---
 
-### CR-02: `DERIVE_HOST=0.0.0.0` refuses every legitimate remote request and admits a forged one
+### CR-02: The clone guard is bypassable by an HTTP redirect
 
-**File:** `server/src/index.ts:109` and `server/src/index.ts:144-145`
-**Issue:** `ALLOWED_HOSTS` is built from the literal `HOST` value, not from the
-addresses the server is reachable at. With `DERIVE_HOST=0.0.0.0` — the exact
-value `.env.example:31` documents for "open it to the network" — the set
-becomes `{127.0.0.1, localhost, [::1], 0.0.0.0}`. A second device addresses the
-server by its LAN address, so its `Host` header is `192.168.0.166:4988`, which
-is in none of them.
+**Severity:** BLOCKER
+**File:** `server/src/repo.ts:274-279`
 
-Reproduced:
+**Issue:** `fromGitClone` checks the scheme, awaits `assertPublicHost(url)`, and
+then spawns `git clone` with that same URL. The ordering is correct (the guard
+runs before `mkdtempSync` and before the spawn — `guards.test.ts:137-151` proves
+it) but the guard judges only the URL the caller supplied. `git help config`:
 
-```
-$ DERIVE_HOST=0.0.0.0 node server/dist/index.js       # port 4988
+> `http.followRedirects` — ... If set to `initial`, git will follow redirects
+> only for the initial request to a remote ... **The default is `initial`.**
 
-$ curl -s -H "x-derive-token: $T" http://192.168.0.166:4988/api/lessons
-{"error":"derive answers on 127.0.0.1, localhost, [::1], 0.0.0.0 at port 4988 only"}   # 403
+The initial request to the remote is exactly the one that matters. A URL on a
+public host that 302s to `http://10.0.0.5/internal.git` or
+`http://169.254.169.254/...` is followed by git, and `assertPublicHost` never
+sees the second hop. This is the identical bypass `fetchPublic` already defends
+against by re-running the guard on every hop (`library.ts:332-340`), with the
+module comment at `library.ts:322-324` spelling out why — "a public URL is free
+to redirect to 127.0.0.1 and the only honest way to catch that is to check each
+hop before taking it". The clone path does not apply its own module's lesson.
 
-$ curl -s -o /dev/null -w '%{http_code}\n' -H "x-derive-token: $T" \
-       -H "Host: 127.0.0.1:4988" http://192.168.0.166:4988/api/lessons
-200
-```
+Secondary, same call: the guard resolves the host and git resolves it again, so
+a short-TTL record can answer public to one and private to the other. That is
+harder to close, but `http.followRedirects=false` closes the cheap half outright.
 
-So the documented configuration is broken for its stated purpose, and the
-startup banner at `index.ts:987-992` ("every device that can reach this machine
-on port N can reach your lessons") describes behaviour the code does not have.
-Worse, combined with CR-01 the same remote device can read the token off `/`
-over the LAN (confirmed) and then forge the loopback `Host` to get in: the Host
-check stops only browsers, which is the one class of client that cannot reach
-the token this way anyway.
+(Submodules are not a vector here: `--depth 1` without `--recurse-submodules`
+never fetches them. URL forms are not a vector either — `new URL` puts
+`https://evil.com@127.0.0.1/x.git` at hostname `127.0.0.1`, which the guard
+refuses.)
 
-**Fix:** Derive the allowlist from the addresses the server actually answers on
-rather than from the literal bind string, and reject the wildcard as a host
-name:
+**Fix:** Forbid redirects and pin the protocol on the clone itself, so the URL
+the guard judged is the only URL git can reach:
 
 ```ts
-import { networkInterfaces } from 'node:os';
-
-const localAddresses = () =>
-  Object.values(networkInterfaces())
-    .flat()
-    .filter((i): i is NonNullable<typeof i> => !!i)
-    .map((i) => (i.family === 'IPv6' ? `[${i.address.split('%')[0]}]` : i.address));
-
-const ALLOWED_HOSTS = new Set(
-  ['127.0.0.1', 'localhost', '[::1]', ...(HOST_IS_LOOPBACK ? [] : ['0.0.0.0', '::'].includes(HOST) ? localAddresses() : [HOST.toLowerCase()])].map((h) => h.toLowerCase()),
+execFileSync(
+  'git',
+  ['-c', 'http.followRedirects=false', '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always',
+   'clone', '--depth', '1', '--quiet', url, tmp],
+  { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
 );
 ```
 
-and document in `.env.example` that on a widened bind the `Host` check is not a
-security control against non-browser clients, only a DNS-rebinding defence for
-browsers.
+`GIT_TERMINAL_PROMPT=0` belongs there too: without it a URL needing credentials
+blocks on a prompt until the 120s timeout, holding the request open.
+
+Pin it with a case in `guards.test.ts`'s `cloning` block: stand up two loopback
+fixture servers, have the first 302 to the second, drive `execFileSync` with the
+flags above, and assert the second server logged nothing.
 
 ---
 
-### CR-03: `git clone` bypasses the private-destination guard this phase added
+### CR-03: The document route hands a full API credential to a request that presented nothing
 
-**File:** `server/src/repo.ts:271-289`
-**Issue:** `fromGitClone` refuses non-https URLs (good) but never calls
-`assertPublicHost`. Every other egress in the phase — `fetchPublic` in
-`server/src/library.ts:329-347`, checked on every redirect hop — refuses
-loopback, RFC-1918, link-local and CGNAT destinations. `collectRepo`
-(`repo.ts:291-298`) routes any non-GitHub repo URL straight to `fromGitClone`,
-so:
+**Severity:** BLOCKER
+**File:** `server/src/index.ts:1087-1104`, `server/src/index.ts:1064-1072`
+
+**Issue:** On a loopback connection the document middleware returns early —
+`if (!here || isLoopback(here)) return next();` (`index.ts:1093`) — and
+`serveApp` then calls `issueSession(c)` unconditionally (`index.ts:1070`). The
+value it sets is accepted by the `/api/*` middleware as a credential
+(`index.ts:236`). So one unauthenticated GET converts "can open a TCP socket to
+the port" into "can do everything the API can do".
+
+Reproduced against the running server on 4310:
 
 ```
-POST /api/materials/repo  {"source": "https://192.168.0.5/internal.git"}
-POST /api/materials/repo  {"source": "https://127.0.0.1:8443/private.git"}
+$ C=$(curl -s -D - -o /dev/null http://127.0.0.1:4310/ | sed -n 's/.*derive_session=\([0-9a-f]*\).*/\1/p')
+cookie len: 64
+$ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4310/api/lessons
+401
+$ curl -s -o /dev/null -w '%{http_code}\n' -H "Cookie: derive_session=$C" http://127.0.0.1:4310/api/lessons
+200
+cookie equals token file: NO
 ```
 
-both clone from an internal host, and every readable text file in that
-repository is then ingested as course material and readable by the model
-through `read_material`/`search_material`. This is not only reachable from the
-API: the MCP `attach_material` tool takes "a GitHub / git URL" straight from
-the model (`server/src/tools.ts:377-381`, `server/src/mcp.ts:248-252`), which is
-exactly the model-steered path the guard's own doc comment
-(`library.ts:143-150`, "because the tutor model itself can hand Derive a URL")
-says the guard exists for. `server/test/guards.test.ts:123-131` tests the
-scheme check on this path and nothing else.
+On loopback this is the same reach as the defect it replaced. The previous
+review's CR-01 was rated critical because "any process, any user on the machine
+... can read the token and then use it"; that sentence is still true with
+`derive_session` substituted for the token. What genuinely improved is that the
+credential is `HttpOnly` (a compromised frontend dependency can no longer read
+it) and is not the install token (so the token itself stays in-process). What
+did not improve is the 0600 file mode's standing as a control:
+`security.test.ts:116-119` asserts that mode, and `doctor.mjs:82` tells the
+learner to `chmod 600` it, but no attacker needs to read it.
 
-**Fix:** Run the same guard before the spawn:
+Three claims in the reviewed files are false as written:
+
+- `index.ts:1075-1077` — "The document routes are protected at least as well as
+  the API they unlock." They are strictly weaker: the API requires a credential,
+  the document route requires none and *issues* one.
+- `index.ts:1081-1082` — "On loopback the browser is on this machine and is
+  handed its cookie for nothing, which is the default and the only quiet case."
+  Accurate about the mechanism; it is the word "browser" that is doing work the
+  code cannot do — nothing distinguishes a browser from `curl`.
+- `security.test.ts:6-8` — the suite's stated premise. Every case in it that
+  touches the document route (`security.test.ts:280-337`) exercises the
+  credential-issuing path and asserts it *succeeds*; none asserts a bound on who
+  can reach it.
+
+Browser-borne exploitation is blocked (`SameSite=Strict` keeps the cookie out of
+third-party frames and cross-site navigations, and `guardLocal`'s Origin check
+refuses `fetch` from a foreign page — `index.ts:207`). The exposure is to local
+processes, which is precisely the class `doctor.mjs:74-75` names.
+
+**Fix:** Either close it or stop claiming it is closed — but not neither.
+
+To close it, the document route must require the token on loopback too, exactly
+as it already does on a widened bind, and the app must be opened once with it:
 
 ```ts
-async function fromGitClone(url: string): Promise<RepoSource> {
-  if (!/^https:\/\//i.test(url.trim())) throw new Error(`derive only clones over https (got ${url.trim()}); an ssh or git URL would use your own keys`);
-  await assertPublicHost(url.trim());   // same rule as every other egress
-  const tmp = mkdtempSync(join(DATA_DIR, 'clone-'));
-  ...
-}
+app.use('/*', async (c, next) => {
+  if (c.req.path.startsWith('/api/')) return next();
+  const refusal = guardLocal(c);
+  if (refusal) return refusal;
+
+  const cookie = offered(getCookie(c, SESSION_COOKIE));
+  if (cookie && sameValue(cookie, SESSION_BUF)) return next();
+
+  const presented = offered(c.req.header('x-derive-token')) || offered(c.req.query('token'));
+  if (presented && sameValue(presented, TOKEN_BUF)) {
+    issueSession(c);
+    return c.redirect(safePath(c.req.path), 302);   // see WR-02 for safePath
+  }
+  return c.json({ error: `open this page once as ${c.req.path}?token=<the token in ${TOKEN_PATH}>` }, 401);
+});
 ```
 
-`collectRepo` is already `async`, so `return await fromGitClone(s)` is the only
-call-site change. Add a case to `guards.test.ts` alongside the scheme cases:
-`await assert.rejects(() => collectRepo('https://127.0.0.1/x.git'), /private or local address/)`,
-and assert `cloneDirs()` is still empty so the guard is proven to run before
-`mkdtempSync`.
+and print the one-time URL on the startup line so `pnpm start` stays one step.
+(A unix domain socket is the stronger answer and removes the port from the
+threat model entirely, but it is a transport change, not a patch.)
+
+If the residual is accepted instead, correct `index.ts:1075-1077`,
+`index.ts:1081-1082` and `security.test.ts:6-8` to say what holds — "any client
+that can reach the port on this machine is trusted; the token file protects
+against a *remote* client and against page script, not against a local process"
+— and delete the 0600 assertion's implication at `security.test.ts:116-119`.
+Shipping a control whose own test suite states a stronger property than the code
+has is how the first review's CR-01 survived a whole phase.
 
 ## Warnings
 
-### WR-01: Deleting a lesson or a learner leaves their `turns` and `usage` rows behind
+### WR-01: An unknown local address fails open on the document route
 
-**File:** `server/src/db.ts:386-397` and `server/src/db.ts:349-357`
-**Issue:** Migrations 2 and 3 add the `turns` and `usage` tables, but
-`deleteLesson` deletes from `materials`, `memory`, `misconceptions`,
-`quiz_results`, `nodes`, `events` and `lessons` only — `grep -n "DELETE FROM"
-server/src/db.ts` shows no statement for either new table. `deleteLesson`'s new
-doc comment says "Removes a lesson and everything hanging off it" and
-`deleteLearner`'s says "Removes the learner and everything they learned"; both
-are now false. A deleted learner's per-request token counts, models and driver
-names survive the deletion of the learner, which for a local-first product whose
-promise is that the learner owns their record is a data-deletion defect, not
-just untidiness. The tables also grow without bound.
+**Severity:** WARNING
+**File:** `server/src/index.ts:1092-1093`, against `server/src/index.ts:150-152`
 
-**Fix:**
+**Issue:** `hostNames` treats "no address to go on" as fail-closed — it returns
+only the loopback names (`index.ts:152`), and the comment says so. The document
+middleware makes the opposite choice for the same condition:
+`if (!here || isLoopback(here)) return next();`. With `localAddress()`
+undefined (a destroyed socket, an adapter that does not surface
+`incoming.socket`), a request from the network that forges `Host: 127.0.0.1:PORT`
+passes `guardLocal` — because the loopback names are all that is allowed — and
+then takes the `!here` branch, receiving a session cookie for free. The entire
+widened-bind protection collapses to the one condition both functions agree is
+unknowable.
 
-```ts
-// with the other prepared statements
-deleteTurnsByLesson: db.prepare('DELETE FROM turns WHERE lesson_id = ?'),
-deleteUsageByLesson: db.prepare('DELETE FROM usage WHERE lesson_id = ?'),
-
-// in deleteLesson, inside the same withTx
-q.deleteUsageByLesson.run(id);   // usage first: it points at turns
-q.deleteTurnsByLesson.run(id);
-```
-
-`deleteLearner` already loops `deleteLesson`, so it is covered once this lands;
-add an assertion to `server/test/usage.test.ts` that both tables are empty for
-a lesson after `DELETE /api/lessons/:id`.
-
----
-
-### WR-02: The boot sweep closes turns without writing the usage row the ledger promises
-
-**File:** `server/src/index.ts:68-70`, against `server/src/db.ts:614-624`
-**Issue:** `closeUsage`'s contract is explicit: "Every turn gets a usage row,
-whichever driver ran it... it is why turn counts reconcile across every view."
-Both other closing paths honour it — `sinkFor`'s `endTurn`
-(`server/src/driver.ts:110-117`) and the external `end` action
-(`server/src/index.ts:900-907`). The restart sweep does not: `closeOpenTurns`
-(`db.ts:501-507`) only runs the UPDATE, and the boot loop in `index.ts` emits
-`turn_end` without calling `closeUsage`. Every turn killed by a restart is
-therefore a turn with no usage row, and totals stop reconciling exactly when a
-crash makes them most interesting.
-
-**Fix:**
+**Fix:** Require a known loopback address before the free credential, so the two
+fallbacks point the same way:
 
 ```ts
-for (const t of closeOpenTurns('interrupted')) {
-  closeUsage(t.id);
-  if (getLesson(t.lesson_id)?.mode === 'agent') emit(t.lesson_id, 'turn_end', { ok: true, interrupted: true, reason: 'server restarted' });
-}
+const here = localAddress(c);
+if (here && isLoopback(here)) return next();
 ```
 
-Better still, move the call inside `closeOpenTurns` so the invariant cannot be
-missed by a future caller, and add the case to `server/test/usage.test.ts`.
+An unknown address then takes the token path, which is the conservative branch.
 
 ---
 
-### WR-03: The `sk-` backstop mangles ordinary words in error messages and logs
+### WR-02: `c.redirect(c.req.path)` is an open redirect and a 500
 
-**File:** `server/src/secrets.ts:43`
-**Issue:** `/sk-[A-Za-z0-9_-]{16,}/g` matches inside a longer word, and
-`safeMessage` runs it over every API error body and every `[tag]` log line.
-Confirmed:
+**Severity:** WARNING
+**File:** `server/src/index.ts:1101`
 
-```
-'could not read /home/me/Desktop/risk-assessment-notes-2024.pdf'
-  -> 'could not read /home/me/Desktop/ri[redacted].pdf'
+**Issue:** `c.req.path` is taken verbatim from the request line. Hono's `getPath`
+(`hono/dist/utils/url.js:68-85`) slices from the first `/` after the authority,
+so a request for `http://host//evil.example?token=...` yields
+`c.req.path === '//evil.example'` and the response is
+`Location: //evil.example` — a protocol-relative URL the browser resolves to
+another host. The same function percent-decodes when a `%` is present, so a path
+carrying an encoded CR/LF reaches `setHeader('Location', ...)`, which Node
+rejects with `ERR_INVALID_CHAR` — a 500 on the credential-handoff path.
 
-'task-scheduler-configuration failed'
-  -> 'ta[redacted] failed'
-```
+Reachability is limited (this branch runs only when a correct token was
+presented, and only on a widened bind), which is why this is a warning and not a
+blocker. It is still a redirect primitive on the one route that hands out a
+credential.
 
-A learner whose file is named `risk-...` gets an unusable message from the
-upload route, and the log line that would have named the problem is destroyed.
-The module's own thesis — "Redaction that corrupts teaching has broken the
-product in order to protect it" — applies to diagnostics too.
-
-**Fix:** Anchor the pattern so it can only start a token:
+**Fix:** Redirect to a path this server constructed, never to one it was handed:
 
 ```ts
-{ re: /(^|[^A-Za-z0-9_-])(sk-[A-Za-z0-9_-]{16,})/g, to: `$1${REDACTED}` },
-```
-
-and do the same for `sk-ant-` and `AIza`. Add the two strings above to
-`server/test/secrets.test.ts` as must-survive cases.
-
----
-
-### WR-04: `fetchPublic` buffers an undeclared-length body without a cap
-
-**File:** `server/src/library.ts:340-345`
-**Issue:** The size check is `Number(res.headers.get('content-length') ?? 0) >
-maxBytes`, then `Buffer.from(await res.arrayBuffer())`, then a second check on
-`buf.byteLength`. A server that sends no `content-length` (chunked, which is
-common) passes the first check with `0` and the whole body is materialised in
-memory before the second one can fire — the after-the-fact check cannot
-prevent the allocation it is checking. `server/src/repo.ts:220-238` added
-`readCapped` in this very phase for exactly this reason, with a test
-(`guards.test.ts:141-149`) that streams an undeclared body; `library.ts` does
-not use it, so the fetch path the model can drive through `add_resource` is
-the unprotected one.
-
-**Fix:** Export `readCapped` from a shared place (or move it beside
-`fetchPublic`) and use it:
-
-```ts
-if (!res.ok) throw new Error(`HTTP ${res.status}`);
-const buf = Buffer.from(await readCapped(res, maxBytes));
-return { type: (res.headers.get('content-type') ?? '').toLowerCase(), buf, url: res.url || current };
-```
-
----
-
-### WR-05: `assertPublicHost` is resolve-then-connect, so a rebinding name passes it
-
-**File:** `server/src/library.ts:151-170`
-**Issue:** The guard calls `lookup(host)` and judges the answers, then hands
-the *name* to `fetch`, which resolves it again independently. A name whose
-authoritative server returns a public address with TTL 0 on the first query and
-`127.0.0.1` on the second passes the check and connects to loopback. The doc
-comment claims "the destination that matters is the one the request actually
-reaches", which is precisely what this construction cannot guarantee. The
-redirect-per-hop work is real and valuable, but it does not close this.
-
-**Fix:** Pin the address that was judged. Resolve once, pick an allowed
-address, and connect to it with the original host in the `Host` header and SNI:
-
-```ts
-import { Agent } from 'undici';
-const pinned = (ip: string) => new Agent({ connect: { lookup: (_h, _o, cb) => cb(null, ip, isIP(ip)) } });
-// assertPublicHost returns the address it approved; fetchPublic passes
-// { dispatcher: pinned(addr) } so the socket goes where the guard looked.
-```
-
-If pinning is judged too costly for this phase, change the comment to say what
-the guard does and does not cover, and record the residual risk, rather than
-leaving a claim the code cannot back.
-
----
-
-### WR-06: A failing `ROLLBACK` replaces the real error and drops the recovery message
-
-**File:** `server/src/db.ts:226-245` and `server/src/migrations.ts:366-379`
-**Issue:** Both handlers do `db.exec('ROLLBACK')` as the first statement of the
-catch. If SQLite has already aborted the transaction (which it does for some
-errors), `ROLLBACK` throws "cannot rollback - no transaction is active"; that
-throw escapes the catch block, so in `migrations.ts` the carefully worded
-message — which names the version the file is still on and where the backup
-copy is — is never constructed, and the learner sees an unrelated SQLite
-string. The original error is lost in both files.
-
-**Fix:**
-
-```ts
-} catch (e) {
-  try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
-  ...
-}
-```
-
----
-
-### WR-07: `openBrowser` builds a shell string and runs it through `exec`
-
-**File:** `server/src/mcp.ts:184-187`
-**Issue:** `exec(\`xdg-open "${url}"\`)` passes the URL through `/bin/sh`. The
-URL comes from `baseUrl(c.req.url)` on the server, which is derived from the
-`Host` header of the MCP proxy's own request, itself derived from `DERIVE_URL`
-— all learner-controlled environment. A `"` or `$(...)` in that value becomes
-shell. There is no reason to involve a shell here at all.
-
-**Fix:**
-
-```ts
-import { execFile } from 'node:child_process';
-function openBrowser(url: string) {
-  const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
-  execFile(cmd, args, () => undefined);
-}
-```
-
----
-
-### WR-08: The mirror hook writes to a path built from an unvalidated `session_id`
-
-**File:** `plugin/hooks/mirror.mjs:56` and `plugin/hooks/mirror.mjs:116`
-**Issue:** `session_id` is read from the hook's stdin JSON and used unchecked as
-a filename: `join(STATE_DIR, \`${sessionId}.json\`)`, then `writeFileSync`. A
-value containing `../` escapes `~/.derive/mirror` and overwrites an arbitrary
-file the user can write — including `~/.derive/token` or `~/.derive/derive.db`.
-The payload is Claude Code's today, but this is a hook that runs on every
-prompt with no validation on a value used as a path.
-
-**Fix:**
-
-```js
-if (!/^[A-Za-z0-9._-]+$/.test(sessionId)) return;
-```
-
-next to the existing `if (!sessionId || !transcript ...) return;` guard at
-line 50.
-
----
-
-### WR-09: `isSecretName` is a narrow denylist doing work an allowlist should do
-
-**File:** `server/src/repo.ts:58-62`
-**Issue:** The list covers `.pem`, `.key`, `credentials`, `.netrc`, `.npmrc`,
-`auth.json`, `id_*` and `.env*`. It misses `.git-credentials`, `.pgpass`,
-`.htpasswd`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, and — the common case in
-a real repository — `secrets.yml` / `secrets.yaml` / `secrets.json`, which pass
-`isTextName` and are imported whole into the lesson where the model reads them.
-A denylist of names is the wrong shape for "things the tutor must not read".
-
-**Fix:** Keep the denylist as defence in depth, but add the obvious names and a
-content heuristic for the gap that matters:
-
-```ts
-const SECRET_NAMES = new Set(['credentials', '.netrc', '.npmrc', '.pgpass', '.htpasswd', '.git-credentials', 'auth.json', 'secrets.json', 'secrets.yml', 'secrets.yaml']);
-const SECRET_EXTS = new Set(['.pem', '.key', '.p12', '.pfx', '.jks', '.keystore', '.ppk']);
-export const isSecretName = (path: string) => {
-  const name = basename(path);
-  return SECRET_EXTS.has(extname(name).toLowerCase()) || SECRET_NAMES.has(name.toLowerCase()) || name.startsWith('id_') || name.startsWith('.env');
-};
-```
-
-and extend the `knows a secret-shaped name` case in `guards.test.ts:166-173`.
-
----
-
-### WR-10: The renderer hard-codes the tool count and fails with the wrong explanation
-
-**File:** `scripts/render-method.mjs:177`
-**Issue:** `if (names.length !== 22) fail(...'the registry projection is
-incomplete...')`. Adding a legitimate fifteenth tutor tool — which is the
-stated direction of the milestone — makes `pnpm method:check` fail in CI with a
-message that blames the projection for being incomplete when it is in fact
-correct and the constant is stale. A magic number that must be edited in a
-second file whenever the registry changes is exactly the drift this module
-exists to prevent.
-
-**Fix:** Assert the relationship rather than the number:
-
-```js
-const names = (wire.mcp ?? []).map((t) => t.name);
-if (!names.length) fail('server/test/wire-surface.json lists no mcp tools; the registry projection is empty and the allowed-tools lines would be blank');
-```
-
-`server/test/wire-surface.test.ts` already fails when the snapshot and the
-registry disagree, which is the check that actually protects this.
-
----
-
-### WR-11: `DELETE /api/lessons/:id` does not 404 and leaves a running turn row open
-
-**File:** `server/src/index.ts:275-282`
-**Issue:** Unlike every other `:id` route in the file, this one never looks the
-lesson up: deleting an id that does not exist returns `{ok: true}` 200. It also
-never closes the lesson's turn row — `interrupt()` only reaches an in-process
-agent turn, so an external lesson deleted mid-turn leaves a `turns` row stuck
-at `status='running'` until the next boot sweep finds it (and, per WR-01, the
-row is never deleted at all).
-
-**Fix:**
-
-```ts
-app.delete('/api/lessons/:id', async (c) => {
-  const id = c.req.param('id');
-  if (!getLesson(id)) return c.json({ error: 'not found' }, 404);
-  await interrupt(id);
-  const turn = lastTurn(id);
-  if (turn?.status === 'running') { finishTurn(turn.id, 'interrupted'); closeUsage(turn.id); }
-  cancelPending(id, { held: true });
-  held.delete(id);
-  recentCards.delete(id);        // see IN-01
-  deleteLesson(id);
-  return c.json({ ok: true });
-});
-```
-
----
-
-### WR-12: `GET /api/preferences` asserts a learner row exists and 500s when it does not
-
-**File:** `server/src/index.ts:588-591`
-**Issue:** `const l = getLearner(learnerOf(c))!;` — `learnerOf` falls back to
-`DEFAULT_LEARNER_ID` for an unknown learner, but nothing guarantees that row is
-present (a database restored from an older snapshot, or a `derive.db` where the
-default learner was renamed away). The non-null assertion turns that into a
-`TypeError` on `l.name` and a bare 500, in a file whose every other lookup
-returns a 404 with a sentence. `server/src/index.ts:585` has the same shape via
-`getLearner(learnerOf(c))` but tolerates `undefined` because it only spreads it.
-
-**Fix:**
-
-```ts
-app.get('/api/preferences', (c) => {
-  const l = getLearner(learnerOf(c));
-  if (!l) return c.json({ error: 'learner not found' }, 404);
-  return c.json({ learner: l.name, preferences: l.prefs });
-});
-```
-
----
-
-### WR-13: The `mirror` action reads four unvalidated fields straight into a persisted event
-
-**File:** `server/src/index.ts:879-893`
-**Issue:** `validateAction` is the phase's answer to "a malformed body is not a
-method refusal" — but `mirror` has no tool behind it, so it takes the
-`{ role, text, uid, at }` cast path with no schema at all. `at` in particular
-is written unchecked into a persisted event payload that the browser sorts the
-timeline by (`web/src/lib/useLesson.ts`), and `uid` becomes an event id. A
-string, object or `NaN` in `at` silently reorders or corrupts a lesson's
-record, which is the learner's durable artefact. `end` and `collect` are in the
-same position, though they read nothing.
-
-**Fix:** Give the route's own actions shapes in the same map, so validation is
-uniform:
-
-```ts
-const ROUTE_SCHEMAS = new Map<string, z.ZodType>([
-  ['mirror', z.object({ role: z.enum(['assistant', 'user']), text: z.string(), uid: z.string().optional(), at: z.number().int().positive().optional() })],
-  ['collect', z.object({})],
-  ['end', z.object({})],
-]);
-// in validateAction: const schema = ACTION_SCHEMAS.get(action) ?? ROUTE_SCHEMAS.get(action);
-```
-
----
-
-### WR-14: The one-turn-per-lesson guard is not atomic with the registration that enforces it
-
-**File:** `server/src/agent.ts:267` and `server/src/agent.ts:293`
-**Issue:** `runTurn` throws `lesson is busy` when `active.has(lessonId)`, but
-the map is only written when the driver calls `ctx.onActive(...)` — which for
-`claudeDriver` is after `query(...)` is constructed and for `codexDriver` is
-after `codex.resumeThread(...)`. Everything between the check and the
-registration is an `await`-free window in this function, but the two callers
-(`POST /api/lessons` and `announceMaterials`) both fire `runTurn` as a
-fire-and-forget `void`, and `startTurn` + `emit` run before the dispatch. Two
-turns for one lesson would both open a turn row and both emit `turn_start`,
-which the architecture notes list as a hard constraint ("One turn per lesson").
-
-**Fix:** Claim the slot before dispatching, and let `onActive` upgrade the
-placeholder:
-
-```ts
-if (active.has(lessonId)) throw new Error('lesson is busy');
-active.set(lessonId, { interrupt: async () => undefined });   // claimed
+/** A request path safe to put in Location: one leading slash, no scheme, no authority. */
+const safePath = (p: string) => '/' + p.replace(/^\/+/, '').replace(/[\r\n]/g, '');
 ...
-onActive: (handle) => active.set(lessonId, handle),
+return c.redirect(safePath(c.req.path), 302);
 ```
 
-The existing `finally { active.delete(lessonId); }` already releases it on
-every path, including the throw from `startTurn`.
+---
+
+### WR-03: The Host check requires an explicit port, so `PORT=80` refuses every browser
+
+**Severity:** WARNING
+**File:** `server/src/index.ts:202`, with `server/src/index.ts:167-170`
+
+**Issue:** `guardLocal` ends its host test with `port !== String(PORT)`.
+Browsers omit the port from `Host` for the default port of the scheme, so with
+`PORT=80` every browser sends `Host: localhost` (port `''`), `'' !== '80'`, and
+every request — document and API — is refused 403. `PORT` is a documented,
+first-class knob (`.env.example:4-5`, `config.ts:8`), and nothing warns that two
+of its values brick the app. `443` is the same, and the 403 text
+("derive answers on ... at port 80, and a request has to name it") sends the
+learner looking in the wrong place.
+
+**Fix:** Treat an absent port as the scheme default:
+
+```ts
+const DEFAULT_PORT = PORT === 80 ? '80' : PORT === 443 ? '443' : '';
+if (UNSPECIFIED_NAMES.has(host) || !hostNames(c).has(host) || (port || DEFAULT_PORT) !== String(PORT)) { ... }
+```
+
+Add the case to `security.test.ts`'s Host block: a server on port 80 is awkward
+in CI, so assert it at the unit level by exporting `splitHost` and the port
+comparison rather than by binding.
+
+---
+
+### WR-04: The GitHub tarball path never applies `isSecretName`
+
+**Severity:** WARNING
+**File:** `server/src/repo.ts:255`, against `server/src/repo.ts:55-59`
+
+**Issue:** `isSecretName`'s own doc comment promises it runs "both when the list
+is built and when the tree is walked, so a matching file is never even
+collected". `fromDirectory` honours that (`repo.ts:139`, `repo.ts:151`).
+`fromGitHub` does not — its filter is
+`!inSkippedDir(p) && isTextName(p)` with no secret check. `auth.json` (`.json` is
+in `TEXT_EXTS`) and `.env.example` (`extname` returns `.example`, which is also
+in `TEXT_EXTS`) are collected from a tarball but refused from a folder, for no
+reason either function states.
+
+The impact is bounded — a public repo's checked-in files are already public — but
+the asymmetry means the guard's stated invariant is false, and the next person
+who adds an import path has no way to know which of the two shapes is the rule.
+
+**Fix:** One filter for both paths:
+
+```ts
+const paths = orderFiles([...byPath.keys()].filter((p) => !inSkippedDir(p) && !isSecretName(p) && isTextName(p)));
+```
+
+---
+
+### WR-05: `walk()` follows directory symlinks with no cycle guard
+
+**Severity:** WARNING
+**File:** `server/src/repo.ts:122-143`
+
+**Issue:** `statSync` follows links, so a symlink to a directory reads as
+`isDirectory()` and `walk` recurses into it (`repo.ts:137-138`). A link pointing
+at its own ancestor recurses forever: the `out.length > MAX_FILES * 4` brake
+(`repo.ts:140`) only fires once entries have been *pushed*, and a directory whose
+only entry is the loop link pushes nothing. The result is a
+`RangeError: Maximum call stack size exceeded` — catchable, so the route returns
+422, but it is unbounded recursion in a path a learner can trigger by naming any
+folder containing a self-referential link. A link to `/` instead walks the disk
+until the brake trips.
+
+This is the same root cause as CR-01; the `lstatSync` fix there closes both, and
+is listed separately because the failure mode and the test differ.
+
+**Fix:** As CR-01 — `lstatSync` and `continue` on `isSymbolicLink()`. If
+following links is ever wanted, carry a `Set` of `realpathSync` values and skip
+one already seen.
+
+---
+
+### WR-06: The `repo → library → materials → repo` ring is enforced by convention only
+
+**Severity:** WARNING
+**File:** `server/src/repo.ts:14-15`, `server/src/library.ts:31-32`
+
+**Issue:** The ring resolves today — I traced both entry orders and neither
+touches a cyclic binding during evaluation (`library.ts` uses `partsOf`, `SEP`
+and `titleOf` only inside function bodies; `materials.ts:183` calls `collectRepo`
+only inside `attachRepo`; `repo.ts:276` calls `assertPublicHost` only inside
+`fromGitClone`). So this is not a live initialization-order bug.
+
+It is a fragile one. Both comments state the invariant honestly — "move any of
+them to module scope and repo.ts's import breaks, with no signal at the line you
+edited" — which is an accurate description of a trap, not a mitigation. Nothing
+enforces it: no test imports the three modules in each order, and `tsc` will not
+complain. A future `const DEFAULT_UA = titleOf(...)` at module scope in
+`library.ts` fails at boot, in a different file, with a `undefined is not a
+function`.
+
+The comment's stated alternative — "A second copy of assertPublicHost would
+avoid the ring and is exactly the wrong answer" — is correct about duplication
+but treats duplication and the ring as the only two options. There is a third,
+and it is the one the codebase's own module conventions point at (one file per
+topic, no barrels).
+
+**Fix:** Extract the destination guard into its own leaf module that imports
+nothing from the ring:
+
+```ts
+// server/src/net-guard.ts — where a fetch or a clone is allowed to go.
+export function isPrivateAddress(ip: string): boolean { ... }
+export async function assertPublicHost(url: string): Promise<void> { ... }
+```
+
+`library.ts` and `repo.ts` both import it; the ring disappears; there is still
+exactly one guard. `guards.test.ts:30` then imports it directly and no longer
+needs `DERIVE_DATA_DIR` set just to reach a pure function (`guards.test.ts:27-28`).
+
+---
+
+### WR-07: Deleting a learner leaves their lessons' pending and held cards alive
+
+**Severity:** WARNING
+**File:** `server/src/index.ts:312-322`, `server/src/index.ts:361-368`, `server/src/index.ts:776`
+
+**Issue:** `DELETE /api/lessons/:id` cancels pending prompts and drops the held
+card (`index.ts:364-365`). `DELETE /api/learners/:id` does neither: it
+interrupts each lesson's turn and calls `deleteLearner` (`index.ts:316-317`),
+leaving every entry those lessons own in `pending` (`prompts.ts`) and in `held`
+(`index.ts:774`). A card settled afterwards resolves a tool that writes an event
+against a lesson row that no longer exists, and `/api/external/active` can still
+report `held.get(l.id)?.id` for a deleted lesson (`index.ts:755`).
+
+Separately, and on both routes: `recentCards` (`index.ts:776`) is written at
+`index.ts:805` and never deleted anywhere in the file. It grows for the life of
+the process, one entry per external lesson.
+
+**Fix:**
+
+```ts
+// in DELETE /api/learners/:id, before deleteLearner
+for (const l of listLessons(id)) {
+  await interrupt(l.id);
+  cancelPending(l.id, { held: true });
+  held.delete(l.id);
+  recentCards.delete(l.id);
+}
+
+// and add the missing line to DELETE /api/lessons/:id
+recentCards.delete(id);
+```
+
+---
+
+### WR-08: The boot sweep still closes turns without the usage row the ledger promises
+
+**Severity:** WARNING
+**File:** `server/src/index.ts:69-71`, against `server/src/db.ts:635-648`
+
+**Issue:** Carried over from the first review (WR-02) and still open;
+re-reported because it is now load-bearing for work that *did* land.
+`closeUsage`'s contract is "Every turn gets a usage row, whichever driver ran
+it... it is why turn counts reconcile across every view" (`db.ts:636-643`). Both
+other closing paths honour it — `driver.ts:115` and `index.ts:992`. The restart
+sweep does not: `closeOpenTurns` runs the UPDATE only (`db.ts:524-530`) and the
+boot loop emits `turn_end` without calling `closeUsage`. `grep -rn closeUsage
+server/src/` returns three call sites and this is not one of them.
+
+Plan 01-11 has just made `usage` a table the deletion paths are responsible for
+keeping consistent. Leaving one writer that skips it means the ledger's own
+invariant is broken by the most ordinary event there is — a restart.
+
+**Fix:** Put the call where it cannot be forgotten, inside `closeOpenTurns`:
+
+```ts
+export function closeOpenTurns(status: TurnStatus): TurnRow[] {
+  return withTx(() => {
+    const rows = openTurns();
+    if (rows.length) q.closeOpenTurns.run(Date.now(), status);
+    for (const r of rows) closeUsage(r.id);
+    return rows;
+  });
+}
+```
+
+and assert it in `tx.test.ts` alongside the existing ledger cases: open a turn,
+call `closeOpenTurns('interrupted')`, expect `listUsage({ turn }).length === 1`.
+
+---
+
+### WR-09: The web client still reads the `<meta name="derive-token">` the server no longer writes
+
+**Severity:** WARNING
+**File:** `web/src/lib/api.ts:26-33`, `web/src/lib/useLesson.ts:255-257` (consequence of `server/src/index.ts:1060-1072`)
+
+**Issue:** 01-09 removed the meta-tag injection; `git diff --quiet -- web/` was
+kept as a constraint across all four plans (01-12-SUMMARY, D3), so the reader
+was left in place. `deriveToken()` now always returns `''`. Three consequences,
+none fatal but all misleading:
+
+- `api.ts:26-30`'s comment — "The install token, put into this document by the
+  server that served it" — describes a mechanism that no longer exists.
+- `headers()` (`api.ts:35-39`) never adds `x-derive-token`, so every request now
+  depends on the cookie or the Vite proxy. That works (same-origin `fetch` sends
+  cookies by default; `vite.config.ts` sets the header with
+  `changeOrigin: true`, so the proxied `Host` is `localhost:4310` and
+  `guardLocal` passes), but it works by accident of defaults rather than by
+  anything stated.
+- `useLesson.ts:255` — "EventSource cannot set a header, so this is the one
+  request that carries the install token in the query string" — describes dead
+  code. The query branch is never taken, which also means the `/stream` query
+  path in the API middleware (`index.ts:234`) now has no caller in this repo.
+
+**Fix:** Delete `deriveToken()` and its two call sites, replace the comments with
+what is now true ("the browser authenticates with the `derive_session` cookie the
+document set; in dev the Vite proxy adds the header instead"), and decide
+deliberately whether `index.ts:234`'s query-parameter path still earns its place.
+
+---
+
+### WR-10: The "no Host header" case cannot fail for the reason it names
+
+**Severity:** WARNING
+**File:** `server/test/security.test.ts:199-202`
+
+**Issue:** The case asserts `status >= 400`. Node's own HTTP parser rejects an
+HTTP/1.1 request with no `Host` before Hono sees it, so this assertion holds
+whether or not `guardLocal` exists. The comment is honest about it ("node's own
+parser turns this away with a 400 before the middleware sees it"), but the case
+is still filed under `describe('the Host check')` and counted among its
+protections. A test that passes with the code under test deleted is a test that
+will be read as coverage the next time someone touches `splitHost`.
+
+Same block, smaller: `startServer` picks `4900 + random(90)` (`security.test.ts:88`)
+and the widened server `5000 + random(90)` (`security.test.ts:229`) with no
+retry on `EADDRINUSE`, so two concurrent runs — or a stray process on the range
+the 01-12 reproductions used (4987, 4988) — fail the suite with
+"server did not start".
+
+**Fix:** Either drop the case or make it assert what it actually proves — that
+`splitHost('')` yields an empty host and `UNSPECIFIED_NAMES` refuses it — as a
+unit test over the exported helper. For the ports, listen on `0` and read the
+assigned port back, or retry once on `EADDRINUSE`.
 
 ## Info
 
-### IN-01: `recentCards` keeps six entries and is never pruned on delete
+### IN-01: `/api/health` is exempt from `guardLocal`, not just from the credential
 
-**File:** `server/src/index.ts:690` and `server/src/index.ts:719`
-**Issue:** `[...(recentCards.get(lessonId) ?? []).slice(-5), card]` keeps five
-old entries plus the new one, so the map holds six despite the comment saying
-"the last few". Neither `recentCards` nor `held` is cleared in
-`app.delete('/api/lessons/:id')` — `held.delete(id)` is there,
-`recentCards.delete(id)` is not — so every deleted lesson leaves card text in
-memory for the life of the process.
-**Fix:** `slice(-4)` if five is intended, and add `recentCards.delete(id)`
-alongside `held.delete(id)` (folded into the WR-11 fix above).
+**Severity:** INFO
+**File:** `server/src/index.ts:228`
 
-### IN-02: The install token travels in the SSE query string
+The exemption is `if (c.req.path === '/api/health') return next();`, which skips
+the Host and Origin checks as well as the token. The justification at
+`index.ts:218-220` covers the credential ("the doctor and the test harnesses
+poll it before there is anything to authenticate with") but not the other two,
+and `doctor.mjs:92` only needs the credential exemption. A DNS-rebound page can
+therefore read `version`, `backend` and `backend_source` from a machine it
+cannot otherwise address.
 
-**File:** `web/src/lib/useLesson.ts:255-257`, `server/src/index.ts:150`
-**Issue:** `EventSource` cannot set headers, so the token rides in
-`?token=`. Query strings reach access logs, `ps` output of any proxy in the
-path, and `Referer` on some navigations. The comment acknowledges the
-constraint but not the exposure.
-**Fix:** The `HttpOnly` cookie proposed in CR-01 removes the need for this
-entirely — `EventSource` sends cookies on same-origin requests — and the
-query-string branch of the middleware can then be deleted.
+**Fix:** Run `guardLocal` on health too and exempt only the credential:
+`if (c.req.path === '/api/health') { const r = guardLocal(c); return r ?? next(); }`.
 
-### IN-03: A registered secret split across two stream deltas is visible live
+---
 
-**File:** `server/src/events.ts:47-50`
-**Issue:** `emitEphemeral` redacts each delta in isolation. A registered value
-straddling a delta boundary matches neither half, so it reaches the browser in
-the live stream; only the checkpoint and the final `emitUpdate`, which carry
-the accumulated text, are clean. The persisted record is correct, so this is a
-momentary display leak, but the module's claim is "there is no window
-downstream where an unredacted one exists".
-**Fix:** Either redact the accumulated text and send a diff, or note the
-boundary case in the comment so it is not mistaken for a guarantee.
+### IN-02: The session value never rotates, and the comment describes only the client half
 
-### IN-04: `/api/health` answers without Host, Origin or token checks
+**Severity:** INFO
+**File:** `server/src/index.ts:1063`
 
-**File:** `server/src/index.ts:142`, `server/src/index.ts:190`
-**Issue:** The exemption is justified (the doctor and test harnesses poll it
-first), but the response carries `version`, `backend` and `backend_source`,
-which lets any page or process fingerprint the install and confirm Derive is
-listening. The Host check could apply to it without breaking either caller.
-**Fix:** Keep the token exemption, drop the Host exemption, and trim the body
-to `{ok: true}` unless the caller already authenticated.
+"No expiry, so it dies with the tab's session" is true of the *cookie*; the
+*value* is a pure function of the install token and is accepted forever. A
+captured `Set-Cookie` (plain HTTP over the LAN on a widened bind, a shared
+machine, a screenshot) stays valid until the learner deletes `~/.derive/token`,
+and there is no way to revoke one browser.
 
-### IN-05: `check-method.mjs` round-trips through a temp file for no benefit
+**Fix:** Derive the session from the token plus a per-boot or per-issue nonce
+stored alongside it, so deleting one line of state revokes every outstanding
+cookie. At minimum, amend the comment to say the server-side value is permanent.
 
-**File:** `scripts/check-method.mjs:40-48`
-**Issue:** Each rendered string is written to a scratch file and read back
-before being compared to the committed copy. The round-trip cannot change the
-value, so the temp directory, the `mkdirSync`/`rmSync` and the `finally` exist
-only to support a comparison `content !== committed` already makes. The header
-also says the comparison is "on raw bytes", but both sides are decoded as UTF-8
-strings.
-**Fix:** Compare `content` to `readFileSync(join(root, path), 'utf8')` directly
-and delete the temp-directory machinery; or, to honour the "raw bytes" claim,
-read both sides as `Buffer` and use `Buffer.compare`.
+---
 
-### IN-06: `renderAllowedTools` rewrites the first matching line in the whole file
+### IN-03: `deleteLesson`'s comment invokes a foreign-key relationship SQLite is not enforcing
 
-**File:** `scripts/render-method.mjs:236`
-**Issue:** `lines.findIndex((l) => l.startsWith('allowed-tools:'))` is not
-scoped to the frontmatter block, so prose or an example that begins a line with
-`allowed-tools:` would be silently overwritten with the generated list.
-**Fix:** Bound the search to the lines between the first two `---` delimiters.
+**Severity:** INFO
+**File:** `server/src/db.ts:413-415`
 
-### IN-07: The security suite's stated guarantee is not the one it tests
+"Usage before turns: a usage row names the turn it was recorded against, so
+clearing usage first means no state inside the transaction has a row pointing at
+a turn that is already gone." The ordering is right and harmless, but there is no
+`REFERENCES` clause on `usage.turn_id` and `PRAGMA foreign_keys` is never turned
+on (`db.ts:13` sets only `journal_mode`), so nothing enforces or even observes
+it. `tx.test.ts` counts rows but never pins the order, so a future reordering
+passes every test.
 
-**File:** `server/test/security.test.ts:6-9`
-**Issue:** The header says "no response anywhere carries the token back out",
-and the `headerText` helper exists to prove it — but every case requests an
-`/api/*` path. The route that does carry the token out (CR-01) is never
-requested, so the suite reads as proof of a property the code does not have.
-**Fix:** Add, alongside the existing cases:
+**Fix:** Either enable the constraint the comment describes (`PRAGMA
+foreign_keys = ON` plus `REFERENCES turns(id)` in the migration) — which makes
+the ordering load-bearing and self-testing — or reword the comment to say it is
+a readability convention.
 
-```ts
-it('does not put the token in the page it serves', async () => {
-  const res = await req('/');
-  assert.ok(!(await res.text()).includes(token), 'the app document carried the token');
-});
-```
+---
 
-This case fails against the current build, which is the point.
+### IN-04: `DERIVE_ORIGINS` can silently re-admit loopback host names on a LAN connection
+
+**Severity:** INFO
+**File:** `server/src/index.ts:156-162`, `.env.example:44-46`
+
+`hostNames` adds every `DERIVE_ORIGINS` hostname to the allowed set regardless of
+which address the connection arrived on. The comment at `index.ts:145-148`
+explains carefully why the four built-in loopback origins are excluded —
+"adding those would put 127.0.0.1 back in the set on a LAN connection, which is
+the forged loopback Host this is here to refuse" — and then a learner who puts
+`http://localhost:5173` in `DERIVE_ORIGINS` (a plausible thing to do while
+debugging) undoes exactly that, with no warning. `.env.example:44-46` describes
+`DERIVE_ORIGINS` as a browser-origin allowlist and does not mention that it also
+widens the Host allowlist.
+
+**Fix:** Say so in `.env.example`, and skip any `DERIVE_ORIGINS` entry whose
+hostname is a loopback name when the connection did not arrive on loopback.
+
+---
+
+### IN-05: The credential-issuing document sets no `cache-control` and no framing header
+
+**Severity:** INFO
+**File:** `server/src/index.ts:1069-1072`
+
+`serveApp` returns `c.html(rawIndex)` with a `Set-Cookie` and no
+`cache-control: no-store` (the previous review's suggested fix included it; it
+did not land) and no `X-Frame-Options` / CSP `frame-ancestors`. Neither is
+currently exploitable — browsers do not replay `Set-Cookie` from cache, and
+`SameSite=Strict` keeps the cookie out of a third-party frame — but both are one
+cookie-attribute change away from mattering, and the catch-all (`index.ts:1109`)
+answers `200` with a fresh cookie for every path a missing asset resolves to.
+
+**Fix:** `c.header('cache-control', 'no-store')` and
+`c.header('x-frame-options', 'DENY')` in `serveApp`.
 
 ---
 
