@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-08-PLAN.md
-last_updated: "2026-09-19T13:30:21.238Z"
+stopped_at: Completed 01-09-PLAN.md
+last_updated: "2026-09-19T14:16:52.954Z"
 last_activity: 2026-09-19
 last_activity_desc: Phase 01 execution started
-state_head: 0ae3a7cc93419679f2689ca7ad5039b265d5e3f3
+state_head: b6cdfff33f2e2730d72fc9202d111c4753557870
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 12
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 
 ## Current Position
 
-Phase: 01 (Foundation) — READY TO EXECUTE
-Plan: 1 of 8
+Phase: 01 (Foundation) — EXECUTING
+Plan: 2 of 12
 Status: Ready to execute
 Last activity: 2026-09-19 — Phase 01 execution started
 
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P06 | 25 min | 3 tasks | 11 files |
 | Phase 01 P07 | 18 min | 3 tasks | 17 files |
 | Phase 01 P08 | 52 min | 3 tasks | 12 files |
+| Phase 01 P09 | 28 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,10 @@ Recent decisions affecting current work:
 - [Phase 01]: Per D-10 assertPublicHost resolves the host and judges every answered address (loopback, unspecified, link-local including the metadata address, RFC-1918, CGNAT, multicast and reserved, ::1, fc00::/7, fe80::/10 and IPv4-mapped forms); library get() became fetchPublic(), a manual five-hop redirect loop that re-checks every hop
 - [Phase 01]: Per D-10 repo import refuses / and ~ as roots, denies credentials, *.pem, *.key, id_*, .netrc, .npmrc, auth.json and .env* in both the walker and the collector, clones over https only with the check before the spawn, and caps and times out the GitHub tarball
 - [Phase 01]: The human half of FOUND-04, one real lesson through the Claude Code plugin and one through the Codex skills, is recorded in 01-08-SUMMARY.md for the end-of-phase UAT harvest and was not performed in the plan
+- [Phase 01]: Per 01-09 the install token never leaves the server process: the index.html injection is deleted and the browser is handed HMAC-SHA256(token, 'derive browser session v1') as an HttpOnly, SameSite=Strict derive_session cookie, registered as a secret; the x-derive-token header path for the MCP server, the plugin hook and the Vite dev proxy is unchanged
+- [Phase 01]: Per 01-09 one guardLocal(c) runs the Host and Origin checks on every route — the document routes, serveStatic and the catch-all as well as /api/* — in a fixed order (health exemption, Host, Origin, credential) so a request failing both Host and credential is a 403
+- [Phase 01]: Per 01-09 the allowed Host names are computed per request from the connection's own local address (c.env.incoming.socket.localAddress), never from the DERIVE_HOST string; the set seeds from DERIVE_ORIGINS and not ALLOWED_ORIGINS, because the built-in loopback origins would re-admit a forged Host: 127.0.0.1 from the LAN; 0.0.0.0, :: and [::] are refused as names everywhere
+- [Phase 01]: Per 01-09 D-12 is literal: on a widened bind a non-loopback document request gets no cookie until it presents the install token once, and is answered with a 302 that drops the token from the URL
 
 ### Pending Todos
 
@@ -124,6 +129,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-18T13:18:03.208Z
-Stopped at: Completed 01-08-PLAN.md
+Last session: 2026-09-19T14:16:41.357Z
+Stopped at: Completed 01-09-PLAN.md
 Resume file: None
