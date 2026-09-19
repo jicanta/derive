@@ -70,14 +70,16 @@ try {
   fail('Data folder', `${dataDir} is not writable`, 'Set DERIVE_DATA_DIR in .env to a folder you can write to.');
 }
 
-// Every /api request but health carries this; anyone who can read the file can drive your lessons.
+// How everything on this machine except the browser authenticates: the MCP server, the plugin hook and the Vite dev proxy all read this file.
+// The browser never sees it — the server hands the page a separate derived cookie instead. Anyone who can read this file, or who can reach the
+// port from this machine, can drive the learner's lessons and read anything Derive can read.
 const tokenFile = join(dataDir, 'token');
 if (!existsSync(tokenFile)) warn('Install token', `${tokenFile} does not exist yet`, 'Start Derive once (`pnpm start`) and it makes one.');
 else if (process.platform === 'win32') ok('Install token', tokenFile);
 else {
   const mode = (statSync(tokenFile).mode & 0o777).toString(8).padStart(3, '0');
   if (mode === '600') ok('Install token', `${tokenFile} (0600)`);
-  else fail('Install token', `${tokenFile} is mode 0${mode}, not 0600`, `Run \`chmod 600 ${tokenFile}\`. Anyone who can read that file can drive your lessons and read anything Derive can read.`);
+  else fail('Install token', `${tokenFile} is mode 0${mode}, not 0600`, `Run \`chmod 600 ${tokenFile}\`. That file is how the MCP server, the plugin hook and the dev proxy authenticate; anyone who can read it can drive your lessons and read anything Derive can read.`);
 }
 
 if (process.env.DERIVE_VAULT_DIR) {

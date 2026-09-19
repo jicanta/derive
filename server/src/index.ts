@@ -12,7 +12,7 @@ import { z } from 'zod';
 import * as actions from './actions.js';
 import { interrupt, isBusy, runTurn } from './agent.js';
 import { backend, backendSource } from './backend.js';
-import { ALLOWED_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, TOKEN_PATH, VAULT_DIR, VERSION } from './config.js';
+import { ALLOWED_ORIGINS, DERIVE_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, TOKEN_PATH, VAULT_DIR, VERSION } from './config.js';
 import {
   allNodes,
   bindMaterials,
@@ -113,9 +113,54 @@ const SESSION_COOKIE = 'derive_session';
 registerSecret(TOKEN);
 registerSecret(SESSION);
 
-/** The host names a request may address this server by: loopback in every spelling, plus the configured interface when the bind was widened. */
-function hostNames(_c: Context): Set<string> {
-  return new Set(['127.0.0.1', 'localhost', '[::1]', ...(HOST_IS_LOOPBACK ? [] : [HOST.toLowerCase()])]);
+/** The four spellings of loopback a client may legitimately use. */
+const LOOPBACK_NAMES = ['localhost', '127.0.0.1', '::1', '[::1]'];
+
+/** Names that are never how a client addresses a server, whatever the bind. Admitting one is exactly how a literal bind string let a forged Host through. */
+const UNSPECIFIED_NAMES = new Set(['', '0.0.0.0', '::', '[::]']);
+
+/** True when an address is loopback, which is 127.0.0.0/8 and ::1 — the case where the browser is on this machine. */
+const isLoopback = (addr: string) => addr === '::1' || addr.startsWith('127.');
+
+/**
+ * The address this connection was accepted on, which is the only honest
+ * answer to "what is this server called here". The Node adapter hands the
+ * original IncomingMessage through c.env; a bind of 0.0.0.0 answers on many
+ * addresses, and the configured string names none of them. Normalised:
+ * lowercased, unbracketed, and with the IPv4-mapped prefix stripped so a
+ * dual-stack listener reports an IPv4 connection in its IPv4 form.
+ */
+function localAddress(c: Context): string | undefined {
+  const raw = (c.env as { incoming?: { socket?: { localAddress?: string } } } | undefined)?.incoming?.socket?.localAddress;
+  if (!raw) return undefined;
+  const addr = raw.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '').replace(/^::ffff:/, '');
+  return addr || undefined;
+}
+
+/**
+ * The names this connection may legitimately address this server by: the
+ * address it actually arrived on, plus every spelling of loopback when that
+ * address is loopback, plus whatever DERIVE_ORIGINS names — the documented
+ * way to reach a widened server by a name rather than an address (D-12).
+ * Deliberately not the four built-in loopback origins: adding those would
+ * put 127.0.0.1 back in the set on a LAN connection, which is the forged
+ * loopback Host this is here to refuse. With no address to go on, fail
+ * closed to loopback.
+ */
+function hostNames(c: Context): Set<string> {
+  const addr = localAddress(c);
+  if (!addr) return new Set(LOOPBACK_NAMES);
+  const names = new Set<string>([addr]);
+  if (addr.includes(':')) names.add(`[${addr}]`);
+  if (isLoopback(addr)) for (const n of LOOPBACK_NAMES) names.add(n);
+  for (const o of DERIVE_ORIGINS) {
+    try {
+      names.add(new URL(o).hostname.toLowerCase());
+    } catch {
+      /* not a URL */
+    }
+  }
+  return names;
 }
 
 /** The host and the port a Host header names, keeping an IPv6 literal's brackets. Empty parts when it is not a Host header at all. */
@@ -141,16 +186,22 @@ app.use('/api/*', cors({ origin: ALLOWED_ORIGINS, allowHeaders: ['content-type',
  *
  * The two checks every route shares, in a fixed order so a request that
  * fails both this and the credential check is refused 403 rather than 401.
- * The Host header must name this server on its own port, which is what
- * defeats a DNS rebind that keeps the origin plausible; an Origin, when the
- * browser sends one, must match the allowlist whole (a same-origin fetch,
- * curl and the stdio MCP proxy send none, so an absent Origin passes).
- * Returns the refusal, or null when both pass.
+ * The Host header must name this server on its own port — the address the
+ * connection actually arrived on, never the configured bind string — which
+ * is what defeats a DNS rebind that keeps the origin plausible and a forged
+ * loopback name arriving from the network. The unspecified addresses are
+ * refused as names first, whatever the bind, because no client addresses a
+ * server by one. Then an Origin, when the browser sends one, must match the
+ * allowlist whole (a same-origin fetch, curl and the stdio MCP proxy send
+ * none, so an absent Origin passes). Returns the refusal, or null when both
+ * pass.
  */
 function guardLocal(c: Context): Response | null {
-  const allowed = hostNames(c);
+  const here = localAddress(c);
   const { host, port } = splitHost(c.req.header('host') ?? '');
-  if (!allowed.has(host) || port !== String(PORT)) return c.json({ error: `derive answers on ${[...allowed].join(', ')} at port ${PORT} only` }, 403);
+  if (UNSPECIFIED_NAMES.has(host) || !hostNames(c).has(host) || port !== String(PORT)) {
+    return c.json({ error: `derive answers on ${here ?? 'this machine'} at port ${PORT}, and a request has to name it` }, 403);
+  }
 
   const origin = c.req.header('origin');
   if (origin && !ALLOWED_ORIGINS.includes(origin)) return c.json({ error: `origin ${origin} is not allowed to call derive` }, 403);
@@ -1025,12 +1076,31 @@ if (existsSync(distDir)) {
    * unlock. One place covers both of them, serveStatic and the catch-all;
    * /api/* has its own middleware with its own credential step and passes
    * straight through here.
+   *
+   * On loopback the browser is on this machine and is handed its cookie for
+   * nothing, which is the default and the only quiet case. On a widened bind
+   * it is not, and D-12 says widening weakens no check: a device on the
+   * network presents the install token once, in the URL, and gets a 302 back
+   * to the same path with the query string dropped so the token does not
+   * come to rest in the history. Afterwards it holds only the cookie.
    */
   app.use('/*', async (c, next) => {
     if (c.req.path.startsWith('/api/')) return next();
     const refusal = guardLocal(c);
     if (refusal) return refusal;
-    return next();
+
+    const here = localAddress(c);
+    if (!here || isLoopback(here)) return next();
+
+    const cookie = offered(getCookie(c, SESSION_COOKIE));
+    if (cookie && sameValue(cookie, SESSION_BUF)) return next();
+
+    const presented = offered(c.req.header('x-derive-token')) || offered(c.req.query('token'));
+    if (presented && sameValue(presented, TOKEN_BUF)) {
+      issueSession(c);
+      return c.redirect(c.req.path, 302);
+    }
+    return c.json({ error: `open this page once as ${c.req.path}?token=<the token in ${TOKEN_PATH}> to let this device in` }, 401);
   });
   // Ahead of serveStatic, which would otherwise hand out the file on disk for "/" and never set a cookie.
   app.get('/', serveApp);
@@ -1042,11 +1112,13 @@ if (existsSync(distDir)) {
 serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
   console.log(`derive server on http://localhost:${info.port}${existsSync(distDir) ? '' : ' (API only; run the web dev server too)'}`);
   console.log(`tutor runs on ${backend() === 'codex' ? 'Codex (your ChatGPT login)' : 'Claude (your Claude Code login)'}${backendSource() === 'auto' ? ', picked automatically; set DERIVE_BACKEND to choose' : ''}`);
-  // D-12: binding wider than loopback is a deliberate choice, and it says exactly what it opened.
+  // D-12: binding wider than loopback is a deliberate choice, and it says exactly what it opened and what still holds.
   if (!HOST_IS_LOOPBACK) {
     console.warn(
       `[derive] DERIVE_HOST=${HOST}: every device that can reach this machine on port ${info.port} can reach your lessons, your library and the folders derive can read. ` +
-        `The x-derive-token header from ${TOKEN_PATH} is required on every /api route. Browser origins allowed: ${ALLOWED_ORIGINS.join(', ')} (add more with DERIVE_ORIGINS).`,
+        `Host is checked against the address each request actually arrived on, so a request from the network naming 127.0.0.1 is refused. ` +
+        `A browser on this machine is handed its credential automatically; a browser on another device has to open the page once with ?token=<the token in ${TOKEN_PATH}>, and holds a cookie afterwards. ` +
+        `Everything else sends that token as the x-derive-token header. Browser origins allowed: ${ALLOWED_ORIGINS.join(', ')} (add more with DERIVE_ORIGINS).`,
     );
   }
 });

@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { request } from 'node:http';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +68,14 @@ const cookieFrom = (res: Response) => res.headers.getSetCookie().find((c) => c.s
 
 /** The value on that line, which is what a case sends back as a cookie. */
 const cookieValue = (line: string) => line.slice(`${SESSION_COOKIE}=`.length).split(';')[0];
+
+/** A non-internal IPv4 address of this machine, or undefined when it has none. A machine with none is a real state, and the cases that need one say they were skipped rather than asserting nothing. */
+function lanAddress(): string | undefined {
+  for (const list of Object.values(networkInterfaces())) {
+    for (const i of list ?? []) if (i.family === 'IPv4' && !i.internal) return i.address;
+  }
+  return undefined;
+}
 
 /**
  * A server of this case's own, on its own port with its own scratch data
@@ -200,6 +208,72 @@ describe('the Host check', () => {
 
   it('is checked before the credential, so a bad Host with a bad token is a 403', async () => {
     assert.equal((await raw('/api/lessons', { 'x-derive-token': 'f'.repeat(64), host: 'evil.example' })).status, 403);
+  });
+
+  it('refuses the unspecified addresses as names, whatever the bind', async () => {
+    assert.equal((await raw('/api/lessons', { 'x-derive-token': token, host: `0.0.0.0:${port}` })).status, 403);
+    assert.equal((await raw('/api/lessons', { 'x-derive-token': token, host: `[::]:${port}` })).status, 403);
+  });
+});
+
+/**
+ * DERIVE_HOST is read once at boot, so this needs a server of its own. What
+ * it proves is the defect the verification found, inverted: the allowed Host
+ * names come from the address the connection landed on, so loopback still
+ * works over loopback and a loopback name arriving from the network does not.
+ */
+describe('a widened bind', () => {
+  let wide: Awaited<ReturnType<typeof startServer>> | undefined;
+
+  before(async () => {
+    wide = await startServer({ DERIVE_HOST: '0.0.0.0', PORT: String(5000 + Math.floor(Math.random() * 90)) });
+  });
+
+  after(() => {
+    wide?.server.kill();
+    if (wide) rmSync(wide.dataDir, { recursive: true, force: true });
+  });
+
+  it('still answers to loopback over loopback', async () => {
+    const w = wide!;
+    assert.equal((await raw('/api/lessons', { 'x-derive-token': w.token, host: `127.0.0.1:${w.port}` }, { port: w.port })).status, 200);
+  });
+
+  it('refuses a name the connection did not arrive on', async () => {
+    const w = wide!;
+    assert.equal((await raw('/api/lessons', { 'x-derive-token': w.token, host: `10.255.255.1:${w.port}` }, { port: w.port })).status, 403);
+  });
+
+  it('answers to the LAN address a LAN request arrived on, and refuses a forged loopback name there', { skip: lanAddress() ? false : 'no non-loopback interface on this machine' }, async () => {
+    const w = wide!;
+    const lan = lanAddress()!;
+    assert.equal((await raw('/api/lessons', { 'x-derive-token': w.token, host: `${lan}:${w.port}` }, { host: lan, port: w.port })).status, 200);
+    assert.equal((await raw('/api/lessons', { 'x-derive-token': w.token, host: `127.0.0.1:${w.port}` }, { host: lan, port: w.port })).status, 403);
+  });
+
+  it('hands a loopback browser its cookie as before', async () => {
+    const w = wide!;
+    const res = await fetch(`${w.base}/`);
+    assert.equal(res.status, 200);
+    assert.ok(cookieFrom(res), 'loopback was not handed a session cookie');
+  });
+
+  it('hands a device on the network nothing until it presents the token', { skip: lanAddress() ? false : 'no non-loopback interface on this machine' }, async () => {
+    const w = wide!;
+    const lan = lanAddress()!;
+    const res = await raw('/', { host: `${lan}:${w.port}` }, { host: lan, port: w.port });
+    assert.equal(res.status, 401);
+    assert.equal(res.headers['set-cookie'], undefined);
+  });
+
+  it('lets a device on the network in once, on a redirect that drops the token from the URL', { skip: lanAddress() ? false : 'no non-loopback interface on this machine' }, async () => {
+    const w = wide!;
+    const lan = lanAddress()!;
+    const res = await raw(`/?token=${w.token}`, { host: `${lan}:${w.port}` }, { host: lan, port: w.port });
+    assert.equal(res.status, 302);
+    assert.ok(!String(res.headers.location).includes('?'), `the token stayed in the URL: ${res.headers.location}`);
+    assert.ok(String(res.headers['set-cookie']).includes(`${SESSION_COOKIE}=`), 'the redirect handed out no cookie');
+    assert.ok(!String(res.headers['set-cookie']).includes(w.token), 'the redirect handed out the install token');
   });
 });
 
