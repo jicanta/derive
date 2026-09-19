@@ -143,6 +143,12 @@ describe('cloning', () => {
     // Once more at the end, so a directory left by any one of them fails here rather than being masked by the next.
     assert.deepEqual(cloneDirs(), []);
   });
+
+  it('refuses a name that resolves to this machine, not only a literal', async () => {
+    // The difference between this guard and a string blocklist: the host is resolved first, and every address it answers with is judged.
+    await assert.rejects(() => collectRepo('https://localhost/x.git'), /private or local address/);
+    assert.deepEqual(cloneDirs(), []);
+  });
 });
 
 describe('the repository archive', () => {
