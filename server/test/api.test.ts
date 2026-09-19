@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -266,5 +266,25 @@ describe('a lesson, end to end', () => {
       assert.equal(closed.status, 'ok');
       assert.ok(closed.ended_at !== null);
     });
+  });
+});
+
+describe('a repo import', () => {
+  it('returns no byte from outside the folder it was given', async () => {
+    // The regression test for the chain the verification report reproduced by hand: import a folder holding notes.md -> DATA_DIR/token, then read the install token back out of GET /api/materials/:id?text=1.
+    const dir = mkdtempSync(join(tmpdir(), 'derive-repo-'));
+    try {
+      writeFileSync(join(dir, 'README.md'), '# a project\n\nwith some words in it.');
+      symlinkSync(join(dataDir, 'token'), join(dir, 'notes.md'));
+      const created = await api<{ materials: { id: string }[] }>('/api/materials/repo', { source: dir });
+      assert.equal(created.status, 201, JSON.stringify(created.json));
+      const read = await api<{ text: string }>(`/api/materials/${created.json.materials[0].id}?text=1`);
+      assert.equal(read.status, 200, JSON.stringify(read.json));
+      // The positive half: a zero below is a real import that skipped the link, not an empty or failed response.
+      assert.ok(read.json.text.includes('README.md'));
+      assert.equal(read.json.text.split(token).length - 1, 0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -10,8 +10,9 @@
  * hop; `collectRepo` refuses a scheme that is not https and then runs that
  * same host guard before it makes its scratch directory, so a refused clone
  * leaves none behind; the archive reader is capped with and without a
- * declared length; and a folder import refuses a home directory and skips
- * the files that hold credentials.
+ * declared length; and a folder import refuses a home directory, skips the
+ * files that hold credentials, and skips a symlink rather than following it,
+ * including a directory link back into its own ancestor.
  *
  * Offline by construction: the guards are driven directly, no private
  * address is ever connected to, and the one case that needs a server uses a
@@ -19,7 +20,7 @@
  */
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -198,6 +199,39 @@ describe('importing a folder', () => {
     for (const [name, body] of [['credentials', 'aws_secret_access_key = hunter2'], ['id_rsa', '-----BEGIN OPENSSH PRIVATE KEY-----'], ['.env', 'API_KEY=sk-real'], ['.env.example', 'API_KEY='], ['README.md', '# a project\n\nwith some words in it.'], ['config/auth.json', '{"token":"x"}']] as const) {
       writeFileSync(join(dir, name), body);
     }
+    const src = fromDirectory(dir);
+    assert.deepEqual(
+      src.files.map((f) => f.path),
+      ['README.md'],
+    );
+  });
+
+  it('refuses a symlink that points outside the tree', () => {
+    // A repo is attacker-controlled data, so a link inside it is an instruction to read somewhere else; the name it is given can be as ordinary as notes.md.
+    const outside = mkdtempSync(join(tmpdir(), 'derive-outside-'));
+    const target = join(outside, 'token');
+    writeFileSync(target, 'a1b2c3-outside-this-tree-and-never-imported');
+    const dir = mkdtempSync(join(tmpdir(), 'derive-repo-'));
+    writeFileSync(join(dir, 'README.md'), '# a project\n\nwith some words in it.');
+    symlinkSync(target, join(dir, 'notes.md'));
+    const src = fromDirectory(dir);
+    assert.deepEqual(
+      src.files.map((f) => f.path),
+      ['README.md'],
+    );
+    // Not only the path: the bytes must not have arrived under some other name either.
+    assert.equal(
+      src.files.some((f) => f.text.includes('a1b2c3-outside-this-tree-and-never-imported')),
+      false,
+    );
+  });
+
+  it('does not follow a directory symlink into its own ancestor', () => {
+    // The point of this case is that it terminates: following the link would walk docs/up/docs/up/... until the stack goes.
+    const dir = mkdtempSync(join(tmpdir(), 'derive-repo-'));
+    writeFileSync(join(dir, 'README.md'), '# a project\n\nwith some words in it.');
+    mkdirSync(join(dir, 'docs'));
+    symlinkSync(dir, join(dir, 'docs', 'up'));
     const src = fromDirectory(dir);
     assert.deepEqual(
       src.files.map((f) => f.path),

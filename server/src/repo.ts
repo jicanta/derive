@@ -6,7 +6,7 @@
  * the docs and the manifests before the source.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, extname, join, parse, relative, resolve, sep } from 'node:path';
 import { gunzipSync } from 'fflate';
@@ -130,7 +130,8 @@ function walk(dir: string, root = dir, out: string[] = []): string[] {
     const full = join(dir, e);
     let st;
     try {
-      st = statSync(full);
+      // The link, never what it points at: a repo is attacker-controlled data, so a link inside it can name the learner's install token or ssh key, and a link to a directory can name one of its own ancestors and walk forever.
+      st = lstatSync(full);
     } catch {
       continue;
     }
@@ -149,6 +150,8 @@ export function fromDirectory(rawPath: string): RepoSource {
   const st = statSync(dir, { throwIfNoEntry: false });
   if (!st?.isDirectory()) throw new Error(`Not a directory: ${rawPath}`);
   const all = (gitListFiles(dir) ?? walk(dir)).filter((p) => !inSkippedDir(p) && !isSecretName(p) && isTextName(p));
+  // git ls-files reports a path, not where it lands: an ordinary file under a symlinked intermediate directory is outside this tree, and no check on the leaf can see that.
+  const rootReal = realpathSync(dir);
   const files: RepoFile[] = [];
   let skipped = 0;
   for (const path of orderFiles(all)) {
@@ -157,9 +160,20 @@ export function fromDirectory(rawPath: string): RepoSource {
       continue;
     }
     const full = join(dir, path);
+    let real;
+    try {
+      real = realpathSync(full);
+    } catch {
+      continue;
+    }
+    // Compared on the separator, so a sibling folder whose name merely begins with this one's is not admitted.
+    if (real !== rootReal && !real.startsWith(rootReal + sep)) {
+      skipped += 1;
+      continue;
+    }
     let fst;
     try {
-      fst = statSync(full);
+      fst = lstatSync(full);
     } catch {
       continue;
     }
