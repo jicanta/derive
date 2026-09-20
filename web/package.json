@@ -17,7 +17,7 @@
     "mermaid": "^11.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-markdown": "^9.0.3",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.1.0",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.0",
