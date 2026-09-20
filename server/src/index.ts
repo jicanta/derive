@@ -99,7 +99,7 @@ function ensureToken(): string {
   return token;
 }
 
-/** This install's token. Deliberate module state: read once at boot, compared on every request, never emitted, and never returned by any route. The one place it is written out is the startup line, which prints the link the learner opens the app with once per browser — a browser cannot read the 0600 file and has no other way to present it. Every response is handed the derived value below instead, so no body, no header and no markup ever carries the token itself. */
+/** This install's token. Deliberate module state: read once at boot, compared on every request, never emitted, and never returned by any route. The one place it is written out is the startup line, which prints the link that signs a browser in for thirty days — a browser cannot read the 0600 file and has no other way to present it. Every response is handed the derived value below instead, so no body, no header and no markup ever carries the token itself. */
 const TOKEN = ensureToken();
 const TOKEN_BUF = Buffer.from(TOKEN);
 
@@ -108,6 +108,9 @@ const SESSION = createHmac('sha256', TOKEN).update('derive browser session v1').
 const SESSION_BUF = Buffer.from(SESSION);
 /** The cookie the derived credential rides in. */
 const SESSION_COOKIE = 'derive_session';
+
+/** How long that cookie stays good for: long enough that a learner coming back after a holiday is not locked out mid-lesson, short enough that a browser profile nobody opens again does not carry a working credential indefinitely. */
+const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60;
 
 // Registered before a single route exists, so no request can be served while either value is still able to reach an error, a log line or a lesson note.
 registerSecret(TOKEN);
@@ -1099,9 +1102,20 @@ if (existsSync(distDir)) {
   const indexPath = join(distDir, 'index.html');
   const rawIndex = readFileSync(indexPath, 'utf8');
 
-  /** Hand this browser the derived credential. No `secure`, or the browser drops a cookie delivered over plain http on loopback; no expiry, so it dies with the tab's session. */
+  /**
+   * Hand this browser the derived credential. No `secure`, or the browser
+   * drops a cookie delivered over plain http on loopback; a stated lifetime
+   * rather than none, so the learner-facing sentences about opening the link
+   * once are true and a closed browser is not a lockout.
+   *
+   * What makes that lifetime defensible is revocation, and it is worth
+   * writing down because no learner could infer it: the value is
+   * HMAC-SHA256 of the install token, so deleting or rotating the token file
+   * invalidates every cookie ever issued, with no code change and no per-
+   * session bookkeeping.
+   */
   function issueSession(c: Context) {
-    setCookie(c, SESSION_COOKIE, SESSION, { httpOnly: true, sameSite: 'Strict', path: '/' });
+    setCookie(c, SESSION_COOKIE, SESSION, { httpOnly: true, sameSite: 'Strict', path: '/', maxAge: SESSION_MAX_AGE_S });
   }
 
   /** The app, exactly as it is on disk. The cookie that lets it call the API was set by the handoff that let this request past the middleware, so serving is only serving. */
@@ -1163,14 +1177,18 @@ if (existsSync(distDir)) {
 
 serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
   // The learner's next step is a link, not a lookup: a browser cannot read the 0600 token file, so the one-time handoff URL is printed where they already are.
-  console.log(existsSync(distDir) ? `derive server on http://localhost:${info.port}/?token=${TOKEN} — open that link once per browser; the token drops out of the URL and a cookie takes over` : `derive server on http://localhost:${info.port} (API only; run the web dev server too)`);
+  console.log(
+    existsSync(distDir)
+      ? `derive server on http://localhost:${info.port}/?token=${TOKEN} — open that link once; the token drops out of the URL and a cookie keeps that browser signed in for 30 days. To sign in again, or in another browser, open the same link: it is printed every time the server starts, and the token in it is the one in ${TOKEN_PATH}`
+      : `derive server on http://localhost:${info.port} (API only; run the web dev server too)`,
+  );
   console.log(`tutor runs on ${backend() === 'codex' ? 'Codex (your ChatGPT login)' : 'Claude (your Claude Code login)'}${backendSource() === 'auto' ? ', picked automatically; set DERIVE_BACKEND to choose' : ''}`);
   // D-12: binding wider than loopback is a deliberate choice, and it says exactly what it opened and what still holds.
   if (!HOST_IS_LOOPBACK) {
     console.warn(
       `[derive] DERIVE_HOST=${HOST}: every device that can reach this machine on port ${info.port} can reach your lessons, your library and the folders derive can read. ` +
         `Host is checked against the address each request actually arrived on, so a request from the network naming 127.0.0.1 is refused. ` +
-        `Every browser, on this machine or another device, opens the page once with ?token=<the token in ${TOKEN_PATH}> and holds a cookie afterwards. ` +
+        `Every browser, on this machine or another device, opens the page once with ?token=<the token in ${TOKEN_PATH}> and holds a cookie for 30 days afterwards; deleting that file signs all of them out. ` +
         `Everything else sends that token as the x-derive-token header. Browser origins allowed: ${ALLOWED_ORIGINS.join(', ')} (add more with DERIVE_ORIGINS).`,
     );
   }

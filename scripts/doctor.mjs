@@ -112,5 +112,9 @@ for (const r of results) {
 }
 const fails = results.filter((r) => r.level === 'fail').length;
 // The bare address answers 401: a browser presents the install token once, so the link to open is the one the server prints, not this one.
-console.log(fails ? `\n${fails} thing${fails === 1 ? '' : 's'} to fix before the first lesson.` : `\nAll good. Open the http://localhost:${PORT}/?token=… link the server prints when it starts — once per browser — and type what you want to understand.`);
+console.log(
+  fails
+    ? `\n${fails} thing${fails === 1 ? '' : 's'} to fix before the first lesson.`
+    : `\nAll good. Open the http://localhost:${PORT}/?token=… link the server prints when it starts — once; that browser stays signed in for 30 days, and opening the same link again signs it in for another 30 — and type what you want to understand.`,
+);
 process.exitCode = fails ? 1 : 0;

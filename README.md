@@ -51,7 +51,7 @@ cd derive
 pnpm install
 pnpm build
 pnpm check         # checks Node, pnpm, the Claude Code login, the build, the port
-pnpm start         # prints a http://localhost:4310/?token=… link — open it once per browser
+pnpm start         # prints a http://localhost:4310/?token=… link — open it once; that browser stays signed in for 30 days
 ```
 
 `pnpm check` names anything missing and how to fix it. Hacking on it? `pnpm dev` runs the web app on :5173 with hot reload and the API on :4310, no build needed.
@@ -60,7 +60,7 @@ Optional settings live in a `.env` file in the repo root; copy [`.env.example`](
 
 ## Your first lesson
 
-1. Open the `http://localhost:4310/?token=…` link `pnpm start` printed — once per browser; the token drops out of the address bar and a cookie takes over — then type what you want to understand (*why does gradient descent work*, *what is a monad, really*), press Enter.
+1. Open the `http://localhost:4310/?token=…` link `pnpm start` printed — the token drops out of the address bar and a cookie keeps that browser signed in for 30 days; to sign in again, or in another browser, open the same link, which is printed every time the server starts — then type what you want to understand (*why does gradient descent work*, *what is a monad, really*), press Enter.
 2. **Warm-up.** If nodes from earlier lessons are due, the ones you are most likely to have forgotten come first: a fresh question each, before anything new. A miss sends the node back to the review queue; it is not re-taught here.
 3. **Probe.** The tutor asks what you are after, then quizzes you until it finds where your understanding ends. Pick an option with `1` `2` `3`, confirm with `Enter`, or `Shift+Enter` if you are not sure. `?` is "I don't know". Wrong answers here are the point: they tell it where to start.
 4. **Plan.** It shows the dependency map, ground truths at the bottom and your goal at the top. `Enter` approves it, or type one line of what should change.

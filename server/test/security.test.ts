@@ -380,6 +380,12 @@ const handoff = (path = '/') => fetch(`${base}${path}${path.includes('?') ? '&' 
 /** The session cookie value a fresh handoff hands out, which is how a case gets a credentialled browser. */
 const sessionValue = async () => cookieValue(cookieFrom(await handoff()));
 
+/** The same handoff on a one-time ticket rather than the install token, which is the path the MCP server's browser open takes. */
+async function ticketHandoff(path = '/') {
+  const { ticket } = (await (await fetch(`${base}/api/handoff`, { method: 'POST', headers: { 'x-derive-token': token } })).json()) as { ticket: string };
+  return fetch(`${base}${path}${path.includes('?') ? '&' : '?'}ticket=${ticket}`, { redirect: 'manual' });
+}
+
 describe('the document routes', () => {
   it('refuse a request that presented nothing, and hand it no cookie, on loopback as anywhere else', async () => {
     const res = await req('/');
@@ -561,6 +567,33 @@ describe('the browser session cookie', () => {
     assert.notEqual(cookieValue(line), token);
     assert.ok(/HttpOnly/i.test(line), line);
     assert.ok(/SameSite=Strict/i.test(line), line);
+  });
+
+  it('lasts the thirty days the startup line, the README and the doctor all promise', async () => {
+    // 30 * 24 * 60 * 60. The number is asserted rather than recomputed, because what is under test is that the code and four learner-facing sentences agree on one figure.
+    for (const line of [cookieFrom(await handoff()), cookieFrom(await ticketHandoff())]) {
+      assert.ok(/Max-Age=2592000\b/i.test(line), `the session cookie carries no thirty-day Max-Age: ${line}`);
+      assert.ok(/Path=\//i.test(line), line);
+      assert.ok(/HttpOnly/i.test(line), line);
+      assert.ok(/SameSite=Strict/i.test(line), line);
+      // Widening the lifetime must not have widened what is held.
+      assert.notEqual(cookieValue(line), token);
+    }
+  });
+
+  it('is revoked by rotating the install token, which is why a thirty-day life is defensible', async () => {
+    // Driven rather than asserted: a second server with its own data directory has its own token, so its session value is what this one's would become if the token file were rotated. HMAC-SHA256(token, ...) is the only thing standing between the two.
+    const other = await startServer();
+    try {
+      const line = cookieFrom(await fetch(`${other.base}/?token=${other.token}`, { redirect: 'manual' }));
+      assert.ok(line, 'the second server handed out no session cookie');
+      assert.notEqual(cookieValue(line), await sessionValue(), 'two installs derived the same session value');
+      assert.equal((await req('/api/lessons', { cookie: `${SESSION_COOKIE}=${cookieValue(line)}` })).status, 401);
+      assert.equal((await req('/', { cookie: `${SESSION_COOKIE}=${cookieValue(line)}` })).status, 401);
+    } finally {
+      other.server.kill();
+      rmSync(other.dataDir, { recursive: true, force: true });
+    }
   });
 
   it('drives the whole API on its own', async () => {
