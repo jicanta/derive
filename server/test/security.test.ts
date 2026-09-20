@@ -14,14 +14,17 @@
  * Origin is refused on / exactly as it is on /api/*, health included; health
  * is the one route exempt from the credential and nothing else is; a token
  * offered in a query string is refused on the lesson stream, because that
- * source is gone now that no browser needs it; and the install token appears
- * in no body and no header of any response these cases make.
+ * source is gone now that no browser needs it; the install token appears
+ * in no body and no header of any response these cases make; and a repository
+ * whose own config names a command is imported without that command running,
+ * so the token that command would have copied into the tree never comes back
+ * out of the materials route.
  *
  * Needs `pnpm build` first (it runs server/dist/index.js).
  */
 import assert from 'node:assert/strict';
-import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -75,6 +78,19 @@ const cookieFrom = (res: Response) => res.headers.getSetCookie().find((c) => c.s
 /** The value on that line, which is what a case sends back as a cookie. */
 const cookieValue = (line: string) => line.slice(`${SESSION_COOKIE}=`.length).split(';')[0];
 
+/** Every scratch directory the repository-import case builds, removed in the suite's cleanup so nothing it planted outlives the run. */
+const scratch: string[] = [];
+
+/** Whether git is on this machine at all. A machine without it is a real state, and the one case that needs a repository to import says it was skipped rather than asserting nothing. */
+function haveGit(): boolean {
+  try {
+    execFileSync('git', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** A non-internal IPv4 address of this machine, or undefined when it has none. A machine with none is a real state, and the cases that need one say they were skipped rather than asserting nothing. */
 function lanAddress(): string | undefined {
   for (const list of Object.values(networkInterfaces())) {
@@ -103,6 +119,7 @@ before(async () => {
 after(() => {
   server?.kill();
   if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  for (const dir of scratch) rmSync(dir, { recursive: true, force: true });
 });
 
 describe('the install token', () => {
@@ -448,5 +465,35 @@ describe('an error body that would have carried the token', () => {
     const body = await res.text();
     assert.ok(!body.includes(token), `the token reached an error body: ${body}`);
     assert.ok(body.includes('[redacted]'), body);
+  });
+});
+
+describe('a repository that carries a command', () => {
+  const skip = process.platform === 'win32' ? 'the /bin/sh command this case plants is not a thing on win32' : haveGit() ? false : 'git is not on this machine, so there is no repository to build or import';
+
+  it('runs no command the imported repository names, and hands its token to none', { skip }, async () => {
+    // Driven through the built server rather than through fromDirectory, because the materials route and the 0600 token file are half of what was reproduced; the offline battery in guards.test.ts drives the other half.
+    const outside = mkdtempSync(join(tmpdir(), 'derive-outside-'));
+    const repo = mkdtempSync(join(tmpdir(), 'derive-hostile-'));
+    scratch.push(outside, repo);
+    const sentinel = join(outside, 'ran');
+    // A .md name, because isSecretName refuses the obvious ones and isTextName admits this one: the copy has to be a file the import would otherwise carry all the way to the tutor.
+    const stolen = join(repo, 'notes.md');
+    writeFileSync(join(repo, 'README.md'), '# a hostile project\n\nwith some ordinary words in it.');
+    execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
+    execFileSync('git', ['add', 'README.md'], { cwd: repo, stdio: 'ignore' });
+    execFileSync('git', ['config', 'core.fsmonitor', `/bin/sh -c "touch ${sentinel}; cp ${tokenPath} ${stolen}; exit 1"`], { cwd: repo, stdio: 'ignore' });
+
+    const res = await fetch(`${base}/api/materials/repo`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-derive-token': token }, body: JSON.stringify({ source: repo }) });
+    const created = await res.text();
+    assert.equal(res.status, 201, created);
+    const { materials } = JSON.parse(created) as { materials: { id: string }[] };
+
+    assert.equal(existsSync(sentinel), false, 'the repository ran a command as the server process');
+    assert.equal(existsSync(stolen), false, 'the repository copied the install token into its own tree');
+    const text = await (await req(`/api/materials/${materials[0].id}?text=1`, { 'x-derive-token': token })).text();
+    assert.equal(text.split(token).length - 1, 0, 'the install token came back out of the materials route');
+    // The import must still be an import: a confinement that collected nothing would pass every assertion above.
+    assert.ok(text.includes('with some ordinary words in it.'), 'the ordinary file did not import');
   });
 });

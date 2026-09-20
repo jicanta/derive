@@ -112,7 +112,8 @@ export const expandHome = (p: string) => resolve(p.replace(/^~(?=$|[\\/])/, home
 function gitListFiles(dir: string): string[] | null {
   if (!existsSync(join(dir, '.git'))) return null;
   try {
-    const out = execFileSync('git', ['-C', dir, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    // The directory being listed is attacker-controlled data, and `ls-files --others` resolves that directory's own .git/config: core.fsmonitor there is a command git spawns as this process, before any realpath or lstat check in fromDirectory has a chance to run -- a guard downstream of the spawn is not a guard. Command-line `-c` is the one layer of git's config precedence that outranks a repository's own file, which is why the pins ride on the argv rather than in a check. The transport, credential, filter and diff knobs (core.sshCommand, credential.helper, filter.*.clean, diff.external, uploadpack.packObjectsHook, protocol.*) are deliberately not pinned here: ls-files opens no transport, runs no diff, filters no content and serves no pack, and they are already pinned where they are reachable, on the clone argv below. GIT_CONFIG_NOSYSTEM drops the machine's system config; the learner's own global config is left alone, because it is not attacker-controlled data and it carries the excludes file this listing exists to honour.
+    const out = execFileSync('git', ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.pager=cat', '-C', dir, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30_000, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' } });
     return out.split('\0').filter(Boolean);
   } catch {
     return null;
