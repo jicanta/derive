@@ -181,42 +181,8 @@ async function attach(lesson: string, sources: string[]): Promise<Attached> {
 
 const materialsBrief = (lesson: string) => api<{ materials: Material[]; brief: string }>(`/api/external/lessons/${lesson}/materials`);
 
-/**
- * The companion page's one-time handoff, carrying a ticket rather than the
- * install token. The server answers that URL with a 302 that drops the query
- * and sets the session cookie, so the ticket rides in the address bar for
- * exactly one request — and it is spent and expired long before anyone who
- * read it off a command line could use it.
- */
-function withTicket(url: string, ticket: string) {
-  try {
-    const u = new URL(url);
-    u.searchParams.set('ticket', ticket);
-    return u.toString();
-  } catch {
-    /* not a URL we can extend; let the page ask for the token itself */
-    return url;
-  }
-}
-
-/**
- * Ask the server for a one-use, sixty-second handoff ticket. Null when there
- * is none to be had — a server too old to have the route, or one that refused.
- * On failure the page is opened with no credential at all and the 401 body
- * tells the learner what to do; this never falls back to the install token,
- * because a long-lived credential on a command line is the finding this closes.
- */
-async function handoffTicket(): Promise<string | null> {
-  try {
-    return (await api<{ ticket: string }>('/api/handoff', {})).ticket || null;
-  } catch {
-    /* no ticket; the page will ask for the token itself */
-    return null;
-  }
-}
-
 function openBrowser(url: string) {
-  // An argument vector, not a command string: no /bin/sh is involved, so the URL is one argv element of the opener rather than a fragment of a shell command. That argv is still readable by another local account — acceptable only because what it now carries expires in sixty seconds and is spent on first use. The shell-free spawn is hygiene; the ticket is the fix.
+  // An argument vector, not a command string: no /bin/sh is involved, so the URL is one argv element of the opener rather than a fragment of a shell command.
   const [cmd, args]: [string, string[]] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
   execFile(cmd, args, () => undefined);
 }
@@ -257,10 +223,7 @@ const handlers: Record<string, (a: Record<string, unknown>) => Promise<unknown>>
     const l = await api<{ id: string; url: string; learner_id: string; review?: unknown; library?: string; warmup?: string }>('/api/external/lessons', { topic, answer_in: where, learner: learner ?? LEARNER, review: !!review, driver: DRIVER });
     lessonId = l.id;
     watchCodexSession(l.id);
-    if (open_browser !== false && DRIVER !== 'app') {
-      const ticket = await handoffTicket();
-      openBrowser(ticket ? withTicket(l.url, ticket) : l.url);
-    }
+    if (open_browser !== false && DRIVER !== 'app') openBrowser(l.url);
     const profile = await api<{ profile: string; learner?: { name: string } }>(`/api/profile?learner=${encodeURIComponent(l.learner_id)}`).catch(() => ({ profile: '', learner: undefined }));
     let material: (Attached & { brief?: string }) | undefined;
     if (files?.length) {
