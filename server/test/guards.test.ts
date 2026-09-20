@@ -70,6 +70,18 @@ const refused = async (url: string) => {
   await assert.rejects(() => assertPublicHost(url), (e: Error) => /private or local address|could not look up|only http\(s\)|not a URL/.test(e.message));
 };
 
+/** The one-line `execFileSync` call a named function in repo.ts makes. The slice starts at the call itself and never at the function declaration, because the whole defect this guards is a rationale comment that named flags the argument vector did not carry: a slice that reaches back over the comment lets the prose satisfy an assertion about the code, and an assertion a comment can satisfy is not an assertion. */
+const callOf = (source: string, fnName: string) => {
+  const fn = source.indexOf(`function ${fnName}`);
+  assert.notEqual(fn, -1, `${fnName} is not in repo.ts`);
+  const call = source.indexOf('execFileSync', fn);
+  assert.notEqual(call, -1, `${fnName} does not spawn git`);
+  return source.slice(call, source.indexOf('\n', call));
+};
+
+/** The `-c` flag values that call carries, in argv order. */
+const argvOf = (source: string, fnName: string) => [...callOf(source, fnName).matchAll(/'-c', '([^']*)'/g)].map((m) => m[1]);
+
 describe('normalizeUrl', () => {
   it('refuses a scheme that is not http(s)', () => {
     assert.throws(() => normalizeUrl('file:///etc/passwd'), /only http\(s\)/);
@@ -190,6 +202,28 @@ describe('cloning', () => {
       assert.ok(source.includes(`'${flag}'`), `the clone argv is missing ${flag}`);
     }
     assert.match(source, /GIT_TERMINAL_PROMPT: '0'/);
+  });
+
+  it('pins the clone argv to everything the listing comment says it pins', () => {
+    // Read off the source, in the register of the case above and of the tarball timeout: fromGitClone refuses anything that is not https:// before git is spawned, and there is no DNS or outbound network here, so no clone-argv pin can be driven end to end and the absence of a flag is exactly the regression to catch.
+    const source = readFileSync(new URL('../src/repo.ts', import.meta.url), 'utf8');
+    const clone = argvOf(source, 'fromGitClone');
+    const listing = argvOf(source, 'gitListFiles');
+    for (const flag of ['http.followRedirects=false', 'protocol.allow=never', 'protocol.https.allow=always', 'core.sshCommand=false', 'credential.helper=', 'core.fsmonitor=false', 'core.hooksPath=/dev/null', 'core.pager=cat']) {
+      assert.ok(clone.includes(flag), `the clone argv is missing ${flag}`);
+    }
+    for (const flag of ['core.fsmonitor=false', 'core.hooksPath=/dev/null', 'core.pager=cat']) {
+      assert.ok(listing.includes(flag), `the listing argv is missing ${flag}`);
+    }
+    // The other half of the same claim, and the half the last drift was made of: the rationale says check-in content filters, an external diff driver and the pack-objects hook ride on neither argv. Pin one without rewriting the sentence and this goes red, rather than the comment quietly over-claiming again.
+    for (const [what, prefix] of [['a check-in content filter (filter.*.clean)', 'filter.'], ['an external diff driver (diff.external)', 'diff.external'], ['a pack-objects hook (uploadpack.packObjectsHook)', 'uploadpack.']] as const) {
+      for (const [where, flags] of [['clone', clone], ['listing', listing]] as const) {
+        assert.equal(flags.some((f) => f.startsWith(prefix)), false, `the ${where} argv pins ${what}, which the rationale says is pinned on neither`);
+      }
+    }
+    for (const fn of ['gitListFiles', 'fromGitClone']) {
+      assert.match(callOf(source, fn), /GIT_CONFIG_NOSYSTEM: '1'/, `${fn} does not drop the machine's system config`);
+    }
   });
 });
 
