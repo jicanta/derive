@@ -302,3 +302,10 @@ None - no external service configuration required.
 ---
 *Phase: 01-foundation*
 *Completed: 2026-09-20*
+
+## Self-Check: PASSED
+
+- Every file listed in `key-files.modified` exists on disk (7/7 checked, including this SUMMARY).
+- All three commits resolve: `3a2ef42` (Task 2), `199dd82` (Task 3), `76e94f2` (this SUMMARY).
+- `.planning/STATE.md` and `.planning/ROADMAP.md` are untouched in both the working tree and every commit this plan made — the orchestrator owns those writes.
+- No gitignored planning artifact was force-staged; `git add -f` was never used.
