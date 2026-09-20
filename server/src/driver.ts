@@ -25,7 +25,7 @@
  * arrives through the HTTP action route and the mirrors, never through a
  * driver. Forcing it through `runTurn` would invert that relationship.
  */
-import { closeUsage, finishTurn, recordUsage, setSessionId, turnStatusOf, type StoredEvent, type UsageInput } from './db.js';
+import { endTurn as endTurnRow, recordUsage, setSessionId, turnStatusOf, type StoredEvent, type UsageInput } from './db.js';
 import { checkpoint, emit, emitEphemeral, emitUpdate } from './events.js';
 
 /** A turn in flight, as the lesson's bookkeeping holds it: the one thing a driver must let the learner do is stop. */
@@ -108,11 +108,11 @@ export function sinkFor(lessonId: string, turnId: string): EventSink {
     endTurn: (payload) => {
       if (ended) return;
       ended = true;
-      finishTurn(turnId, turnStatusOf(payload));
       // D-16's completeness rule, in the one place every driver passes through:
       // a driver that reported nothing still leaves a row, with nulls and
-      // 'unknown', rather than vanishing from the ledger.
-      closeUsage(turnId);
+      // 'unknown', rather than vanishing from the ledger. One call, one
+      // transaction, so a crash cannot land the status without the row.
+      endTurnRow(turnId, turnStatusOf(payload));
       emit(lessonId, 'turn_end', payload);
     },
   };

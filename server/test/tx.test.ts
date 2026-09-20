@@ -8,7 +8,10 @@
  * real statement failure inside the transaction rather than a simulated one.
  * The same counting is what drives the restart case: a sweep leaves the ledger
  * reconciling, so the turn count and the usage count are compared rather than
- * the sweep merely being observed to return.
+ * the sweep merely being observed to return. The closing cases drive the other
+ * half of that guarantee: ending a turn and closing its ledger row are one
+ * write, so a failure between them applies neither, and a turn closed twice
+ * still carries one row.
  */
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -20,7 +23,7 @@ import { after, describe, it } from 'node:test';
 const scratch = mkdtempSync(join(tmpdir(), 'derive-tx-'));
 process.env.DERIVE_DATA_DIR = scratch;
 
-const { addMemory, appendEvent, closeOpenTurns, createLearner, createLesson, db, deleteLearner, deleteLesson, finishTurn, getLesson, listNodes, listUsage, recordQuiz, recordUsage, replaceGraph, setNodeStatus, startTurn, withTx } =
+const { addMemory, appendEvent, closeOpenTurns, createLearner, createLesson, db, deleteLearner, deleteLesson, endTurn, finishTurn, getLesson, getTurn, listNodes, listUsage, recordQuiz, recordUsage, replaceGraph, setNodeStatus, startTurn, withTx } =
   await import('../src/db.js');
 
 type GraphNodeInput = import('../src/db.js').GraphNodeInput;
@@ -276,8 +279,8 @@ describe('a restart', () => {
     closeOpenTurns('interrupted');
 
     // The count equality is the assertion. db.ts states the invariant in its
-    // own words — "Every turn gets a usage row, whichever driver ran it" — and
-    // it is false after a restart unless this holds.
+    // own words — "Every turn that has ended carries a usage row, whichever
+    // driver ran it" — and it is false after a restart unless this holds.
     assert.deepEqual(ledgerOf(learner.id), { turns: 2, usage: 2 });
 
     // Idempotent on the turn id: the turn that already reported keeps exactly
@@ -311,5 +314,54 @@ describe('a restart', () => {
         cost_usd: null,
       },
     );
+  });
+});
+
+describe('ending a turn', () => {
+  it('writes the turn\u2019s status and its ledger row as one write', () => {
+    const learner = createLearner('Ended once');
+    createLesson('end-l1', 'Closed properly', { learnerId: learner.id });
+    const turn = startTurn('end-l1', 'fake');
+
+    endTurn(turn, 'ok');
+
+    assert.deepEqual(ledgerOf(learner.id), { turns: 1, usage: 1 });
+    assert.equal(getTurn(turn)?.status, 'ok');
+  });
+
+  it('applies neither half when the write fails between them', () => {
+    const learner = createLearner('Died mid-close');
+    createLesson('end-l2', 'Killed between the halves', { learnerId: learner.id });
+    const turn = startTurn('end-l2', 'fake');
+
+    // The failure is driven inside the transaction, where a crash would land:
+    // the status write has happened and the usage row has not.
+    assert.throws(
+      () =>
+        withTx(() => {
+          finishTurn(turn, 'ok');
+          throw new Error('killed');
+        }),
+      /killed/,
+    );
+
+    // This is the shape `WHERE status = 'running'` would otherwise never reach:
+    // a turn reading finished with no row, and no sweep that can find it.
+    assert.deepEqual(ledgerOf(learner.id), { turns: 1, usage: 0 });
+    assert.equal(getTurn(turn)?.status, 'running');
+  });
+
+  it('leaves one row when a driver and the boot sweep both close the same turn', () => {
+    const learner = createLearner('Closed twice');
+    createLesson('end-l3', 'Ended, then swept', { learnerId: learner.id });
+    const turn = startTurn('end-l3', 'fake');
+
+    endTurn(turn, 'ok');
+    closeOpenTurns('interrupted');
+
+    // finishTurn's own `WHERE ... status = 'running'` keeps the status the
+    // driver set, and closeUsage's early return keeps the count at one.
+    assert.deepEqual(ledgerOf(learner.id), { turns: 1, usage: 1 });
+    assert.equal(getTurn(turn)?.status, 'ok');
   });
 });

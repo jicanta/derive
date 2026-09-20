@@ -502,6 +502,23 @@ export function finishTurn(turnId: string, status: TurnStatus) {
   q.finishTurn.run(Date.now(), status, turnId);
 }
 
+/**
+ * End a turn and close its ledger row as one write.
+ *
+ * The sweep that repairs turns a crash left behind filters `WHERE status =
+ * 'running'`, so a turn whose status was written while its usage row was not
+ * is a turn nothing can ever reach again — it reads as finished and is missing
+ * from the ledger for good. The two halves therefore land together or not at
+ * all. `finishTurn` keeps its own export: a caller that genuinely wants only
+ * the status write should have to say so.
+ */
+export function endTurn(turnId: string, status: TurnStatus) {
+  withTx(() => {
+    finishTurn(turnId, status);
+    closeUsage(turnId);
+  });
+}
+
 export function getTurn(turnId: string): TurnRow | undefined {
   return q.getTurn.get(turnId) as TurnRow | undefined;
 }
