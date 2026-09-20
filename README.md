@@ -56,7 +56,7 @@ pnpm start         # prints a http://localhost:4310/?token=… link — open it 
 
 `pnpm check` names anything missing and how to fix it. Hacking on it? `pnpm dev` runs the web app on :5173 with hot reload and the API on :4310, no build needed.
 
-Optional settings live in a `.env` file in the repo root; copy [`.env.example`](.env.example) to start. Everything is stored in one SQLite file under `~/.derive`.
+Optional settings live in a `.env` file in the repo root; copy [`.env.example`](.env.example) to start. Everything is stored in one SQLite file under `~/.derive`. Alongside it is `~/.derive/token`, the credential this install authenticates with; deleting it signs every browser out within a second, without restarting derive.
 
 ## Your first lesson
 

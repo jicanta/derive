@@ -1183,7 +1183,7 @@ serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
     console.warn(
       `[derive] DERIVE_HOST=${HOST}: every device that can reach this machine on port ${info.port} can reach your lessons, your library and the folders derive can read. ` +
         `Host is checked against the address each request actually arrived on, so a request from the network naming 127.0.0.1 is refused. ` +
-        `Every browser, on this machine or another device, opens the page once with ?token=<the token in ${TOKEN_PATH}> and holds a cookie for 30 days afterwards; deleting that file signs all of them out. ` +
+        `Every browser, on this machine or another device, opens the page once with ?token=<the token in ${TOKEN_PATH}> and holds a cookie for 30 days afterwards; deleting or rotating that file signs all of them out within a second, without restarting derive. ` +
         `Everything else sends that token as the x-derive-token header. Browser origins allowed: ${ALLOWED_ORIGINS.join(', ')} (add more with DERIVE_ORIGINS).`,
     );
   }

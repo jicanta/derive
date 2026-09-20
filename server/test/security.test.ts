@@ -731,6 +731,33 @@ describe('the credential comparison has one source of truth', () => {
   });
 });
 
+/** A block of prose as a reader sees it: comment markers and line wrapping taken out, so a sentence that happens to wrap across two lines is still one sentence. */
+const prose = (text: string) => text.replace(/^[ \t]*(#|\*|\/\/)[ \t]?/gm, '').replace(/\s+/g, ' ');
+
+describe('the revocation window and the sentences that promise it', () => {
+  it('says the same thing in the code and in the sentences a learner reads', () => {
+    // A case that asserts prose, in the register of the thirty-day case above and for the same reason: the number is asserted rather than recomputed, because what is under test is that the code and the learner-facing sentences agree on one figure. This exact drift — a security control and the sentence advertising it saying different things — is what the fourth verification found, and a green suite is what let it ship.
+    assert.equal(TOKEN_CACHE_MS, 1_000);
+
+    const index = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8');
+    const issueDoc = index.slice(index.indexOf('What makes that lifetime defensible'), index.indexOf('function issueSession'));
+    const widened = index.slice(index.indexOf('[derive] DERIVE_HOST='), index.indexOf('Browser origins allowed'));
+    assert.ok(issueDoc.length > 0 && widened.length > 0, 'the two sentences in server/src/index.ts could not be found — this case is reading the wrong file');
+
+    const places: [string, string][] = [
+      ['.env.example', readFileSync(new URL('../../.env.example', import.meta.url), 'utf8')],
+      ["issueSession's doc in server/src/index.ts", issueDoc],
+      ['the widened-bind warning in server/src/index.ts', widened],
+    ];
+    for (const [name, text] of places) {
+      const said = prose(text);
+      assert.match(said, /within a second/, `${name} does not name the window in seconds`);
+      assert.match(said, /without restarting derive/, `${name} does not say the revocation needs no restart`);
+      assert.ok(!/and restart/.test(said), `${name} still tells the learner to restart in order to revoke`);
+    }
+  });
+});
+
 describe('an error body that would have carried the token', () => {
   it('says [redacted] instead', async () => {
     // The repo importer echoes the path it was handed; hand it the token, and the message is the token.
