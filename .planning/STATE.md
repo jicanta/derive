@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-21-PLAN.md
-last_updated: "2026-09-20T17:37:58.032Z"
+stopped_at: Completed 01-22-PLAN.md
+last_updated: "2026-09-20T18:28:38.000Z"
 last_activity: 2026-09-20
 last_activity_desc: Phase 01 execution started
-state_head: 1a0c868d64884ab407ac188d2fbdcb4faf287b89
+state_head: af2549a68b42586e70e0474d0270f26ee12dddc0
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 21
-  completed_plans: 21
+  total_plans: 22
+  completed_plans: 22
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 ## Current Position
 
 Phase: 01 (Foundation) — EXECUTING
-Plan: 3 of 21
+Plan: 4 of 21
 Status: Ready to execute
 Last activity: 2026-09-20 — Phase 01 execution started
 
@@ -75,6 +75,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P15 | 22 min | 2 tasks | 4 files |
 | Phase 01 P20 | 116 min | 3 tasks | 7 files |
 | Phase 01 P21 | 9 min | 2 tasks | 2 files |
+| Phase 01 P22 | 14 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -131,6 +132,10 @@ Recent decisions affecting current work:
 - [Phase 01]: Per 01-21 Gap 2 (FOUND-06) is closed by adding the pins rather than narrowing the sentence: fromGitClone's argv now carries the ssh-command, credential-helper, fsmonitor, hooks-path and pager pins beside its three transport flags and drops the machine's system config, so both git invocations in repo.ts have one machine-config posture — A clone is the path that opens a transport and can be asked for a credential, so those knobs belong on its argv; command-line -c is the one layer of git's config precedence a repository's own file cannot outrank, and five flags on a call that already carries three cost nothing
 - [Phase 01]: Per 01-21 the gitListFiles rationale names which knobs ride on which argv AND names the three that ride on neither (check-in content filters, an external diff driver, the pack-objects hook) with the reason, because a sentence listing only what is handled reads as coverage — Naming six knobs and pinning five is the same defect as naming six and pinning one, one knob narrower; the omission is what drifted last time
 - [Phase 01]: Per 01-21 the comment and the argv are held together by a case: argvOf slices from the execFileSync call, never from the function declaration, so the rationale comment is outside the slice by construction; the case was seen red with a pin removed and green with it restored — An assertion a comment can satisfy is not an assertion, and a gate that has not been seen failing is not known to be a gate
+- [Phase 01]: Per 01-22 the one-time handoff ticket is deleted rather than repaired: server/src/tickets.ts, POST /api/handoff and the ?ticket= branch are gone, and the MCP server opens the bare lesson URL, so the /proc/<pid>/cmdline exposure is closed by construction instead of by a sixty-second lifetime — Five gap rounds each added a credential path and each manufactured the next round's blocker; the mcp.ts no-credential fallback already existed and was already documented as acceptable, so making it the only path shrinks the surface instead of growing it
+- [Phase 01]: Per 01-22 the document middleware decides on a ?token= in the URL before the session cookie and the x-derive-token header: a match issues the session and 302s to the bare path even for an already-signed-in browser, a non-match is a 401, and both the cookie and the header pass straight through — The cookie short-circuit was what left the install token in a signed-in browser's address bar and what made four learner-facing sentences about renewing the cookie false; the header is a pass-through because there is nothing in a header to strip from a URL and redirecting it would let a header client loop
+- [Phase 01]: Per 01-22 credentials() requires a non-negative cache age as well as one below TOKEN_CACHE_MS, so a backwards wall-clock step no longer suspends revocation; TOKEN_CACHE_MS, the forward boundary and the docstring are unchanged — The docstring already said the window is a bound and not an approximation; the code arrived at the sentence rather than the sentence being qualified away
+- [Phase 01]: Per 01-22 no new security prose was written: .env.example, README.md and scripts/doctor.mjs are byte-identical, and every sentence touched was either deleted alongside its mechanism or was already true — A new claim is a new blocking condition for the next verification; delete-or-leave is the only safe move in a gap-closure round
 
 ### Pending Todos
 
@@ -154,6 +159,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-20T17:37:28.517Z
-Stopped at: Completed 01-21-PLAN.md
+Last session: 2026-09-20T18:28:24.263Z
+Stopped at: Completed 01-22-PLAN.md
 Resume file: None
