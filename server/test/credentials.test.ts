@@ -61,6 +61,16 @@ describe('the cached live read of the install token', () => {
     assert.equal(credentials(T0 + TOKEN_CACHE_MS).token, B, 'the file was not re-read at the window');
   });
 
+  it('treats a cache entry of negative age as stale, so a backwards clock step does not suspend revocation', () => {
+    writeToken(A);
+    assert.equal(matchesToken(A, T0), true, 'the token did not match before the clock was stepped back');
+
+    rmSync(tokenPath);
+    // A negative age satisfies `now - cache.at < TOKEN_CACHE_MS` on its own, and a cache hit never advances `cache.at`, so before the non-negative half of the condition a step backwards kept a deleted token authenticating for the whole length of the step.
+    assert.equal(matchesToken(A, T0 - 3_600_000), false, 'an hour backwards served the cached token after the file was deleted');
+    assert.equal(matchesToken(A, T0 - 1), false, 'one millisecond backwards served the cached token after the file was deleted');
+  });
+
   it('reads a token the file holds with the trailing newline an editor leaves', () => {
     writeToken(`${A}\n`);
     assert.equal(credentials(T0).token, A);

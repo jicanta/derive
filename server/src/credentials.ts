@@ -102,7 +102,7 @@ let cache: (Credentials & { at: number }) | null = null;
  * refuses.
  */
 export function credentials(now = Date.now()): Credentials {
-  if (cache && now - cache.at < TOKEN_CACHE_MS) return { token: cache.token, session: cache.session };
+  if (cache && now >= cache.at && now - cache.at < TOKEN_CACHE_MS) return { token: cache.token, session: cache.session };
 
   let token = '';
   try {
