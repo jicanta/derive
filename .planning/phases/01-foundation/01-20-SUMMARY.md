@@ -21,7 +21,7 @@ affects: [provider-settings, secrets-storage, adoption-docs]
 actuals:
   tokens: 10957
   tasks: 3
-  commits: 4
+  commits: 6
 plan_head_before: 9e453717ccdd7583df34561db22a922ab9271065
 
 tech-stack:
@@ -193,6 +193,10 @@ The fourth verification's recorded 196 was confirmed rather than inherited. Fina
 2. **Task 1 — GREEN: the live read, wired end to end** — `41c8d8f` (feat)
 3. **Task 2 — the cache boundary, the rotation and the one source of truth** — `b589476` (test)
 4. **Task 3 — the five learner-facing places** — `05b7eda` (docs)
+
+**Plan metadata:** `eb14843` (SUMMARY.md + the two new `.planning/WINDOWS.md` entries) and the amended tip commit that carries this file's self-check alongside STATE.md and ROADMAP.md.
+
+**Measured, not narrated:** `git rev-list --count 9e453717ccdd7583df34561db22a922ab9271065..HEAD` = **6** — four production commits plus two metadata commits. The frontmatter `commits: 6` and `plan_head_before` record the same instrument.
 
 Task 1 produced no REFACTOR commit: nothing needed cleaning up after GREEN, and the TDD reference commits REFACTOR only on change.
 
@@ -372,3 +376,7 @@ None — no external service configuration, no new environment variable, no new 
 ---
 *Phase: 01-foundation*
 *Completed: 2026-09-20*
+
+## Self-Check: PASSED
+
+All created and modified files verified present on disk; all six plan commits verified in `git log` (`0732f49`, `41c8d8f`, `b589476`, `05b7eda`, `eb14843` and the metadata tip). `scripts/doctor.mjs` confirmed byte-identical across the whole plan (`git diff --stat 9e45371..HEAD -- scripts/doctor.mjs` is empty). Working tree carries no uncommitted source change.
