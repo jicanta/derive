@@ -228,6 +228,13 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 4,
+    name: 'usage-backfill',
+    up(db) {
+      backfillUsage(db);
+    },
+  },
 ];
 
 /**
@@ -293,6 +300,39 @@ function backfillTurns(db: DatabaseSync) {
     }
   }
   for (const [lessonId, startedAt] of open) write(lessonId, startedAt, null, 'running');
+}
+
+/**
+ * The usage row every turn that has already ended was owed and never got.
+ *
+ * Migration 3 created the `usage` table and filled nothing for the turns
+ * migration 2 had just reconstructed out of the event log, so the invariant
+ * `server/src/db.ts` states over `closeUsage` — every turn that has ended
+ * carries a usage row — was true of a fresh install and false of every
+ * upgraded one. Nothing else could repair it later either: the boot sweep
+ * filters `WHERE status = 'running'`, and a turn the log had already closed is
+ * `'ok'`, so it is outside every reach the running code has.
+ *
+ * What it writes is the same honest blank `closeUsage` writes for a turn
+ * nobody reported counts for: all five token columns null, `model` null,
+ * `cost_source` 'unknown'. No figure here is reconstructed by estimating from
+ * transcript length, event count or any other proxy — a guess rendered as data
+ * is worse than a blank, in a product whose whole claim is honest accounting.
+ *
+ * Turns still marked `running` are skipped deliberately. Those are exactly the
+ * rows `closeOpenTurns` reaches at the next boot, and it closes each one
+ * through `closeUsage`, so filling them here would leave them with two rows.
+ */
+function backfillUsage(db: DatabaseSync) {
+  // `ts` is the turn's own ending rather than the moment of the upgrade, so a
+  // historical row sorts on the usage page where the turn actually happened.
+  db.exec(`
+    INSERT INTO usage (turn_id, lesson_id, learner_id, driver, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost_source, cost_usd, ts)
+    SELECT t.id, t.lesson_id, t.learner_id, t.driver, NULL, NULL, NULL, NULL, NULL, NULL, 'unknown', NULL, COALESCE(t.ended_at, t.started_at)
+    FROM turns t
+    WHERE t.status <> 'running'
+      AND NOT EXISTS (SELECT 1 FROM usage u WHERE u.turn_id = t.id)
+  `);
 }
 
 /** The version a fully migrated database reports. 0 when there are no migrations at all. */

@@ -315,40 +315,68 @@ describe('a migration that fails', () => {
   });
 });
 
-describe('the turns backfilled from the event log', () => {
-  /** A lesson whose log holds `starts` turn_start events and `ends` turn_end events, interleaved in that order. */
-  function withTurns(file: string, lessonId: string, mode: 'agent' | 'external', pairs: (string | null)[]) {
-    const db = new DatabaseSync(file);
-    db.prepare('INSERT INTO lessons (id, topic, phase, mode, learner_id, driver, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-      lessonId,
-      'Fourier series',
-      'teach',
-      mode,
-      'default',
-      mode === 'external' ? 'claude-code' : null,
-      1,
-      2,
-    );
-    let seq = 0;
-    const insert = db.prepare('INSERT INTO events (lesson_id, seq, type, payload, ts) VALUES (?, ?, ?, ?, ?)');
-    for (const end of pairs) {
-      insert.run(lessonId, seq, 'turn_start', '{}', seq + 1);
+/** A lesson whose log holds `starts` turn_start events and `ends` turn_end events, interleaved in that order. */
+function withTurns(file: string, lessonId: string, mode: 'agent' | 'external', pairs: (string | null)[]) {
+  const db = new DatabaseSync(file);
+  db.prepare('INSERT INTO lessons (id, topic, phase, mode, learner_id, driver, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    lessonId,
+    'Fourier series',
+    'teach',
+    mode,
+    'default',
+    mode === 'external' ? 'claude-code' : null,
+    1,
+    2,
+  );
+  let seq = 0;
+  const insert = db.prepare('INSERT INTO events (lesson_id, seq, type, payload, ts) VALUES (?, ?, ?, ?, ?)');
+  for (const end of pairs) {
+    insert.run(lessonId, seq, 'turn_start', '{}', seq + 1);
+    seq += 1;
+    if (end !== null) {
+      insert.run(lessonId, seq, 'turn_end', end, seq + 1);
       seq += 1;
-      if (end !== null) {
-        insert.run(lessonId, seq, 'turn_end', end, seq + 1);
-        seq += 1;
-      }
     }
-    db.close();
   }
+  db.close();
+}
 
-  const turns = (file: string) => {
-    const db = new DatabaseSync(file);
-    const rows = (db.prepare('SELECT lesson_id, learner_id, driver, model, started_at, ended_at, status FROM turns ORDER BY started_at, rowid').all() as Record<string, unknown>[]).map((r) => ({ ...r }));
-    db.close();
-    return rows;
-  };
+const turns = (file: string) => {
+  const db = new DatabaseSync(file);
+  const rows = (db.prepare('SELECT id, lesson_id, learner_id, driver, model, started_at, ended_at, status FROM turns ORDER BY started_at, rowid').all() as Record<string, unknown>[]).map((r) => ({ ...r }));
+  db.close();
+  return rows;
+};
 
+/** The ledger side of the same database, in the same shape and the same stable order. */
+const usageRows = (file: string) => {
+  const db = new DatabaseSync(file);
+  const rows = (
+    db
+      .prepare(
+        'SELECT id, turn_id, lesson_id, learner_id, driver, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost_source, cost_usd, ts FROM usage ORDER BY id',
+      )
+      .all() as Record<string, unknown>[]
+  ).map((r) => ({ ...r }));
+  db.close();
+  return rows;
+};
+
+/** Row counts on both halves of the ledger, so a case compares one object rather than two numbers. */
+const counts = (file: string) => ({ turns: turns(file).length, usage: usageRows(file).length });
+
+/** Run the runner with the list truncated at `version`, to stand a database on a release that has already shipped. */
+function migrateTo(file: string, version: number) {
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA journal_mode = WAL');
+  runMigrations(
+    db,
+    MIGRATIONS.filter((m) => m.version <= version),
+  );
+  db.close();
+}
+
+describe('the turns backfilled from the event log', () => {
   it('opens one row per turn_start and closes the ones the log ended', () => {
     const old = legacyDatabase(scratch());
     withTurns(old, 'l1', 'external', ['{"ok":true}', '{"ok":true}', null]);
@@ -394,6 +422,100 @@ describe('the turns backfilled from the event log', () => {
 
     // populate() writes a single turn_start, and nothing closed it.
     assert.deepEqual(turns(old).map((r) => r.status), ['running']);
+  });
+});
+
+describe('the usage rows backfilled for turns the ledger never saw', () => {
+  it('gives every ended turn a row and leaves the one still running for the boot sweep', () => {
+    const old = legacyDatabase(scratch());
+    withTurns(old, 'l1', 'external', ['{"ok":true}', '{"ok":true}', null]);
+    migrate(old);
+
+    assert.deepEqual(counts(old), { turns: 3, usage: 2 });
+    const running = turns(old).find((r) => r.status === 'running')!;
+    assert.equal(usageRows(old).some((u) => u.turn_id === running.id), false);
+  });
+
+  it('writes the honest blank and not a single reconstructed figure', () => {
+    const old = legacyDatabase(scratch());
+    withTurns(old, 'l1', 'external', ['{"ok":true}']);
+    migrate(old);
+
+    const [row] = usageRows(old);
+    assert.equal(row.cost_source, 'unknown');
+    // Asserted as nulls rather than as falsy values: a zero is a figure, a null is an absence.
+    assert.deepEqual(
+      {
+        model: row.model,
+        input_tokens: row.input_tokens,
+        output_tokens: row.output_tokens,
+        cache_read_tokens: row.cache_read_tokens,
+        cache_write_tokens: row.cache_write_tokens,
+        reasoning_tokens: row.reasoning_tokens,
+        cost_usd: row.cost_usd,
+      },
+      { model: null, input_tokens: null, output_tokens: null, cache_read_tokens: null, cache_write_tokens: null, reasoning_tokens: null, cost_usd: null },
+    );
+    // The lesson's own terminal is carried across, so the row still says who ran it.
+    assert.equal(row.driver, 'claude-code');
+    assert.equal(row.learner_id, 'default');
+  });
+
+  it('dates each row at the turn it belongs to, not at the moment of the upgrade', () => {
+    const old = legacyDatabase(scratch());
+    withTurns(old, 'l1', 'agent', ['{"ok":true}', '{"ok":true}']);
+    migrate(old);
+
+    const endedAt = new Map(turns(old).map((t) => [t.id, t.ended_at]));
+    for (const u of usageRows(old)) assert.equal(u.ts, endedAt.get(u.turn_id as string));
+  });
+
+  it('writes nothing the second time the runner runs', () => {
+    const old = legacyDatabase(scratch());
+    withTurns(old, 'l1', 'external', ['{"ok":true}', '{"ok":true}', null]);
+    migrate(old);
+    const before = counts(old);
+
+    migrate(old);
+    assert.deepEqual(counts(old), before);
+  });
+
+  it('leaves a database with no turns in its log with no rows in either table', () => {
+    const old = legacyDatabase(scratch());
+    migrate(old);
+
+    assert.deepEqual(counts(old), { turns: 0, usage: 0 });
+  });
+
+  it('leaves a turn that already reported exactly the row it reported', () => {
+    const old = legacyDatabase(scratch());
+    withTurns(old, 'l1', 'agent', ['{"ok":true}', '{"ok":true}']);
+    // Stand the database on version 3, the release that had the table and no backfill, and let one turn report for real.
+    migrateTo(old, 3);
+    const [reported] = turns(old);
+    const db = new DatabaseSync(old);
+    db.prepare('INSERT INTO usage (turn_id, lesson_id, learner_id, driver, model, input_tokens, output_tokens, cost_source, cost_usd, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      reported.id as string,
+      'l1',
+      'default',
+      'unknown',
+      'claude-sonnet-4-5',
+      120,
+      340,
+      'provider',
+      0.004,
+      99,
+    );
+    db.close();
+
+    migrate(old);
+
+    assert.deepEqual(counts(old), { turns: 2, usage: 2 });
+    const kept = usageRows(old).find((u) => u.turn_id === reported.id)!;
+    assert.equal(kept.cost_source, 'provider');
+    assert.equal(kept.model, 'claude-sonnet-4-5');
+    assert.equal(kept.input_tokens, 120);
+    assert.equal(kept.ts, 99);
   });
 });
 

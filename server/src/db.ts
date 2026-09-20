@@ -639,7 +639,7 @@ export function listUsage(filter: { turn?: string; lesson?: string; learner?: st
 }
 
 /**
- * Every turn gets a usage row, whichever driver ran it.
+ * Every turn that has ended carries a usage row, whichever driver ran it.
  *
  * A turn run by the Claude Code plugin or the Codex terminal runs the model in
  * the learner's own terminal and reports nothing back, so it is closed with one
@@ -647,6 +647,13 @@ export function listUsage(filter: { turn?: string; lesson?: string; learner?: st
  * the Claude Code plugin, tokens not reported" instead of quietly leaving them
  * out, and it is why turn counts reconcile across every view. Called once where
  * a turn ends; a turn that already reported is left alone.
+ *
+ * The boundary is stated because it is not "every row in `turns`". A turn still
+ * running has not ended and does not yet owe a row; it gets one when it is
+ * closed, by whatever closes it, down to the boot sweep. And the turns that
+ * predate this table — the ones migration 2 reconstructed out of the event log
+ * — carry the same blank, written once by migration 4, so an upgraded database
+ * reconciles exactly as a fresh one does rather than counting short forever.
  */
 export function closeUsage(turnId: string) {
   if (listUsage({ turn: turnId }).length) return;
