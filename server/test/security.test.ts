@@ -30,6 +30,7 @@ import { networkInterfaces, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { TOKEN_CACHE_MS } from '../src/credentials.js';
 import { mintTicket, redeemTicket, TICKET_TTL_MS } from '../src/tickets.js';
 import { startDeriveServer } from './spawn.js';
 
@@ -581,8 +582,8 @@ describe('the browser session cookie', () => {
     }
   });
 
-  it('is revoked by rotating the install token, which is why a thirty-day life is defensible', async () => {
-    // Driven rather than asserted: a second server with its own data directory has its own token, so its session value is what this one's would become if the token file were rotated. HMAC-SHA256(token, ...) is the only thing standing between the two.
+  it('is scoped to the install that issued it, so another install\'s cookie is worthless here', async () => {
+    // Install isolation, not revocation: this starts a *second* server with its own data directory and asserts the first refuses the second's cookie. It never touches a running server's token file, so it cannot show what deleting or rotating one does — that is `describe('revoking the install token on a running server')` below. Kept because a derived credential being install-scoped is worth holding, and renamed because standing in for the revocation case is how a control that did not work shipped green.
     const other = await startServer();
     try {
       const line = cookieFrom(await fetch(`${other.base}/?token=${other.token}`, { redirect: 'manual' }));
@@ -611,6 +612,63 @@ describe('the browser session cookie', () => {
 
   it('did not replace the header path the MCP server, the plugin hook and the dev proxy use', async () => {
     assert.equal((await req('/api/lessons', { 'x-derive-token': token })).status, 200);
+  });
+});
+
+/**
+ * Revocation, driven on the server that is already running.
+ *
+ * The product tells the learner, in three places, that deleting the install
+ * token file signs every browser out. It is the stated reason a thirty-day
+ * persistent cookie is defensible, and it is the instruction a learner
+ * follows in the one moment that matters — a widened bind, plaintext over a
+ * LAN, a credential they believe has leaked. This group is that sentence
+ * driven rather than asserted: its own fixture server, so no other case in
+ * this file shares the token file it is about to delete, and every refusal
+ * the sentence promises checked on the process that is still up.
+ */
+describe('revoking the install token on a running server', () => {
+  let own!: Awaited<ReturnType<typeof startServer>>;
+
+  before(async () => {
+    own = await startServer();
+  });
+
+  after(() => {
+    own?.server.kill();
+    if (own?.dataDir) rmSync(own.dataDir, { recursive: true, force: true });
+  });
+
+  /** A browser signed in against this group's own server: the cookie value it now holds. */
+  const signIn = async (t: string) => {
+    const line = cookieFrom(await fetch(`${own.base}/?token=${t}`, { redirect: 'manual' }));
+    assert.ok(line, 'the handoff handed out no session cookie');
+    return cookieValue(line);
+  };
+
+  /** One window plus a margin for a loaded machine. Bounded by the constant the server compares against rather than by a guess: a credential check may be serving a value read up to TOKEN_CACHE_MS ago, so the refusal is due one window after the file changes. */
+  const pastTheWindow = () => new Promise((r) => setTimeout(r, TOKEN_CACHE_MS + 500));
+
+  it('is revoked by deleting the install token file, with no restart', async () => {
+    const session = await signIn(own.token);
+    assert.equal((await fetch(`${own.base}/api/lessons`, { headers: { cookie: `${SESSION_COOKIE}=${session}` } })).status, 200, 'the browser was not signed in to begin with');
+
+    rmSync(own.tokenPath);
+    await pastTheWindow();
+
+    assert.equal((await fetch(`${own.base}/api/lessons`, { headers: { cookie: `${SESSION_COOKIE}=${session}` } })).status, 401, 'the cookie still worked after the token file was deleted');
+    assert.equal((await fetch(`${own.base}/api/lessons`, { headers: { 'x-derive-token': own.token } })).status, 401, 'the old header still worked after the token file was deleted');
+
+    const doc = await fetch(`${own.base}/`, { headers: { cookie: `${SESSION_COOKIE}=${session}` }, redirect: 'manual' });
+    assert.equal(doc.status, 401, 'the document routes still admitted the cookie');
+    assert.equal(cookieFrom(doc), '', 'a refused document response handed out a session cookie');
+
+    const again = await fetch(`${own.base}/?token=${own.token}`, { redirect: 'manual' });
+    assert.equal(again.status, 401, 'the deleted token still opened the page');
+    assert.equal(cookieFrom(again), '', 'the deleted token still bought a cookie');
+
+    assert.equal((await fetch(`${own.base}/api/health`)).status, 200, 'the server died rather than refusing');
+    assert.equal(existsSync(own.tokenPath), false, 'a credential check created a replacement token');
   });
 });
 
