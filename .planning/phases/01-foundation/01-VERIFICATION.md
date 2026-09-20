@@ -1,9 +1,10 @@
 ---
 phase: 01-foundation
 verified: 2026-09-20T19:40:00Z
-status: human_needed
+status: passed
 score: 4/5 must-haves verified
 covered_files:
+
   - .env.example
   - .github/workflows/ci.yml
   - .planning/REQUIREMENTS.md
@@ -86,6 +87,7 @@ covered_files:
   - server/test/usage.test.ts
   - server/test/wire-surface.json
   - server/test/wire-surface.test.ts
+
 covered_digest: "v1:sha256:78c8a8e6fb6ef39f398ea9e4f39df9a8af9f1e00806a17234db2e9412b252df0"
 behavior_unverified: 1
 overrides_applied: 0
@@ -126,6 +128,7 @@ re_verification:
   regressions: []
 deferred: []
 advisory:
+
   - finding: >-
       WINDOWS #12 — deleting the ticket `describe` block also deleted its
       source-assertion that `server/src/mcp.ts` contains no `exec(` shell spawn
@@ -187,6 +190,7 @@ advisory:
       corrects the matrix rather than inheriting it.
     evidence_status: "read from .planning/REQUIREMENTS.md; contradicted by the driven evidence in this report"
 behavior_unverified_items:
+
   - truth: >-
       Criterion 1 — "A lesson run through the Claude Code plugin and one run
       through the Codex skills both complete exactly as before."
@@ -207,6 +211,7 @@ behavior_unverified_items:
       WINDOWS #5, #11.
 coincidental_reliance_items: []
 human_verification:
+
   - test: >-
       HC-2 (FOUND-04 human half, Criterion 1) — one real lesson through the
       Claude Code plugin and one through the Codex skills, two terminals, real

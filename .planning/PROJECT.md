@@ -30,6 +30,11 @@ Inferred from the codebase map (`.planning/codebase/`, mapped at commit 7d7db1f)
 - ✓ Obsidian vault mirror of lessons as Markdown with callouts — existing
 - ✓ Local-only storage in one SQLite file under `~/.derive`; no API key, no per-token bill on the subscription paths — existing
 - ✓ `pnpm check` preflight doctor, CI (typecheck, build, test), release workflow — existing
+- ✓ The tool contract (schemas, descriptions, HTTP action validation) and the teaching method text are each defined once and shared by every driver — Phase 1
+- ✓ Every driver runs behind one driver interface and one event sink, so a new provider changes neither the web UI, the SSE stream, nor the terminal mirrors — Phase 1
+- ✓ Schema changes run through a numbered, transactional migration runner; existing databases migrate forward and are snapshotted first — Phase 1
+- ✓ A per-turn token/cost ledger (`turns`, `usage`) written by the sink on every driver, never estimated — Phase 1
+- ✓ The local server binds loopback, checks Host and Origin, requires a per-install token, and redacts secrets from every error, log, event and export before any key is stored — Phase 1
 
 ### Active
 
@@ -42,7 +47,6 @@ Provider layer
 - [ ] Learner picks provider and model on a settings page in the app: paste a key or detect a login, choose a model; persisted
 - [ ] Full parity across providers: the same tutor tools, the same method, web search via a pluggable search provider, on every path (Derive runs its own agent loop where the provider gives none)
 - [ ] Learner sees per-lesson token counts and estimated cost, plus a running total on a usage page, on pay-per-use providers; nothing more elaborate than that
-- [ ] The tool contract (schemas, descriptions, HTTP action validation) and the teaching method text are each defined once and shared by every driver
 
 Learning experience
 
@@ -123,4 +127,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-17 after requirements and simplicity trim*
+*Last updated: 2026-09-20 after Phase 1*

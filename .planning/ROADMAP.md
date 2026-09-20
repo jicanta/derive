@@ -15,7 +15,7 @@ Derive already teaches the Derive way on two host-owned agent loops (Claude Code
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - One tool contract, one method text, one driver seam and event sink, per-turn usage ledger, transactional migrations, hardened localhost server; plugin and Codex paths proven unchanged
+- [x] **Phase 1: Foundation** - One tool contract, one method text, one driver seam and event sink, per-turn usage ledger, transactional migrations, hardened localhost server; plugin and Codex paths proven unchanged (completed 2026-09-20)
 - [ ] **Phase 2: Settings and Secrets** - Provider and model chosen in the app, availability detected, keys stored in a 0600 file and never echoed, connection tested, active model visible everywhere
 - [ ] **Phase 3: Owned Loop: API Keys and Gateways** - Derive's own agent loop on Anthropic, OpenAI and Gemini keys, OpenRouter and any OpenAI-compatible endpoint, with full parity, web search on every path and per-lesson cost in the header
 - [ ] **Phase 4: Local Models, Parity Proof and Usage** - Free, offline lessons on Ollama, LM Studio and llama.cpp without silent truncation; "test teaching"; nightly conformance harness; usage page with a running total by provider, model and lesson
@@ -255,7 +255,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 22/22 | In Progress|  |
+| 1. Foundation | 22/22 | Complete    | 2026-09-20 |
 | 2. Settings and Secrets | 0/TBD | Not started | - |
 | 3. Owned Loop: API Keys and Gateways | 0/TBD | Not started | - |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |

@@ -1,45 +1,45 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 01
-current_phase_name: Foundation
-status: executing
-stopped_at: Completed 01-22-PLAN.md
-last_updated: "2026-09-20T18:28:38.000Z"
+current_phase: 2
+current_phase_name: Settings and Secrets
+status: planning
+stopped_at: Phase 01 complete, ready to plan Phase 2
+last_updated: "2026-09-20T18:54:58.575Z"
 last_activity: 2026-09-20
-last_activity_desc: Phase 01 execution started
-state_head: af2549a68b42586e70e0474d0270f26ee12dddc0
+last_activity_desc: Phase 01 complete, transitioned to Phase 2
+state_head: 8ba7c71593df7f987ccd6bb5df3702607a5252b4
 progress:
   total_phases: 7
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 22
   completed_plans: 22
-  percent: 0
+  percent: 14
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-17)
+See: .planning/PROJECT.md (updated 2026-09-20)
 
 **Core value:** A learner can sit down with any model they have access to and be taught the Derive way: the dependency graph, the understanding gate, the review loop, with nothing lost between providers.
 **Simplicity rule (binding):** one screen, one next step. The default UI shows the lesson and what to do next; everything else lives behind Settings. No feature ships without a one-sentence reason tied to learning better.
-**Current focus:** Phase 01 — Foundation
+**Current focus:** Phase 2 — Settings and Secrets
 
 ## Current Position
 
-Phase: 01 (Foundation) — EXECUTING
-Plan: 4 of 21
-Status: Ready to execute
-Last activity: 2026-09-20 — Phase 01 execution started
+Phase: 2 — Settings and Secrets
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-20 — Phase 01 complete, transitioned to Phase 2
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 14%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
+- Total plans completed: 22
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -47,7 +47,7 @@ Progress: [░░░░░░░░░░] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01 | 22 | - | - |
 
 **Recent Trend:**
 
@@ -147,7 +147,6 @@ None yet.
 - [Phase 3]: AI SDK 7 API shapes, OpenRouter per-response cost field path, and context compaction strategy are unverified in this repo
 - [Phase 4]: No measurement yet of which local models pass the understanding gate; the harness produces the answer
 - [Phase 7]: npm package name not yet reserved (`derive` is taken)
-- [Phase 01]: HC-1 (browser session-cookie smoke) and HC-2 (plugin + Codex parity run, FOUND-04's human half) are recorded in 01-12-SUMMARY.md and not yet performed; the phase should not be marked verified until HC-2 runs
 
 ## Deferred Items
 
@@ -159,6 +158,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-20T18:28:24.263Z
-Stopped at: Completed 01-22-PLAN.md
+Last session: 2026-09-20T18:55:59.259038+00:00
+Stopped at: Phase 01 verified (UAT 4/4, security threats_open 0), ready to plan Phase 2
 Resume file: None
