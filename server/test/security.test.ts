@@ -20,10 +20,10 @@
  * Needs `pnpm build` first (it runs server/dist/index.js).
  */
 import assert from 'node:assert/strict';
-import { type ChildProcess } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { request } from 'node:http';
-import { networkInterfaces } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -230,6 +230,49 @@ describe('the Host check', () => {
   it('refuses the unspecified addresses as names, whatever the bind', async () => {
     assert.equal((await raw('/api/lessons', { 'x-derive-token': token, host: `0.0.0.0:${port}` })).status, 403);
     assert.equal((await raw('/api/lessons', { 'x-derive-token': token, host: `[::]:${port}` })).status, 403);
+  });
+});
+
+/**
+ * The port the Host check compares against has to be a port.
+ *
+ * An unvalidated PORT used to reach that comparison as the string 'NaN', so
+ * the server bound somewhere and then refused every request 403 — the front
+ * door failing in the one way nobody can read. It stops at startup now.
+ */
+describe('a PORT that is not a port', () => {
+  // Deliberately not startDeriveServer: that helper exists to retry a child that exits, which is the behaviour under test.
+  const refuses = (value: string) =>
+    new Promise<{ code: number | null; stderr: string; stdout: string }>((res) => {
+      const dir = mkdtempSync(join(tmpdir(), 'derive-port-'));
+      const child = spawn(process.execPath, [entry], { env: { ...process.env, PORT: value, DERIVE_DATA_DIR: dir, DERIVE_BACKEND: 'claude' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stderr = '';
+      let stdout = '';
+      child.stderr!.on('data', (c: Buffer) => {
+        stderr += c.toString();
+      });
+      child.stdout!.on('data', (c: Buffer) => {
+        stdout += c.toString();
+      });
+      child.once('exit', (code) => {
+        rmSync(dir, { recursive: true, force: true });
+        res({ code, stderr, stdout });
+      });
+    });
+
+  it('stops the server at startup, naming the value it was given', async () => {
+    const { code, stderr, stdout } = await refuses('abc');
+    assert.notEqual(code, 0, 'the server started on a PORT that is not a port');
+    assert.match(stderr, /the PORT setting must be a whole number between 1 and 65535 \(got abc\)/);
+    assert.ok(!stdout.includes('derive server on http://localhost:'), 'it printed the startup line anyway');
+  });
+
+  it('refuses a port out of range and the one the process would not have chosen', async () => {
+    for (const value of ['70000', '0']) {
+      const { code, stderr } = await refuses(value);
+      assert.notEqual(code, 0, `PORT=${value} started`);
+      assert.match(stderr, new RegExp(`the PORT setting must be a whole number between 1 and 65535 \\(got ${value}\\)`));
+    }
   });
 });
 

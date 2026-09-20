@@ -5,7 +5,15 @@ import { join, resolve } from 'node:path';
 /** This build's version, read once from server/package.json so the health route, the MCP server info, the SDK client app string and the library user-agent cannot disagree. createRequire rather than an import attribute, which would change the build output. */
 export const VERSION: string = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
-export const PORT = Number(process.env.PORT ?? 4310);
+/** Refuse an unusable PORT here rather than at every request. 0 is refused with the rest: this server is addressed by the port in the Host header and guardLocal compares that against the configured value, so a port the process did not choose cannot be named by a client. */
+function readPort(raw: string | undefined): number {
+  if (raw === undefined) return 4310;
+  const n = Number(raw.trim());
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`the PORT setting must be a whole number between 1 and 65535 (got ${raw})`);
+  return n;
+}
+/** The port this server answers on. Validated at import time, because guardLocal compares the Host header's port against String(PORT): a value that is not a port makes that comparison false for every request, so the server would bind and then refuse everything 403 with no bind error to read. */
+export const PORT = readPort(process.env.PORT);
 export const DATA_DIR = resolve(process.env.DERIVE_DATA_DIR ?? join(homedir(), '.derive'));
 export const DB_PATH = join(DATA_DIR, 'derive.db');
 /** The per-install token every /api request but health must carry. Written on first boot, read by the app, the dev proxy, the MCP server and the plugin hook; no endpoint ever hands it out. */
