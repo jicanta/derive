@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 6
+open_count: 8
 waived_count: 0
 fixed_count: 0
-total_count: 6
-last_updated: 2026-09-19T17:53:25.199Z
+total_count: 8
+last_updated: 2026-09-20T13:28:50.181Z
 ---
 
 # Broken Windows Ledger
@@ -21,6 +21,8 @@ last_updated: 2026-09-19T17:53:25.199Z
 | 4 | 01 | unrun-verify | .planning/phases/01-foundation/01-12-SUMMARY.md |  | HC-1 browser session-cookie smoke recorded but not performed (no automated test drives a real browser) | open |  | 2026-09-19T14:47:16.295Z |  |
 | 5 | 01 | unrun-verify | .planning/phases/01-foundation/01-12-SUMMARY.md |  | HC-2 plugin + Codex parity run (FOUND-04 human half) recorded but not performed; needs a real model and login on two terminals | open |  | 2026-09-19T14:47:16.434Z |  |
 | 6 | 01 | deviation | server/test/guards.test.ts |  | Clone pinning and tarball secret-name filter are asserted at the source, not driven: git has no outbound HTTP offline, so no case drives a real redirect | open |  | 2026-09-19T17:53:25.199Z |  |
+| 7 | 01 | deviation | server/test/security.test.ts |  | The install token's absence from the MCP browser-open command line is asserted by reading server/src/mcp.ts, not driven: the exposure is /proc/<pid>/cmdline, which a sandboxed test cannot observe | open |  | 2026-09-20T13:28:49.826Z |  |
+| 8 | 01 | deviation | server/test/security.test.ts |  | hostNames' fail-closed empty-set branch is asserted by reading server/src/index.ts, not driven: a connection's local address cannot be made undefined from outside the process | open |  | 2026-09-20T13:28:50.181Z |  |
 
 ````json
 [
@@ -99,6 +101,32 @@ last_updated: 2026-09-19T17:53:25.199Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-19T17:53:25.199Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 7,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "server/test/security.test.ts",
+    "line": null,
+    "description": "The install token's absence from the MCP browser-open command line is asserted by reading server/src/mcp.ts, not driven: the exposure is /proc/<pid>/cmdline, which a sandboxed test cannot observe",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-20T13:28:49.826Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 8,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "server/test/security.test.ts",
+    "line": null,
+    "description": "hostNames' fail-closed empty-set branch is asserted by reading server/src/index.ts, not driven: a connection's local address cannot be made undefined from outside the process",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-20T13:28:50.181Z",
     "resolved_at": null,
     "milestone": null
   }
