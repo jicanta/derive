@@ -1,12 +1,14 @@
 ---
 phase: 01-foundation
-verified: 2026-09-20T18:40:00Z
-status: gaps_found
+verified: 2026-09-20T19:40:00Z
+status: human_needed
 score: 4/5 must-haves verified
 covered_files:
   - .env.example
+  - .github/workflows/ci.yml
   - .planning/REQUIREMENTS.md
   - .planning/ROADMAP.md
+  - .planning/WINDOWS.md
   - .planning/phases/01-foundation/01-01-PLAN.md
   - .planning/phases/01-foundation/01-01-SUMMARY.md
   - .planning/phases/01-foundation/01-02-PLAN.md
@@ -49,511 +51,455 @@ covered_files:
   - .planning/phases/01-foundation/01-20-SUMMARY.md
   - .planning/phases/01-foundation/01-21-PLAN.md
   - .planning/phases/01-foundation/01-21-SUMMARY.md
+  - .planning/phases/01-foundation/01-22-PLAN.md
+  - .planning/phases/01-foundation/01-22-SUMMARY.md
   - .planning/phases/01-foundation/01-REVIEW.md
   - README.md
+  - plugin/commands/learn.md
+  - plugin/commands/review.md
+  - plugin/hooks/mirror.mjs
+  - scripts/check-method.mjs
   - scripts/doctor.mjs
-  - server/src/config.ts
+  - scripts/render-method.mjs
+  - server/src/agent.ts
   - server/src/credentials.ts
   - server/src/db.ts
   - server/src/driver.ts
+  - server/src/drivers/fake.ts
+  - server/src/events.ts
+  - server/src/export.ts
   - server/src/index.ts
   - server/src/mcp.ts
   - server/src/migrations.ts
   - server/src/repo.ts
-  - server/src/tickets.ts
+  - server/src/secrets.ts
   - server/src/tools.ts
-  - server/test/api.test.ts
   - server/test/credentials.test.ts
+  - server/test/driver.test.ts
   - server/test/guards.test.ts
   - server/test/mcp.test.ts
   - server/test/migrations.test.ts
+  - server/test/secrets.test.ts
   - server/test/security.test.ts
   - server/test/spawn.ts
   - server/test/tx.test.ts
   - server/test/usage.test.ts
-covered_digest: "v1:sha256:69f329f840c7d7445998a69f5deefd84dda4c8951d8e40757e06fdde85eb1f3f"
-behavior_unverified: 0
+  - server/test/wire-surface.json
+  - server/test/wire-surface.test.ts
+covered_digest: "v1:sha256:78c8a8e6fb6ef39f398ea9e4f39df9a8af9f1e00806a17234db2e9412b252df0"
+behavior_unverified: 1
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
   previous_score: 4/5
   gaps_closed:
     - >-
-      "The browser session is revocable without a code change" — closed, and
-      driven rather than read. On a running `server/dist/index.js` in a scratch
-      data dir: sign-in `GET /?token=<t>` 302 + cookie; baseline cookie and
-      header both 200; `rm ~/.derive/token`; 1.1 s later the cookie is 401 on
-      `/api/lessons`, the header is 401, `GET /` with the cookie is 401, and
-      `/api/health` is still 200 — the process is alive and no restart
-      happened. The token file was not recreated by the credential path.
-      Rotation is a rotation: pre-rotation cookie 401, pre-rotation header 401,
-      new header 200, `GET /?token=<new>` 302 with a fresh cookie that drives
-      `/api/lessons` 200. `server/src/credentials.ts` is the single live read;
-      `server/test/security.test.ts:631-717` now deletes and rotates the token
-      file of its own running fixture instead of comparing two installs.
+      "A credential handed to a browser opener on a process command line is
+      worth a single request, and the install token does not come to rest in
+      browser history" — closed by deletion plus reordering, and driven end to
+      end rather than read. `server/src/tickets.ts` no longer exists;
+      `POST /api/handoff` returns 404; `/?ticket=<64 hex>` returns 401;
+      `mintTicket`, `redeemTicket`, `TICKET_TTL_MS`, `withTicket` and
+      `handoffTicket` appear nowhere under `server/`; `server/src/mcp.ts:226`
+      is `openBrowser(l.url)` and the file contains no `searchParams`, no
+      `exec(` and no token outside the `x-derive-token` header at `:86`. The
+      `/proc/<pid>/cmdline` exposure is therefore closed by construction, not
+      by a sixty-second lifetime. The second half — the token resting in the
+      address bar — is closed by the reorder: driven against a rebuilt
+      `server/dist/index.js`, a `?token=` open **with a valid session cookie
+      attached** is now `302`, `Location: /`, `Set-Cookie ... Max-Age=2592000`
+      (the fifth round recorded `200`, no `Set-Cookie`, no `Location` for this
+      exact request). The four learner-facing sentences that say re-opening the
+      printed link "signs it in for another 30" are now true, and none of them
+      was edited to make it so.
     - >-
-      "`server/src/repo.ts`'s security rationale describes mitigations that
-      exist" — closed. The clone argv at `repo.ts:303` now carries all eight
-      flags the `gitListFiles` rationale names (`http.followRedirects=false`,
-      `protocol.allow=never`, `protocol.https.allow=always`,
-      `core.sshCommand=false`, `credential.helper=`, `core.fsmonitor=false`,
-      `core.hooksPath=/dev/null`, `core.pager=cat`) plus
-      `GIT_CONFIG_NOSYSTEM: '1'`, which both paths now set. The three knobs the
-      comment says are pinned on neither argv (`filter.*.clean`,
-      `diff.external`, `uploadpack.packObjectsHook`) are on neither.
-      `server/test/guards.test.ts:207` holds both directions off the argv text
-      with the comment excluded from the slice (`callOf` starts at the call,
-      not the declaration), so the prose cannot satisfy the assertion about
-      itself.
+      "The one-second revocation window is a bound" — closed. `credentials.ts:105`
+      is now `if (cache && now >= cache.at && now - cache.at < TOKEN_CACHE_MS)`.
+      Driven with a pinned clock against `dist/credentials.js`: file written,
+      read at T1, file deleted, then `matchesToken(A, T1 - 3_600_000)` ->
+      **false** and `matchesToken(A, T1 - 60_000)` -> **false** (the fifth round
+      recorded `true` for both). The forward boundary is unchanged and still
+      exact: with the file deleted after the read, `+999 ms` -> true (cached),
+      `+1000 ms` -> false (re-read). `server/test/credentials.test.ts:64-71`
+      holds both backwards cases.
   gaps_remaining: []
-  regressions:
-    - >-
-      New this round, reproduced end to end: the one-time handoff ticket is
-      never spent, and the install token is never dropped from the URL, when
-      the browser already holds a session cookie — which is the ordinary case
-      for a 30-day cookie. See gap 1.
-    - >-
-      New this round, reproduced with a pinned clock: the one-second revocation
-      window is not a bound. A backwards wall-clock step keeps a deleted token
-      authenticating for the whole length of the step. See gap 2.
-gaps:
-  - truth: >-
-      A credential handed to a browser opener on a process command line is
-      worth a single request — "spent on first use" — and the install token
-      does not come to rest in browser history, because presenting it is
-      answered with a 302 that drops the query string
-    status: failed
-    reason: >-
-      Reproduced end to end against `server/dist/index.js` (rebuilt from HEAD)
-      on a scratch data directory and an OS-allocated port. Transcript:
-
-        1. first ?token= open            -> 302, Set-Cookie derive_session=53f7…
-        2. minted ticket                 -> c8277ca9883ed8d8…
-        3. ?ticket= open WITH the cookie -> 200, set-cookie NONE, location none
-        4. the SAME ticket, cookie-less  -> 302, Set-Cookie derive_session=53f7…
-           that cookie on GET /api/lessons -> 200
-        5. re-open ?token= WITH cookie   -> 200, set-cookie NONE
-        6. control, cookie-less ticket   -> first 302, second 401
-
-      Line 3 is the defect and line 4 is its consequence: the browser the
-      ticket was minted for used it, and the ticket is still live and still
-      buys a full API session — every lesson, the library, and
-      `POST /api/materials/repo` against any readable folder. The mechanism is
-      plain at `server/src/index.ts:1149-1163`: the document middleware does
-      `const cookie = offered(getCookie(c, SESSION_COOKIE)); if
-      (matchesSession(cookie)) return next();` before it ever reaches
-      `matchesToken(presented)` or `redeemTicket(...)`, so a signed-in browser
-      short-circuits both handoffs.
-
-      This is not a stale comment; it is the mitigation that made a documented
-      exposure acceptable, stated as fact in five places:
-
-      - `server/src/tickets.ts:10-11` — the URL "carries one of these instead:
-        a random value that is worth a single request and one minute". The
-        threat model that module states is `/proc/<pid>/cmdline` being
-        world-readable on Linux.
-      - `server/src/mcp.ts:219` — the opener argv is "acceptable only because
-        what it now carries expires in sixty seconds **and is spent on first
-        use**". The second half is false for the ordinary case.
-      - `server/src/index.ts:1116-1142` — "A browser presents the install token
-        once, in the URL, and is answered with a 302 to the same path with the
-        query string dropped, so the token does not come to rest in the
-        history." Line 5 of the transcript shows the `?token=…` URL standing at
-        200. `index.ts:213-218` gives the reason this matters: "a credential in
-        a URL comes to rest in server logs, browser history and Referer", and
-        default `strict-origin-when-cross-origin` sends the full query as
-        `Referer` on every same-origin subresource of that document.
-      - `.env.example:37` and `scripts/doctor.mjs:118` — "opening the same link
-        again signs it in for another 30". `issueSession` is only called on the
-        token and ticket branches, so line 5's zero `set-cookie` headers means
-        `Max-Age` is never refreshed: a learner who re-opens the link weekly is
-        still signed out on day 31 from first sign-in. `README.md:63` and the
-        startup line at `index.ts:1177` tell the learner to do exactly this.
-
-      That is the standing prohibition both plans this round carry verbatim —
-      "Never state an invariant the code does not hold; fix the code or qualify
-      the sentence, never neither" — in the same shape and the same file family
-      the fourth verification blocked on.
-
-      The suite is green through it because every ticket case drives a
-      cookie-less client: `server/test/security.test.ts:489` ("opens the page
-      once…") and `:501` ("is refused the second time…") both `fetch` without a
-      cookie, and `:484` only asserts that a cookie-holder can *mint* a ticket,
-      never that presenting one spends it.
-
-      Evidence gate: `server/src/index.ts` was modified after the prior
-      verification (`41c8d8f`, `05b7eda`, both 2026-09-20T17:xx UTC vs the
-      prior `verified: 12:10Z`), and 01-20's own must-have truth 9 re-affirms
-      this exact order ("the document middleware still tries the cookie, then
-      the install token, then the one-time ticket"). Deterministic
-      reproduction recorded above. This blocks.
-    artifacts:
-      - path: "server/src/index.ts"
-        issue: >-
-          Lines 1149-1163: the cookie short-circuit returns before both
-          handoffs, so a presented `?token=` or `?ticket=` is neither redeemed,
-          nor stripped by the 302, nor used to refresh `Max-Age`. Lines
-          1116-1142 state the opposite.
-      - path: "server/src/tickets.ts"
-        issue: 'Lines 10-11: "worth a single request" is false whenever the browser holds a cookie.'
-      - path: "server/src/mcp.ts"
-        issue: 'Line 219: "spent on first use" is the stated reason the opener argv is acceptable, and it does not hold.'
-      - path: ".env.example"
-        issue: 'Line 37: "opening the same link again signs it in for another 30" — reproduced false (0 set-cookie headers).'
-      - path: "scripts/doctor.mjs"
-        issue: 'Line 118: the same sentence, in the closing line the learner reads after `pnpm check`.'
-      - path: "server/test/security.test.ts"
-        issue: >-
-          Lines 484-513: the whole ticket group drives a cookie-less client, so
-          single-use is only ever asserted in the path where it happens to
-          hold. Nothing opens a handoff URL with a valid cookie attached.
-    missing:
-      - >-
-        Redeem and strip before the cookie short-circuit, so presenting a
-        handoff always consumes it and always ends in the query-dropping 302
-        that also refreshes `Max-Age`: compute `handoff = (ticket !== undefined
-        && redeemTicket(ticket)) || matchesToken(presented)` first, `issueSession`
-        + 302 on it, then fall through to `matchesSession(cookie)` -> `next()`,
-        then 401. Note this reverses 01-20's must-have truth 9 ("cookie, then
-        token, then ticket"), so record the reversal deliberately rather than
-        letting it read as drift — the ordering that truth froze is the defect.
-      - >-
-        Alternatively, qualify all five sentences: the ticket is single-use only
-        for a browser that is not already signed in; the token is dropped from
-        the URL only on a first sign-in; re-opening the link does not extend the
-        cookie. Doing neither is what the standing prohibition forbids.
-      - >-
-        Whichever branch is taken, add cases to `server/test/security.test.ts`'s
-        ticket group that (a) open a minted ticket **with a valid session cookie
-        attached** and assert a 302, (b) assert the ticket is refused afterwards,
-        and (c) assert a second `?token=` open with a cookie attached returns a
-        fresh `Max-Age=2592000`. A group that only ever drives cookie-less
-        clients is the shape that let this ship.
-  - truth: >-
-      The one-second revocation window is a bound: a deleted or rotated install
-      token stops authenticating within a second, which is what three
-      learner-facing sentences promise
-    status: partial
-    reason: >-
-      Reproduced by driving `server/src/credentials.ts` directly with a pinned
-      clock, token file deleted after the first read:
-
-        window ms = 1000
-        fresh read at T0, A matches: true
-        forward +999ms  (inside window)        -> true
-        forward +1000ms (exactly one window)   -> false   <- forward bound holds
-        re-primed at T1, A matches: true
-        BACKWARD clock step -1h after deletion -> true    <- revoked token still authenticates
-        still stale 59 minutes later           -> true
-        back to normal (T1+2000)               -> false
-
-      `credentials.ts:105` is `if (cache && now - cache.at < TOKEN_CACHE_MS)
-      return …`. For any `now < cache.at` the difference is negative and
-      therefore always below the window, and a cache *hit* never advances
-      `cache.at` (line 121 runs only on a miss), so the stale entry keeps being
-      served until wall-clock time passes `cache.at` again. A backwards step —
-      an NTP correction on a laptop, VM suspend/resume, a learner fixing a
-      wrong clock — silently suspends the revocation this whole round
-      delivered, for the length of the step.
-
-      The forward half of the review's claim was independently checked and the
-      *boundary* claim at `credentials.ts:98-103` is accurate in the sense it
-      was written in (at exactly one window the file is re-read rather than the
-      cached value served — confirmed above). The plain reading of the same
-      sentence, "the window is a bound and not an approximation", and the three
-      sentences `server/test/security.test.ts:737-758` pins ("within a
-      second"), are what a one-hour stale window falsifies.
-
-      Recorded as partial rather than failed because revocation demonstrably
-      works under a monotonic clock — the end-to-end run above shows it — and
-      because it needs a non-adversarial but non-routine event to break.
-      `server/test/credentials.test.ts` only ever steps its pinned clock
-      forward, so nothing catches it.
-    artifacts:
-      - path: "server/src/credentials.ts"
-        issue: >-
-          Line 105: a negative `now - cache.at` always satisfies the window, and
-          a cache hit does not advance `cache.at`. Lines 98-103 claim the window
-          is a bound.
-      - path: "server/test/credentials.test.ts"
-        issue: "Every case moves the pinned clock forward; no case steps it backwards."
-    missing:
-      - >-
-        Treat a non-monotonic reading as stale: `if (cache && now >= cache.at &&
-        now - cache.at < TOKEN_CACHE_MS)`. Better, gate on a monotonic source
-        (`performance.now()`) and keep the `now` parameter for the pinned-clock
-        cases.
-      - >-
-        Add a case to `server/test/credentials.test.ts` that writes A, reads at
-        T0, deletes the file, and asserts `matchesToken(A, T0 - 3_600_000) ===
-        false`.
+  regressions: []
 deferred: []
 advisory:
   - finding: >-
-      `server/src/repo.ts:62-72` — `isSecretName`'s doc says a repository import
-      refuses "files that hold credentials rather than code", but the allowlist
-      misses several that `TEXT_EXTS` will happily collect: `config.json`
-      (`~/.docker`), `hosts.yml` (`~/.config/gh`), `secrets.yaml`,
-      `service-account.json`, `.git-credentials`, `.pgpass`. `SKIP_DIRS`
-      prunes neither `.docker`, `.config`, `.aws` nor `.ssh`.
+      WINDOWS #12 — deleting the ticket `describe` block also deleted its
+      source-assertion that `server/src/mcp.ts` contains no `exec(` shell spawn
+      and no `searchParams.set('token')`. The property itself holds (read and
+      grepped this round: `openBrowser(l.url)`, `execFile` only, no
+      `searchParams` anywhere in the file), but nothing goes red if a future
+      change puts a credential back into the browser-opener URL.
     category: security
     reason: >-
-      01-REVIEW.md WR-05, confirmed by reading the source. `collectRepo` is
-      reachable from `attach_material`, which the tutor model calls, and the
-      tutor's context routinely carries attacker-influenced text, so a
-      prompt-injection payload can name the path; the collected text lands in
-      the materials table and comes back out of `GET /api/materials/:id?text=1`.
-      Raised rather than counted as a gap: no phase must-have or success
-      criterion states a completeness invariant over this list, and `repo.ts`'s
-      change this round (01-21) was confined to the git argv. Worth closing
-      with the rest of FOUND-06's confinement story.
+      Raised, not counted. 01-22's must-have truth 1 asserts the *property*,
+      which is verified; no must-have or success criterion requires a
+      regression guard over it. The phase's own standing prohibition ("never
+      add a credential path") is exactly what such a guard would protect, so it
+      is worth one line in a later plan — three lines of `readFileSync` +
+      `assert.ok(!src.includes(...))` in `server/test/security.test.ts`.
+      Recording it as a gap would repeat the pattern this round was called to
+      stop.
+    evidence_status: "property driven/read and holding; the absent guard is the finding"
+  - finding: >-
+      `server/src/repo.ts:62-72` — `isSecretName`'s allowlist misses
+      `config.json` (`~/.docker`), `hosts.yml` (`~/.config/gh`),
+      `secrets.yaml`, `service-account.json`, `.git-credentials`, `.pgpass`;
+      `SKIP_DIRS` prunes neither `.docker`, `.config`, `.aws` nor `.ssh`.
+    category: security
+    reason: >-
+      Carried forward unchanged from the fifth verification (01-REVIEW.md
+      WR-05). `repo.ts` was not touched this round. No phase must-have or
+      success criterion states a completeness invariant over that list.
     evidence_status: "read from source; not driven — no must-have asserts the list is complete"
   - finding: >-
-      `server/src/driver.ts:108-117` and `server/src/index.ts:1033` — `endTurn`'s
-      transaction is not exception-safe and the sink raises its idempotency guard
-      before the write.
+      `server/src/driver.ts:108-117` and `server/src/index.ts:1033` — `endTurn`
+      sets its idempotency guard before the ledger write, so a throwing write
+      rolls back with the guard already up and the turn row stays `'running'`
+      until the next boot sweep.
     category: other
     reason: >-
-      Carried forward unchanged from the fourth verification (01-REVIEW.md
-      WR-01 of that round). `ended = true` is set before `endTurnRow(...)`; if
-      the ledger write throws, both halves roll back with the guard already up,
-      the turn row stays `'running'` and `busy()` reports the lesson busy for
-      the life of the process with no `turn_end` on the stream. The boot sweep
-      repairs it on the next restart only. Neither file was touched this round.
+      Carried forward from the fourth and fifth verifications. `driver.ts` was
+      not touched this round.
     evidence_status: "mechanism read from source; the failing write could not be induced in this sandbox"
   - finding: >-
       `server/src/config.ts:9-16` validates `PORT` in the module body and
       `server/src/mcp.ts` imports from that module, so an invalid `PORT` kills
       the stdio MCP server that never reads it.
     category: other
+    reason: "Carried forward from the fourth and fifth verifications. `config.ts` was not touched this round."
+    evidence_status: "previously driven: PORT=abc node server/dist/mcp.js exits on the config throw"
+  - finding: >-
+      `.planning/REQUIREMENTS.md` lines 143-167 still carry FOUND-01, FOUND-02,
+      FOUND-03, FOUND-05 and COST-01 as "Gaps Found" and FOUND-06 as
+      "Complete". Nothing about the first five ever failed a verification; they
+      were marked down wholesale by commit `c931392` when Criterion 5 blocked,
+      and FOUND-06 is the one line that reads the other way round from how the
+      fifth verification recorded it.
+    category: other
     reason: >-
-      Carried forward from the fourth verification and re-driven this round:
-      `PORT=abc node server/dist/mcp.js` dies in `dist/config.js:12` with the
-      port message. `config.ts` was edited by 01-20 and this was not addressed.
-      Cosmetic in effect (the message is clear), structural in shape.
-    evidence_status: "re-driven: PORT=abc node server/dist/mcp.js exits on the config throw"
-behavior_unverified_items: []
+      Bookkeeping drift in a planning document, not a defect in the phase's
+      deliverable. All seven requirement IDs are SATISFIED in the codebase this
+      round (see Requirements Coverage). Recorded so whoever closes the phase
+      corrects the matrix rather than inheriting it.
+    evidence_status: "read from .planning/REQUIREMENTS.md; contradicted by the driven evidence in this report"
+behavior_unverified_items:
+  - truth: >-
+      Criterion 1 — "A lesson run through the Claude Code plugin and one run
+      through the Codex skills both complete exactly as before."
+    test: >-
+      HC-2. Run one real lesson through the Claude Code plugin (`/derive:learn`)
+      and one through the Codex skills, on a real model and login, on two
+      terminals. Fold one repo import by GitHub URL into the same run.
+    expected: >-
+      Both lessons complete as before the refactor: the graph is built, a quiz
+      is graded, a node locks, the transcript mirrors. The GitHub import returns
+      normally, which is the only thing that exercises the five clone-argv pins
+      01-21 added (WINDOWS #11).
+    why_human: >-
+      The criterion asserts end-to-end runtime behaviour on a real model and a
+      real login on two terminals. The machine half is fully verified and is
+      not a substitute: the wire-surface fixture is byte-identical, the stdio
+      MCP smoke test walks a whole lesson with no model, and the suite is 201/0.
+      WINDOWS #5, #11.
 coincidental_reliance_items: []
 human_verification:
   - test: >-
-      HC-2 (FOUND-04 human half, Success Criterion 1) — run one real lesson
-      through the Claude Code plugin and one through the Codex skills, on a
-      real model and login, on two terminals. Fold one repo import by GitHub URL
-      into the same run.
+      HC-2 (FOUND-04 human half, Criterion 1) — one real lesson through the
+      Claude Code plugin and one through the Codex skills, two terminals, real
+      logins. Fold one repo import by GitHub URL into the run.
     expected: >-
-      Both lessons complete exactly as before the refactor: the graph is built,
-      a quiz is graded, a node locks, the transcript mirrors. The GitHub import
-      returns normally, which is the only way the five clone-argv pins 01-21
-      added get exercised at all (WINDOWS #11).
+      Both complete exactly as before: graph built, quiz graded, node locked,
+      transcript mirrored. The GitHub import returns normally.
     why_human: >-
       Needs a real model and a real login on two terminals; no automated test
-      drives either. The machine half (wire-surface fixture byte-identical,
-      `mcp.test.ts` green) is verified and is not a substitute. WINDOWS #5, #11.
+      drives either. **This is the only thing standing between this phase and
+      `passed`.** WINDOWS #5, #11.
   - test: >-
-      HC-1 (browser session smoke, corrected expected result) — the six-step
-      sequence in 01-20-PLAN.md Task 3. Step 5 now deletes `~/.derive/token`
-      with the server left **running**, no restart.
+      HC-1 (browser session smoke, in a real browser) — open the printed
+      `?token=` link, confirm the address bar drops the query; open the same
+      link again in the same browser; then `rm ~/.derive/token` with the server
+      left **running**, no restart, and reload.
     expected: >-
-      The browser is refused within a second without a restart. Note that the
-      automated equivalent of steps 1-5 is now driven end to end in this
-      report; what a human adds is a real browser (cookie storage, address bar,
-      history) rather than a `fetch`.
-    why_human: "No automated test drives a real browser. WINDOWS #4, #10."
+      First open signs in and the token leaves the address bar. The second open
+      also 302s and renews the cookie for another 30 days. After the delete the
+      browser is refused within a second, without a restart.
+    why_human: >-
+      Every step is driven end to end in this report against `fetch`; what a
+      human adds is a real browser — address bar, history, cookie jar.
+      WINDOWS #4, #10.
   - test: >-
       Rotate `~/.derive/token` while a stdio MCP server and the plugin hook are
       running, then call a derive tool from each.
-    expected: >-
-      Both are refused until they are restarted, which is the cost
-      `server/src/credentials.ts:27-30` and `server/src/index.ts:1101-1104`
-      write down.
+    expected: "Both are refused until they are restarted."
     why_human: >-
-      01-20 declares this truth `verification: backstop` — a stdio MCP server's
+      Declared `verification: backstop` in 01-20. A stdio MCP server's
       credential lifetime cannot be observed from inside the suite. Asserted by
       reading the boot-time reads at `server/src/mcp.ts:75` and
-      `plugin/hooks/mirror.mjs:33`. WINDOWS #9.
+      `plugin/hooks/mirror.mjs:33`, both confirmed present this round.
+      WINDOWS #9.
   - test: "Import an ordinary public URL into the library through `fetchPublic`."
     expected: "The page is fetched, extracted and shelved."
     why_human: "This environment has no DNS or outbound network. WINDOWS #3."
+  - test: >-
+      Judgment-tier prohibitions from 01-22 (`verification: flagged`, status
+      `unverified`) — confirm the four standing prohibitions were honoured.
+    expected: >-
+      (1) No credential path added — the diff is net −258/+62 across five files
+      and adds no module, no route and no new credential kind. (2) No new
+      security sentence written — `.env.example`, `README.md` and
+      `scripts/doctor.mjs` are byte-unchanged; the one docstring sentence that
+      did change is *shorter* than what it replaced and every clause of it was
+      driven (see Behavioural Spot-Checks). (3) No invariant stated that the
+      code does not hold — driven clause by clause. (4) The Host/Origin/health
+      refusal order unchanged — driven 403/403/401/403/200.
+    why_human: >-
+      Non-authoritative LLM-judge verdict: all four read as honoured. Flagged
+      as `unverified-prohibition — human review recommended` because they are
+      judgment-tier, not because anything contradicts them.
 ---
 
 # Phase 1: Foundation Verification Report
 
 **Phase Goal:** The tutor's 14 tools and its method text exist once and feed every surface; every driver sits behind one interface and one event sink; every turn's raw usage is recorded; the database migrates transactionally; the local server is hardened before it ever holds a key — and the Claude Code plugin and Codex paths are proven unchanged throughout.
-**Verified:** 2026-09-20T18:40:00Z
-**Status:** gaps_found
-**Re-verification:** Yes — fifth round, after gap-closure plans 01-20 and 01-21
+**Verified:** 2026-09-20T19:40:00Z
+**Status:** human_needed
+**Re-verification:** Yes — sixth round, after gap-closure plan 01-22 (a deletion, not an addition)
+
+## The one-line answer
+
+**Both of the fifth round's findings are closed, and nothing replaced them.** Every
+automated gate in this phase is green and I drove the security surface end to end
+rather than reading it. The only thing between Phase 1 and `passed` is **HC-2** —
+one real lesson through the Claude Code plugin and one through the Codex skills, on
+a real model, on two terminals. That is a human action outstanding, not a defect to
+plan against, so the status is `human_needed` and there is no `gaps:` block.
 
 ## Goal Achievement
 
-### Observable Truths
-
-| # | Truth (ROADMAP Success Criterion) | Status | Evidence |
-|---|-----------------------------------|--------|----------|
-| 1 | Plugin and Codex lessons complete as before; wire-surface snapshot unchanged; stdio MCP smoke test passes with no model | ✓ VERIFIED (machine half) | `git diff --quiet 239d5f1..HEAD -- server/test/wire-surface.json` exit 0 — byte-identical. Full suite `pnpm --filter server test` on a freshly rebuilt `dist`: **209 pass / 0 fail / 0 cancelled**, including `mcp.test.ts` and `ok 55 - the wire surface` (11 subtests). Human half (HC-2) outstanding — see Human Verification. |
-| 2 | Editing the single method/tool source updates every rendered copy; CI fails on drift | ✓ VERIFIED | `node scripts/check-method.mjs` -> `method: 6 rendered copies match method/`, exit 0. `.github/workflows/ci.yml:37` runs `pnpm method:check` ahead of typecheck, build and test. Registry is `server/src/tools.ts` (projection onto three surfaces, per its module doc); `method/` holds 10 numbered source files. |
-| 3 | A new driver is one `Driver.runTurn(ctx, sink)`, proven by a fake driver in tests | ✓ VERIFIED (regression) | `server/src/driver.ts` and `server/test/driver.test.ts` present and green in the 209. Neither file changed this round (`git diff --name-only 02b3bbd..HEAD` does not list them). |
-| 4 | An existing DB migrates forward under a numbered transactional runner; an interrupted `replaceGraph`/`deleteLesson` leaves no partial state | ✓ VERIFIED (regression) | `server/src/migrations.ts` + `server/test/migrations.test.ts` + `server/test/tx.test.ts`, all green in the 209. Unchanged this round. |
-| 5 | Loopback-only with a per-install token, foreign Host and Origin rejected, no secret in any error/log/event/export/vault path, every turn stores raw usage with model id and cost source | ✗ FAILED | Host/Origin/bind/refusal-order and the usage ledger all hold (driven below). The per-install-token half fails: the one-time handoff ticket is not spent and the install token is not stripped from the URL when the browser holds a cookie, reproduced end to end — five places state the contrary. Plus the revocation window is not a bound under a backwards clock step. See Gaps. |
-
-**Score:** 4/5 truths verified (0 present, behavior-unverified)
-
-### Gap-Closure Must-Haves (plans 01-20, 01-21)
+### Observable Truths (ROADMAP Success Criteria)
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 20-1 | Deleting `~/.derive/token` on a **running** server signs every browser out; server stays alive | ✓ VERIFIED | Driven against rebuilt `dist/index.js`: cookie 401, header 401, `GET /` 401, `/api/health` 200 — 1.1 s after `rm`, no restart. |
-| 20-2 | Rotating the file is a rotation, not a lockout | ✓ VERIFIED | Driven: old cookie 401, old header 401, new header 200, `?token=<new>` 302 with a fresh cookie that drives `/api/lessons` 200. |
-| 20-3 | A deleted token file is not quietly replaced | ✓ VERIFIED | Driven: after `rm`, `existsSync(tokenPath)` false through every subsequent credential check. `ensureToken` is called once, at `index.ts:85`. |
-| 20-4 | Every token value read is handed to `registerSecret` with its derived session | ✓ VERIFIED | `credentials.ts:116-119` registers on each newly-read token; `security.test.ts:702` ("scrubs a rotated-in token out of an error body") green. |
-| 20-5 | The cookie is derived from the token the file holds **now** | ✓ VERIFIED | `issueSession` reads `sessionValue()` (`index.ts:1107`), not a boot constant. Driven: post-rotation cookie is accepted by the very next request. |
-| 20-6 | Five learner-facing places say what the code does about revocation | ✓ VERIFIED (revocation clause only) | `.env.example:37-39`, `README.md:59`, `index.ts:1090-1096`, `index.ts:1185-1190`, `credentials.ts:4-19` all say "within a second, without restarting derive". *Separately*, the "another 30" clause in two of those files is false — counted under gap 1, not here. |
-| 20-7 | Boundary driven with a pinned clock; the file is re-read at exactly one window | ⚠ PARTIAL | Forward: +999 ms true, +1000 ms false — the boundary holds. Backwards: a deleted token authenticates for an hour. Gap 2. |
-| 20-8 | An absent, empty or whitespace-only file refuses everything; blank supplied credentials refused | ✓ VERIFIED | Driven: with a whitespace-only token file, old token 401, `''` 401, `'   '` 401. `sameValue` refuses an empty *live* value on its own line (`credentials.ts:137`). |
-| 20-9 | The fixed refusal order is unchanged (Host, Origin, health exemption, credential) | ✓ VERIFIED | Driven with raw `node:http` Host headers: foreign Host + bad credential **403**; foreign Origin + bad credential **403**; good Host, no credential **401**; foreign Host on `/api/health` **403**; good Host on `/api/health` **200**. |
-| 20-B | Rotation also signs out the stdio MCP server and the plugin hook until restarted | ? insufficient_spec | Declared `verification: backstop`. Routed to Human Verification; WINDOWS #9. |
-| 21-1 | `repo.ts`'s rationale describes mitigations that exist, in both directions | ✓ VERIFIED | Comment at `repo.ts:123` vs argvs at `:126` and `:303` — all eight named pins present on the clone argv, three named-unpinned knobs on neither, `GIT_CONFIG_NOSYSTEM: '1'` on both. |
-| 21-2 | The clone path has the listing path's machine-config posture, as `-c` flags | ✓ VERIFIED | `repo.ts:303` carries `core.sshCommand=false`, `credential.helper=`, `core.fsmonitor=false`, `core.hooksPath=/dev/null`, `core.pager=cat`. |
-| 21-3 | Knobs pinned on neither argv are named as unpinned, with the reason | ✓ VERIFIED | `repo.ts:123` names `filter.*.clean`, `diff.external`, `uploadpack.packObjectsHook` and says why each is unreachable today. |
-| 21-4 | A case goes red when comment and argv drift apart, with the comment excluded from the slice | ✓ VERIFIED | `guards.test.ts:207`; `callOf` (`:73`) starts the slice at the call, never at the declaration — documented there as the reason. Green in the 209. |
-| 21-B | No clone-argv pin can be driven end to end here | ? insufficient_spec | Declared `verification: backstop`; WINDOWS #11. Folded into HC-2. |
+| 1 | Plugin and Codex lessons complete exactly as before; wire-surface snapshot unchanged; stdio MCP smoke test (`tools/list`, `start_lesson`, `quiz`, `answer`, `end_lesson`) passes with no model | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | **Machine half fully verified.** `git diff --quiet 239d5f1..HEAD -- server/test/wire-surface.json` exit 0; in fact `git log -- server/test/wire-surface.json` shows the fixture last changed in `6e3d603` (01-02) — every plan from 01-03 through 01-22 left it byte-identical. `node --import tsx --test test/mcp.test.ts` -> 3/3 pass, including "walks a whole lesson with no model: start, plan, teach, check, answer, end" and "serves the registry in declaration order, and the same tools the pre-phase binary served" (22 MCP tools). Full suite 201 pass / 0 fail; `pnpm typecheck` exit 0. `plugin/` and `codex/` were last touched in 01-07 and are untouched by 01-22. **Human half (HC-2) has never been run** — that is what leaves this ⚠️ rather than ✓. |
+| 2 | Editing a tool's schema or a sentence of the method in its single source updates the app system prompt, the plugin skill, the Codex skills, the `allowed-tools` lists and the HTTP action validation together; CI fails when any rendered copy drifts | ✓ VERIFIED | **Both halves driven, not read.** *Method:* appended one sentence to `method/00-identity.md`; `node scripts/check-method.mjs` exit **1**, naming 4 drifted copies (`server/src/method.generated.ts`, `plugin/skills/teach/SKILL.md`, `codex/skills/derive-learn/SKILL.md`, `codex/skills/derive-review/SKILL.md`); restored -> "6 rendered copies match method/", exit 0, tree clean. *Schema:* added `probe_field` to `remember`'s shape in `server/src/tools.ts`; `wire-surface.test.ts` went **red** (2 failures); restored, tree clean. *Wiring:* `allowed-tools` is generated by `scripts/render-method.mjs:181-188` from the registry projection; HTTP validation is `ACTION_SCHEMAS = new Map(toolsFor('http').map(...))` at `server/src/index.ts:837`; agent tools at `agent.ts:77-80`; MCP tools at `mcp.ts:279-282`. `.github/workflows/ci.yml:35-37` runs `pnpm method:check` ahead of typecheck, build and test. |
+| 3 | A new driver is one `Driver.runTurn(ctx, sink)`, no change to the web UI, the SSE stream or the terminal mirrors, proven by a fake driver in tests | ✓ VERIFIED | `server/src/driver.ts` declares the `TurnContext`/`EventSink` seam; `server/src/drivers/fake.ts` is the fake; `server/test/driver.test.ts:124` is literally "adding a driver takes one runTurn and nothing else", and the file carries a copy of `EVENT_TYPES` taken from `web/src/lib/useLesson.ts` and asserts a whole turn's event types against it. `node --import tsx --test test/driver.test.ts ...` -> 49/49 pass. Unchanged this round (`git diff --name-only 4361cfa..HEAD` does not list it). |
+| 4 | An existing `~/.derive` database migrates forward under a numbered, transactional runner; an interrupted `replaceGraph` or `deleteLesson` leaves no partial state | ✓ VERIFIED | `server/test/migrations.test.ts` drives the real invariants, not their shape: "lands an existing database on exactly the schema a fresh one gets", "is a no-op the second time", "rolls back, leaving the version and the half-built table where they were". `server/test/tx.test.ts` drives "leaves the old graph exactly as it was when an upsert fails partway" and "leaves the lesson and every child row when a delete fails partway", plus `deleteLearner` and the usage ledger. All green in the 49. Unchanged this round. |
+| 5 | Loopback-only with a per-install token, foreign Host and Origin rejected, no secret in any error/log/event/export/vault path, every turn stores raw usage (input, output, cache read, cache write, reasoning) with the model id and a cost source | ✓ VERIFIED | **Driven end to end against a rebuilt `server/dist/index.js` on a scratch data dir.** Both fifth-round findings reproduce as fixed (full transcript in Behavioural Spot-Checks). Refusal order 403/403/401/403/200 unchanged. Revocation on a *running* server: after `rm`, cookie 401, header 401, `GET /` 401, `/api/health` 200, token file not recreated. Rotation is a rotation. Window is a bound in both directions. Redaction chokepoint covers all five named paths — `redactDeep` at all four `events.ts` entry points, `redact(out.join('\n'))` at `export.ts:176`, `safeMessage` at `export.ts:216` (vault), `agent.ts:252,299`, `codex.ts:116,150`; `secrets.test.ts`'s "every egress" group drives an event and the rendered vault Markdown. Usage ledger: `db.ts:174` inserts all five raw counts plus `model` and `cost_source`; `CostSource = 'provider' \| 'table' \| 'subscription' \| 'unknown'` (`db.ts:564`); `recordUsage` is the single write path and reads lesson/learner/driver off the turn; `closeUsage` (`db.ts:675`) gives every ended turn a row, blanks and `'unknown'` where nothing was reported. `usage.test.ts` green. |
+
+**Score:** 4/5 truths verified (1 present, behavior-unverified)
+
+### 01-22 Gap-Closure Must-Haves
+
+| # | Truth | Status | Evidence |
+|---|-------|--------|----------|
+| 22-1 | There is no one-time handoff ticket; `mcp.ts` puts no credential into the opener URL | ✓ VERIFIED | `server/src/tickets.ts` absent. `POST /api/handoff` -> **404** (driven). `/?ticket=<64 hex>` -> **401** (driven). `grep -rn "mintTicket\|redeemTicket\|TICKET_TTL_MS\|withTicket\|handoffTicket" server/` -> no matches. `mcp.ts:226` is `openBrowser(l.url)`; the whole file's `token` hits are the `x-derive-token` header at `:86` and the "no token at …" message at `:85`; no `searchParams`, no `exec(` (only `execFile` with an argv). See Advisory on WINDOWS #12 for the regression guard that went with the block. |
+| 22-2 | `?token=<valid>` is always answered with a 302 to the bare path and a fresh cookie, whether or not a cookie is already held | ✓ VERIFIED | Driven both ways. Cookie-less: `302`, `Location: /`, `Set-Cookie derive_session=…; Max-Age=2592000; Path=/; HttpOnly; SameSite=Strict`. **With a valid cookie attached: `302`, `Location: /`, same `Max-Age=2592000`** — the fifth round recorded `200` / no `Set-Cookie` / no `Location` for this exact request. That refreshed cookie drives `GET /api/lessons` -> 200. Held by `security.test.ts:415` ("spend the token in the URL even for a browser that already holds a cookie…"). |
+| 22-3 | `x-derive-token` with no URL credential passes through with no redirect; a header client cannot loop | ✓ VERIFIED | Driven: `GET /` with the header -> `200`, `Location` none, `Set-Cookie` none. `security.test.ts:427` repeats it twice in a row and asserts all three on each attempt. |
+| 22-4 | The one-second window is a bound in both directions; a negative cache age is stale | ✓ VERIFIED | `credentials.ts:105` now reads `if (cache && now >= cache.at && now - cache.at < TOKEN_CACHE_MS)`. Driven against `dist/credentials.js` with a pinned clock and the file deleted after the read: `-3_600_000` -> **false**, `-60_000` -> **false**, `+2000` -> false. Forward boundary re-driven and still exact: `+999` true (cached), `+1000` false (re-read). `credentials.test.ts:64-71` holds both backwards cases. The docstring sentence "the window is a bound and not an approximation" is now true as written. |
+| 22-5 | The fixed refusal order (Host, Origin, health exemption, credential) is unchanged; only the order of credential *kinds* moves | ✓ VERIFIED | Driven with raw `node:http` Host headers: foreign Host + bad credential **403**; foreign Origin + bad credential **403**; good Host, no credential **401**; foreign Host on `/api/health` **403**; good Host on `/api/health` **200**. Identical to the fourth and fifth rounds. `git diff 4361cfa..HEAD` shows `guardLocal` untouched. |
+| 22-6 | No prose added by this plan asserts anything the code does not do | ✓ VERIFIED (judgment, flagged) | `.env.example`, `README.md` and `scripts/doctor.mjs` are **byte-unchanged** (`git diff --name-only 4361cfa..HEAD` lists neither). The `index.ts` middleware docstring is net *shorter*: 11 lines of ticket prose deleted, and the one replaced sentence is the order clause, which had to change because the order did. Every clause of the replacement was driven — see the clause-by-clause table in Behavioural Spot-Checks. |
 
 ### Deferred Items
 
-None. Nothing in gap 1 or gap 2 is covered by a later phase's goal or success criteria: Phase 2 is Settings and Secrets, Phase 3-4 are providers, and FOUND-06 is mapped to Phase 1 alone.
+None.
 
 ### Advisory (New Scope, Unevidenced)
 
 | # | Finding | Category | Why Advisory |
 |---|---------|----------|--------------|
-| 1 | `isSecretName` misses `config.json`, `hosts.yml`, `secrets.yaml`, `.git-credentials`, `.pgpass`; `SKIP_DIRS` prunes no credential directories (`repo.ts:62-72`) | security | No must-have or success criterion states a completeness invariant over the list; 01-21's change to this file was confined to the git argv |
-| 2 | `endTurn`'s transaction is not exception-safe; the sink's guard rises before the write (`driver.ts:108-117`, `index.ts:1033`) | other | Carried forward; the failing write cannot be induced in this sandbox; neither file changed this round |
-| 3 | An invalid `PORT` kills the stdio MCP server that never reads it (`config.ts:9-16`) | other | Re-driven and still present; cosmetic in effect, structural in shape |
+| 1 | WINDOWS #12 — the source-assertion that `mcp.ts` puts no credential in the opener URL was deleted with the ticket block; the property holds, the guard does not exist | security | 01-22's truth 1 asserts the property (verified this round); no must-have or criterion requires a guard over it. Promoting it would manufacture exactly the round-N+1 blocker the scope rule was written to stop. Worth three lines in a later plan. |
+| 2 | `repo.ts:62-72` — `isSecretName`'s allowlist and `SKIP_DIRS` miss several credential files/dirs | security | Carried forward unchanged; `repo.ts` untouched this round; no must-have states a completeness invariant. |
+| 3 | `driver.ts:108-117` — `endTurn` raises its idempotency guard before the ledger write | other | Carried forward from rounds 4 and 5; `driver.ts` untouched this round. |
+| 4 | `config.ts:9-16` — module-body `PORT` validation kills the stdio MCP server that never reads `PORT` | other | Carried forward from rounds 4 and 5; `config.ts` untouched this round. |
+| 5 | `.planning/REQUIREMENTS.md` matrix carries five never-failed requirements as "Gaps Found" and FOUND-06 as "Complete" | other | Planning-document bookkeeping, not a codebase defect. All seven IDs are SATISFIED this round. |
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `server/src/credentials.ts` | The single live read of the install token | ✓ VERIFIED | 155 lines; `credentials()` re-reads behind a 1 s cache, `matchesToken`/`matchesSession`/`sessionValue` all route through it; imported by `index.ts` and driven by `credentials.test.ts` + `security.test.ts`. Defect is gap 2, not existence. |
-| `server/src/index.ts` | Both credential middlewares comparing against the live value | ⚠ PARTIAL | The comparison is live (driven). The document middleware's ordering is gap 1. |
-| `server/src/repo.ts` | Clone argv carrying the pins its rationale names | ✓ VERIFIED | `:303` argv + `:123` rationale agree in both directions. |
-| `server/test/security.test.ts` | A revocation case that revokes a running server's token | ✓ VERIFIED | `describe('revoking the install token on a running server')` at `:631`; the old install-isolation case at `:586` renamed with a comment explaining the difference. |
-| `server/test/credentials.test.ts` | Pinned-clock boundary cases | ⚠ PARTIAL | Exists and is green; no backwards-step case (gap 2). |
-| `server/test/guards.test.ts` | A comment↔argv drift gate | ✓ VERIFIED | `:207`, slice excludes the comment. |
-| `server/src/tools.ts`, `method/` | Single source for tools and method | ✓ VERIFIED | Unchanged; `method:check` green. |
-| `server/src/driver.ts`, `server/src/migrations.ts` | Driver seam, numbered migration runner | ✓ VERIFIED | Unchanged; suites green. |
-| `server/test/wire-surface.json` | Frozen wire surface | ✓ VERIFIED | Byte-identical to 239d5f1. |
+| `server/src/tickets.ts` | **absent** | ✓ VERIFIED (deleted) | `ls` -> no such file; no identifier from it survives anywhere under `server/`. |
+| `server/src/index.ts` | Reordered document middleware; `/api/handoff` gone | ✓ VERIFIED | `:1128-1142` — `guardLocal`, then `?token=` (401 on mismatch, 302 + cookie on match), then cookie, then header, then 401. Route absent; driven 404. |
+| `server/src/mcp.ts` | `openBrowser(l.url)`, no credential in the URL | ✓ VERIFIED | `:184-188` `execFile` with an argv; `:226` call site; no `searchParams`, no `exec(`. |
+| `server/src/credentials.ts` | Non-negative cache age required | ✓ VERIFIED | `:105`. Driven with a pinned clock stepped backwards. |
+| `server/src/tools.ts` | One registry, three surfaces | ✓ VERIFIED | `DERIVE_TOOL_NAMES.length === 14` (the tutor tools); `toolsFor('mcp')` 22, `toolsFor('http')` 16 — driven through `dist/tools.js`. |
+| `server/src/driver.ts` + `server/src/drivers/fake.ts` | One seam, one fake | ✓ VERIFIED | Present, wired into `agent.ts` via `setDriverOverride`, green. |
+| `server/src/migrations.ts` | Numbered transactional runner | ✓ VERIFIED | Present, green, exercised on an existing DB and a failing migration. |
+| `server/test/wire-surface.json` | Byte-identical across the phase | ✓ VERIFIED | Last changed `6e3d603` (01-02); untouched by 01-03…01-22. |
+| `server/test/security.test.ts` | Ticket group gone; cookie-holding clients driven | ✓ VERIFIED | `:399` deletion gate (404 + 401); `:415` cookie-attached `?token=`; `:427` header no-loop ×2; `:436` mismatched `?token=` with a valid cookie -> 401. |
+| `server/test/credentials.test.ts` | Backwards-clock case | ✓ VERIFIED | `:64-71`, both `-3_600_000` and `-1`. |
+| `.env.example`, `README.md`, `scripts/doctor.mjs` | **unchanged** | ✓ VERIFIED | Not in `git diff --name-only 4361cfa..HEAD`. Their existing sentences were the specification and the code moved to meet them. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| `~/.derive/token` (file) | `/api/*` + document middlewares | cached live read in `credentials.ts` -> `matchesToken`/`matchesSession` | ✓ WIRED | The link the fourth round recorded NOT_WIRED. Driven: deleting the file refuses both credentials on both middlewares within the window. |
-| live read | `registerSecret` -> `redact` | `credentials.ts:116-119` | ✓ WIRED | `security.test.ts:702` scrubs a rotated-in token out of an error body. |
-| live read | `issueSession` cookie | `sessionValue()` at `index.ts:1107` | ✓ WIRED | Post-rotation cookie accepted by the next request. |
-| `mintTicket` (MCP argv) | `redeemTicket` in the document middleware | `?ticket=` query | ✗ NOT_WIRED (conditionally) | Reached only when no valid cookie is present. With a cookie the middleware returns at `:1150` and the ticket is never consumed. **Gap 1.** |
-| `?token=` query | the query-dropping 302 | `matchesToken(presented)` at `:1153` | ✗ NOT_WIRED (conditionally) | Same short-circuit; with a cookie the token stands in the URL. **Gap 1.** |
-| `gitListFiles` rationale | `fromGitClone` argv | named flags | ✓ WIRED | Eight pins present, three named-unpinned absent, gate at `guards.test.ts:207`. |
+| `server/src/tools.ts` | `agent.ts`, `mcp.ts`, `index.ts` | `toolsFor` / `shapeFor` / `descriptionFor` | ✓ WIRED | `agent.ts:77-80`, `mcp.ts:279-282`, `index.ts:837` — all three surfaces read the one registry; a schema edit turned `wire-surface.test.ts` red. |
+| `method/` | 6 rendered copies | `scripts/render-method.mjs` / `check-method.mjs` | ✓ WIRED | One-sentence edit drifted 4 copies and exited 1. |
+| `check-method.mjs` | CI | `pnpm method:check` | ✓ WIRED | `.github/workflows/ci.yml:36-37`, ahead of typecheck/build/test. |
+| registry | `plugin/commands/*.md` `allowed-tools` | `render-method.mjs:181-188` + the 22-name assertion at `:177` | ✓ WIRED | Both command files carry the generated line. |
+| `driver.ts` sink | `events.ts` -> SSE -> `web/src/lib/useLesson.ts` | `emit`/`emitUpdate`/`emitEphemeral` | ✓ WIRED | `driver.test.ts` asserts a whole turn's event types against a copy of the web's `EVENT_TYPES`. |
+| `credentials.ts` | both middlewares | `matchesToken` / `matchesSession` | ✓ WIRED | Live read behind the window; driven: deleting the file refuses the API middleware *and* the document middleware within a second. |
+| `credentials.ts` | `secrets.ts` | `registerSecret(token)`, `registerSecret(session)` | ✓ WIRED | `:117-118`, on every newly-read token; `security.test.ts` "scrubs a rotated-in token out of an error body" green. |
+| `mcp.ts` / `plugin/hooks/mirror.mjs` | server `/api/*` | `x-derive-token` read once at boot | ✓ WIRED | `mcp.ts:75-86`, `mirror.mjs:32-39`. The once-at-boot read is the documented cost and is the subject of a human check. |
+| `recordUsage` | `usage` table | single write path, lesson/learner/driver read off the turn | ✓ WIRED | `db.ts:624-641`; `closeUsage` at `:675` closes every ended turn. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|--------------------|--------|
-| `credentials.ts` | `cache.token` | `readFileSync(TOKEN_PATH)` on each miss | Yes — driven: deletion and rotation both change the answer within the window | ✓ FLOWING |
-| `index.ts` `issueSession` | cookie value | `sessionValue()` -> live `credentials()` | Yes — post-rotation cookie works | ✓ FLOWING |
-| `index.ts` document middleware | `redeemTicket(...)` result | `tickets.ts` map | Only on the cookie-less path | ⚠ STATIC (conditionally unreachable) |
-| usage ledger | turn usage rows | `server/src/db.ts` turn/usage tables | Yes — `usage.test.ts` green, restart-sweep case in `tx.test.ts` green | ✓ FLOWING |
+| document middleware | `sessionValue()` | `credentials()` -> live `readFileSync(TOKEN_PATH)` behind the window | Yes — rotation is accepted by the very next request (driven) | ✓ FLOWING |
+| `ACTION_SCHEMAS` | tool shapes | `toolsFor('http')` + `shapeFor` on the registry | Yes — registry edit changed the frozen projection | ✓ FLOWING |
+| `allowed-tools` lines | tool names | registry projection in `wire-surface.json` via `render-method.mjs` | Yes — 22-name guard at `render-method.mjs:177` | ✓ FLOWING |
+| `usage` rows | five raw counts + model + cost source | `recordUsage` reading the turn row, not the caller | Yes — `usage.test.ts` green; `closeUsage` writes the honest blank rather than omitting | ✓ FLOWING |
+| rendered method copies | section bodies | `method/*.md` | Yes — edit propagated to 4 copies | ✓ FLOWING |
 
-### Behavioral Spot-Checks
+### Behavioural Spot-Checks
 
-| Behavior | Command | Result | Status |
-|----------|---------|--------|--------|
-| Full server suite on a rebuilt `dist` | `pnpm --filter server build && pnpm --filter server test` | `# tests 209 / # pass 209 / # fail 0 / # cancelled 0` | ✓ PASS |
-| Method drift gate | `node scripts/check-method.mjs` | `method: 6 rendered copies match method/`, exit 0 | ✓ PASS |
-| Wire surface frozen | `git diff --quiet 239d5f1..HEAD -- server/test/wire-surface.json` | exit 0 | ✓ PASS |
-| Revocation on a running server | rebuilt `dist/index.js`, scratch data dir, `rm token`, 1.1 s | cookie 401, header 401, `GET /` 401, health 200, file not recreated | ✓ PASS |
-| Rotation on a running server | write a new 64-hex token, 1.1 s | old cookie 401, old header 401, new header 200, new `?token=` 302 + working cookie | ✓ PASS |
-| Blank / whitespace token file | write `"   \n"`, 1.1 s | old token 401, `''` 401, `'   '` 401 | ✓ PASS |
-| Refusal order (raw `node:http` Host) | 5 requests | 403 / 403 / 401 / 403 / 200 as specified | ✓ PASS |
-| Cache boundary, pinned clock | drive `matchesToken` at T0+999 and T0+1000 | true, then false | ✓ PASS |
-| Cache under a backwards clock step | delete token, `matchesToken(A, T1 - 3_600_000)` | **true** — revoked token still authenticates for an hour | ✗ FAIL (gap 2) |
-| Ticket single-use with a cookie held | mint, open `?ticket=` with cookie, re-open cookie-less | 200 / no redeem, then 302 + a working session cookie | ✗ FAIL (gap 1) |
-| Token stripped from URL with a cookie held | re-open `?token=` with cookie | 200, no `Set-Cookie`, no `Location` | ✗ FAIL (gap 1) |
-| `PORT=abc` on the stdio MCP server | `PORT=abc node server/dist/mcp.js` | dies in `dist/config.js:12` | ℹ Advisory 3 |
+All run against a freshly built `server/dist/index.js` on a scratch `DERIVE_DATA_DIR`
+and an OS-allocated port (`server/test/spawn.ts`), then the scratch drivers removed
+(`git status --porcelain` clean for all source paths).
+
+| # | Behaviour | Result | Status |
+|---|-----------|--------|--------|
+| 1 | cookie-less `?token=<valid>` | `302`, `Location: /`, `Set-Cookie derive_session=…; Max-Age=2592000; Path=/; HttpOnly; SameSite=Strict` | ✓ PASS |
+| 2 | **`?token=<valid>` WITH a valid cookie** (the fifth round's defect) | `302`, `Location: /`, `Max-Age=2592000` — cookie renewed, query dropped | ✓ PASS |
+| 2b | that refreshed cookie on `GET /api/lessons` | `200` | ✓ PASS |
+| 3 | `?token=wrong` WITH a valid cookie | `401` | ✓ PASS |
+| 4 | `x-derive-token`, no URL credential, `GET /` | `200`, no `Location`, no `Set-Cookie` — no loop | ✓ PASS |
+| 5 | cookie only, `GET /` | `200`, no `Location` | ✓ PASS |
+| 6 | no credential, `GET /` | `401` | ✓ PASS |
+| 7 | `POST /api/handoff` (with a valid header) | `404` | ✓ PASS |
+| 7b | `/?ticket=<64 hex>` | `401` | ✓ PASS |
+| 8 | foreign Host + bad credential on `/api/lessons` | `403` | ✓ PASS |
+| 8b | foreign Origin + bad credential | `403` | ✓ PASS |
+| 8c | good Host, no credential | `401` | ✓ PASS |
+| 8d | foreign Host on `/api/health` | `403` | ✓ PASS |
+| 8e | good Host on `/api/health` | `200` | ✓ PASS |
+| 9 | `rm ~/.derive/token` on a **running** server, +1.1 s: cookie / header / `GET /` / `/api/health` / old `?token=` | `401` / `401` / `401` / `200` / `401`; token file **not** recreated | ✓ PASS |
+| 10 | rotate the file, +1.1 s: old cookie / old header / new header / new `?token=` / new cookie on API | `401` / `401` / `200` / `302` / `200` | ✓ PASS |
+| 11 | any token value in any response body (`/`, `/api/lessons`, `/?token=bad`) | none | ✓ PASS |
+| 12 | credentials window, pinned clock, file deleted after read: `+999` / `+1000` / `-3_600_000` / `-60_000` | `true` / `false` / **`false`** / **`false`** | ✓ PASS |
+| 13 | method drift: append one sentence to `method/00-identity.md` | `check-method.mjs` exit **1**, 4 copies named; restored -> exit 0 | ✓ PASS |
+| 14 | schema drift: add `probe_field` to `remember`'s registry shape | `wire-surface.test.ts` **2 failures**; restored -> clean | ✓ PASS |
+| 15 | stdio MCP smoke test, no model | `mcp.test.ts` 3/3, walking start -> plan -> teach -> check -> answer -> end | ✓ PASS |
+| 16 | full suite / typecheck / build / method check | `201 pass / 0 fail`; `pnpm typecheck` exit 0; `pnpm --filter server build` exit 0; "6 rendered copies match method/" | ✓ PASS |
+
+**Clause-by-clause check of the one replaced docstring sentence** (`index.ts:1117-1122`),
+against the transcript above — this is the standing prohibition "never state an
+invariant the code does not hold", tested rather than assumed:
+
+| Clause | Driven by | Holds |
+|--------|-----------|-------|
+| "the `?token=` in the URL, then the cookie, then the x-derive-token header" | code order at `:1128-1142`; #4 and #5 pass through, #1 redirects | ✓ |
+| "a URL credential goes first because it has to be spent and dropped even for a browser that already holds a cookie" | #2 | ✓ |
+| "a match is answered with a 302 to the same path with the query gone" | #1, #2 (`Location: /`) | ✓ |
+| "a `?token=` that does not match is a 401 rather than something to ignore" | #3 | ✓ |
+| "the cookie and the header pass straight through, because there is nothing in either to strip from a URL" | #4, #5 (200, no `Location`, no `Set-Cookie`) | ✓ |
+
+**Test-count arithmetic** (01-22-SUMMARY claims `209 − 13 + 5 = 201`): independently
+measured **201 pass / 0 fail**. The claim reconciles.
 
 ### Probe Execution
 
 | Probe | Command | Result | Status |
 |-------|---------|--------|--------|
-| — | `find scripts -path '*/tests/probe-*.sh'` | none | ? SKIP — this project declares no probes; the equivalent gates are `pnpm method:check` and `pnpm test`, both run above |
+| — | — | No `scripts/*/tests/probe-*.sh` exists and no PLAN or SUMMARY in this phase declares a probe path | N/A — SKIPPED |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
-|-------------|------------|-------------|--------|----------|
-| FOUND-01 | 01-01..01-06, 01-13..15 | 14 tools defined once; every driver, MCP and HTTP validation derive from it | ✓ SATISFIED | `server/src/tools.ts` registry; wire-surface fixture byte-identical; `ok 55 - the wire surface` (11 subtests) and `mcp.test.ts` green |
-| FOUND-02 | 01-02, 01-07 | Method text defined once, rendered everywhere; CI fails on drift | ✓ SATISFIED | `method/` (10 files), `scripts/check-method.mjs` -> "6 rendered copies match", `pnpm method:check` at `ci.yml:37` |
-| FOUND-03 | 01-08..01-11 | One driver interface, one event sink | ✓ SATISFIED | `server/src/driver.ts`, `server/test/driver.test.ts` (fake driver) green; unchanged this round |
-| FOUND-04 | 01-12, 01-16 | Plugin and Codex keep working; wire snapshot + no-model MCP smoke | ? NEEDS HUMAN | Machine half green (snapshot + `mcp.test.ts`); HC-2 (real plugin and Codex lessons) never performed — WINDOWS #5 |
-| FOUND-05 | 01-17, 01-18 | Numbered transactional migration runner; transactional `replaceGraph`/`deleteLesson` | ✓ SATISFIED | `server/src/migrations.ts`, `migrations.test.ts`, `tx.test.ts` green |
-| FOUND-06 | 01-12, 01-19, 01-20, 01-21 | Loopback bind, Host + Origin, per-install token, redaction | ✗ BLOCKED | Bind, Host, Origin, redaction and live revocation all verified by driving. The handoff-ticket and URL-stripping halves of the token story do not hold (gap 1); the revocation window is not a bound (gap 2) |
-| COST-01 | 01-18 | Every turn persists raw usage with model id and cost source | ✓ SATISFIED | `server/test/usage.test.ts` green; restart-sweep case in `tx.test.ts` green; ledger shape unchanged this round |
+|-------------|-------------|-------------|--------|----------|
+| FOUND-01 | 01-01, 01-02 | 14 tutor tools defined once; every driver, the MCP server and HTTP action validation derive from it | ✓ SATISFIED | `DERIVE_TOOL_NAMES.length === 14` driven through `dist/tools.js`; `agent.ts:77`, `mcp.ts:279`, `index.ts:837` all read `toolsFor`/`shapeFor`; a registry schema edit turned the frozen projection red. |
+| FOUND-02 | 01-03 | Method text defined once, rendered everywhere; CI fails on drift | ✓ SATISFIED | Drift driven both ways; `pnpm method:check` in CI ahead of everything else. |
+| FOUND-03 | 01-04, 01-05 | One driver interface, one event sink; adding a provider changes neither UI, SSE nor mirrors | ✓ SATISFIED | `driver.ts` seam + `drivers/fake.ts` + `driver.test.ts:124`; event vocabulary held against a copy of the web's `EVENT_TYPES`. |
+| FOUND-04 | 01-01…01-22 | Plugin and Codex paths keep working, proven by a wire-surface snapshot and a no-model stdio MCP smoke test | ? NEEDS HUMAN | Both named proofs are green (fixture byte-identical since 01-02; `mcp.test.ts` 3/3). The requirement's *subject* — the plugin and Codex paths working — needs HC-2. |
+| FOUND-05 | 01-06, 01-09 | Numbered transactional migration runner; `replaceGraph`/`deleteLesson` transactional; existing DBs migrate forward | ✓ SATISFIED | `migrations.test.ts` + `tx.test.ts`, 49/49 with the driver and usage suites; cases drive an existing DB, a failing migration's rollback, and both interrupted writes. |
+| FOUND-06 | 01-07, 01-13…01-22 | Loopback only, Host and Origin checked, per-install token, secrets redacted from every error/log/event/export path | ✓ SATISFIED | Driven end to end (#1-#12 above). Both fifth-round findings closed. Redaction chokepoint covers all five paths with `secrets.test.ts`'s "every egress" group behind it. |
+| COST-01 | 01-08, 01-09 | Every turn persists raw usage with the model id and a cost source | ✓ SATISFIED | `db.ts:174` insert; `UsageInput` carries all five counts; `CostSource` is exactly the four-value union; `recordUsage` is the sole write path; `closeUsage` writes the honest blank for terminal-driven turns so turn counts reconcile. |
 
-No orphaned requirements: `.planning/REQUIREMENTS.md` maps exactly FOUND-01..06 and COST-01 to Phase 1, and every one is claimed by a plan in this phase.
-
-**Note for the REQUIREMENTS.md traceability table:** FOUND-06 currently reads **Complete**. It is not. This report sets it back to blocked; the table should be corrected in the same commit that records this verification.
+No orphaned requirements: `grep -E "Phase 1" .planning/REQUIREMENTS.md` maps exactly
+FOUND-01…FOUND-06 and COST-01 to this phase, and all seven appear in plan
+frontmatter. See Advisory #5 on the stale status column.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `server/src/index.ts` | 1149-1163 | Stated invariant the code does not hold (302-strips the token; ticket spent on first use) | 🛑 Blocker | Gap 1 |
-| `server/src/tickets.ts` | 10-11 | Same | 🛑 Blocker | Gap 1 |
-| `server/src/mcp.ts` | 219 | Same — "spent on first use" is the stated reason the opener argv is acceptable | 🛑 Blocker | Gap 1 |
-| `.env.example` | 37 | Learner-facing sentence reproduced false | 🛑 Blocker | Gap 1 |
-| `scripts/doctor.mjs` | 118 | Same sentence | 🛑 Blocker | Gap 1 |
-| `server/src/credentials.ts` | 98-105 | "the window is a bound and not an approximation" | ⚠️ Warning | Gap 2 |
-| `server/src/repo.ts` | 62-67 | Doc claims credential files are "refused outright"; the allowlist has holes | ⚠️ Warning | Advisory 1 |
-| `server/test/security.test.ts` | 484-513 | Test group asserts an invariant only on the path where it happens to hold | ⚠️ Warning | Why gap 1 shipped green |
+| — | — | `grep -rnE "\bTBD\b\|\bFIXME\b\|\bXXX\b" server/src/ server/test/ scripts/` -> no matches; the five files 01-22 changed carry no `TODO`, `HACK`, `PLACEHOLDER`, "coming soon" or "not yet implemented" | — | None |
 
-Debt-marker scan (`TBD|FIXME|XXX` and `TODO|HACK|PLACEHOLDER`) over the nine files this round touched: **none found**. `CLAUDE.md`'s "no TODO/FIXME markers are in use" still holds.
+The debt-marker gate is clean. The project's own convention ("No TODO/FIXME markers
+are in use; unfinished work is not left in comments") holds.
 
 ### Human Verification Required
 
-#### 1. HC-2 — Claude Code plugin and Codex skills parity run (FOUND-04, Success Criterion 1)
+See the `human_verification` block in the frontmatter. In priority order:
 
-**Test:** Run one real lesson through the Claude Code plugin and one through the Codex skills, on a real model and login, on two terminals. Fold one repo import by GitHub URL into the same run.
-**Expected:** Both lessons complete exactly as before the refactor — graph built, a quiz graded, a node locked, transcript mirrored. The GitHub import returns normally.
-**Why human:** Needs a real model and a real login on two terminals; no automated test drives either. The machine half (wire-surface fixture byte-identical, `mcp.test.ts` green) is verified and is not a substitute. This is also the only way the five clone-argv pins 01-21 added are exercised at all. WINDOWS #5, #11.
+#### 1. HC-2 — the only thing between this phase and `passed`
 
-#### 2. HC-1 — browser session smoke, with the corrected expected result
+**Test:** Run one real lesson through the Claude Code plugin (`/derive:learn`) and one
+through the Codex skills, on a real model and login, on two terminals. Fold one repo
+import by GitHub URL into the same run.
+**Expected:** Both complete exactly as before the refactor — graph built, quiz graded,
+node locked, transcript mirrored. The GitHub import returns normally.
+**Why human:** Needs a real model and a real login on two terminals. No automated test
+drives either, and the machine half — which *is* verified — is not a substitute.
+WINDOWS #5, #11.
 
-**Test:** The six-step sequence in `01-20-PLAN.md` Task 3. Step 5 deletes `~/.derive/token` with the server left **running** — no restart.
-**Expected:** The browser is refused within a second without a restart.
-**Why human:** No automated test drives a real browser. The `fetch`-level equivalent of steps 1-5 is driven end to end in this report; what a human adds is real cookie storage, a real address bar and real history — the last of which is what gap 1 is about. WINDOWS #4, #10.
+#### 2. HC-1 — the same browser sequence, in a real browser
 
-#### 3. Rotation signs out the stdio MCP server and the plugin hook
+Every step is now driven end to end in this report against `fetch`, including the two
+that were broken last round. What a human adds is the address bar, the history and a
+real cookie jar. WINDOWS #4, #10.
 
-**Test:** Rotate `~/.derive/token` while a stdio MCP server and the plugin hook are running, then call a derive tool from each.
-**Expected:** Both are refused until restarted.
-**Why human:** 01-20 declares this `verification: backstop` — a stdio MCP server's credential lifetime cannot be observed from inside the suite. Asserted by reading `server/src/mcp.ts:75` and `plugin/hooks/mirror.mjs:33`. WINDOWS #9.
+#### 3. Rotation vs. the long-running stdio MCP server and plugin hook
 
-#### 4. A public URL fetch through `fetchPublic`
+Declared `verification: backstop`; the boot-time reads at `mcp.ts:75` and
+`mirror.mjs:33` were re-read and are present. WINDOWS #9.
 
-**Test:** Import an ordinary public URL into the library.
-**Expected:** The page is fetched, extracted and shelved.
-**Why human:** No DNS or outbound network in this environment. WINDOWS #3.
+#### 4. `fetchPublic` against an ordinary public URL
+
+No DNS or outbound network here. WINDOWS #3.
+
+#### 5. Judgment-tier prohibitions from 01-22 — `unverified-prohibition, human review recommended`
+
+Non-authoritative LLM-judge verdict: **all four read as honoured.** "No credential
+path added" — the diff is net −258/+62 across five files and introduces no module,
+route or credential kind. "No new security sentence" — the three learner-facing files
+are byte-unchanged and the single docstring sentence that moved is shorter than what
+it replaced. "Never state an invariant the code does not hold" — driven clause by
+clause (table above). "Never change the refusal order" — driven 403/403/401/403/200.
+Flagged because they are judgment-tier, not because anything contradicts them.
 
 ### Gaps Summary
 
-The two gaps the fourth round found are genuinely closed, and both were re-driven rather than read: deleting or rotating a running server's install token now revokes every browser within a second with no restart, and `repo.ts`'s security rationale and its clone argv now say the same thing in both directions with a test holding them together. The suite is green at 209/209 on a freshly rebuilt `dist`, the wire surface is byte-identical, and the method gate reports six matching rendered copies.
+**There are none.** Both findings from the fifth verification are closed, and
+this round I reproduced each one as *fixed* rather than reading a summary that
+said so:
 
-What blocks is one defect the review named and I independently reproduced end to end. The document middleware short-circuits on the session cookie before it reaches either handoff, so for the ordinary case — a browser holding the 30-day cookie — the one-time ticket is never spent and the install token is never dropped from the URL. The consequence is not theoretical: I minted a ticket, opened it with the cookie attached (200, no redeem), and then redeemed that same ticket from a cookie-less client sixty seconds later for a session cookie that drove `GET /api/lessons` to 200. That is exactly the exposure `server/src/tickets.ts` was written to close — another local account reading the browser opener's `/proc/<pid>/cmdline` — and `server/src/mcp.ts:219` names "spent on first use" as the reason putting anything on that argv is acceptable at all. Five places state invariants the code does not hold, which is the same standing prohibition, in the same file family, that the fourth round blocked on.
+- The handoff ticket is gone — the module, the route, the branch and the identifiers.
+  The `/proc/<pid>/cmdline` exposure is closed by construction: `mcp.ts` now hands the
+  opener a bare URL. A `?token=` presented by a browser that already holds a cookie is
+  now spent, dropped from the URL and answered with a renewed 30-day cookie — the
+  exact request that returned `200` with no `Set-Cookie` last round.
+- A cache entry of negative age is stale, so a backwards wall-clock step no longer
+  suspends revocation. Both directions of the one-second window are now driven.
 
-Beside it, the one-second revocation window is not a bound. `credentials.ts:105` compares `now - cache.at < TOKEN_CACHE_MS`, which every negative delta satisfies, and a cache hit never advances `cache.at` — so a backwards wall-clock step suspends the revocation this whole round delivered for the length of the step. Driven with a pinned clock: a deleted token still authenticating an hour later. Recorded as partial because revocation demonstrably works under a monotonic clock, and because the fix is one comparison.
+01-22 achieved this by making the authenticated surface *smaller*. It deleted 59 lines
+of `tickets.ts`, 16 lines of route and docstring, 41 lines of `mcp.ts`, and 11 lines of
+middleware prose, and it did not write a single new learner-facing sentence — the three
+documents whose sentences were falsified last round were not edited at all; the code
+moved to meet them. That is the first round of this phase that closed its gaps without
+adding a mechanism, and it is the reason there is nothing new here to block on.
 
-Both gaps sit on the same seam and should close together, since the fix for the first reverses the middleware ordering that 01-20's own must-have truth 9 froze. Record that reversal deliberately: the order that truth blessed is the defect.
+What remains is HC-2: one real lesson through the plugin and one through the Codex
+skills. That is a human action outstanding, not a defect. There is nothing to plan
+against and nothing for `/gsd-plan-phase --gaps` to consume.
 
 ---
 
-_Verified: 2026-09-20T18:40:00Z_
+_Verified: 2026-09-20T19:40:00Z_
 _Verifier: Claude (gsd-verifier)_
