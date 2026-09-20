@@ -1,590 +1,283 @@
 ---
 phase: 01-foundation
-reviewed: 2026-09-20T00:00:00Z
+reviewed: 2026-09-20T17:52:00Z
 depth: standard
-files_reviewed: 19
+files_reviewed: 9
 files_reviewed_list:
   - .env.example
   - README.md
-  - scripts/doctor.mjs
   - server/src/config.ts
-  - server/src/db.ts
-  - server/src/driver.ts
+  - server/src/credentials.ts
   - server/src/index.ts
-  - server/src/mcp.ts
-  - server/src/migrations.ts
   - server/src/repo.ts
-  - server/src/tickets.ts
-  - server/test/api.test.ts
+  - server/test/credentials.test.ts
   - server/test/guards.test.ts
-  - server/test/mcp.test.ts
-  - server/test/migrations.test.ts
   - server/test/security.test.ts
-  - server/test/spawn.ts
-  - server/test/tx.test.ts
-  - server/test/usage.test.ts
 findings:
-  critical: 1
-  warning: 9
-  info: 10
-  total: 20
+  critical: 2
+  warning: 5
+  info: 11
+  total: 18
 status: issues_found
 ---
 
 # Phase 01: Code Review Report
 
-**Reviewed:** 2026-09-20
-**Depth:** standard (incremental — `git diff 0f70ebb..HEAD`, plans 01-16 … 01-19)
-**Files Reviewed:** 19
+**Reviewed:** 2026-09-20T17:52:00Z
+**Depth:** standard
+**Files Reviewed:** 9
 **Status:** issues_found
 
 ## Summary
 
-Four gap-closure plans were reviewed against the diff rather than against their own
-summaries. The core security claims mostly hold under adversarial reading:
+The change extracts the install token out of `server/src/index.ts` into `server/src/credentials.ts` and turns every credential check into a live, one-second-cached read of `~/.derive/token`, so that deleting or rotating that file revokes every browser on a running server. The extraction itself is clean: the two comparison sites now go through one module, the boot-frozen `TOKEN_BUF`/`SESSION_BUF` pair is gone, `sameValue` correctly refuses an empty *live* value (the old one did not have to), and a source-reading case guards against the second source of truth coming back.
 
-- **Ticket lifecycle (01-19)** is sound where it counts. `/api/handoff` is registered
-  at `index.ts:320`, behind `app.use('/api/*', cors)` (196) and the credential
-  middleware (252), so it cannot be reached unauthenticated. Redemption at
-  `index.ts:1165` sits behind `guardLocal` and behind both the cookie and the token
-  branches, so it bypasses neither. `redeemTicket` deletes whichever way the check
-  goes, the 302 drops the query, and `mintTicket` sweeps on every mint so the map's
-  steady state is bounded by one minute of authenticated mints. I found no
-  auth-bypass path: `grep` confirms no non-`/api` route is registered ahead of the
-  document middleware.
-- **Argv pinning (01-17)** holds for the reachable case. `core.fsmonitor` is the one
-  knob `ls-files --others` genuinely spawns, and it is pinned on the argv where
-  command-line `-c` outranks a repository's own `.git/config`. `include.path` /
-  `includeIf` in a hostile config cannot re-set it, because file config never
-  outranks `-c`.
-- **Migration 4 (01-18)** is correct. `NOT EXISTS` prevents double-writes, `<>
-  'running'` correctly cedes open turns to `closeOpenTurns`, `COALESCE(ended_at,
-  started_at)` can never be null given `started_at NOT NULL`, and the migration runs
-  at `db.ts` import time, strictly before `index.ts`'s boot sweep. No double-write
-  and no mis-timed row.
+The defects are not in the extraction. They are in two places the new code inherited or newly asserted and did not drive:
 
-What the diff *did* introduce is one shipped security control that does not work as
-the product tells the learner it does (CR-01), a set of rationale comments that
-assert protections which are not present (WR-03, WR-06), a liveness regression on
-the new transaction boundary (WR-01), and several tests that pass without testing
-what their names claim (WR-08, IN-01, IN-02, IN-08).
+1. **The document middleware's cookie short-circuit runs before both handoffs.** A browser that already holds a valid session cookie — the ordinary case, since the cookie lasts 30 days — is waved through `?token=` and `?ticket=` URLs with a 200 and no redirect. The one-time ticket is therefore *never spent* in the common path, which is half of the two mitigations `server/src/tickets.ts` and `server/src/mcp.ts` explicitly rely on; the install token stays in the address bar and in history, which is the exact exposure `index.ts:1116-1142` says the 302 exists to prevent; and the cookie is not re-issued, so four learner-facing sentences that promise "opening the same link again signs it in for another 30 [days]" are false. All three were reproduced against `server/dist/index.js`.
 
----
+2. **The one-second window is not a bound.** `credentials()` gates its cache on `now - cache.at < TOKEN_CACHE_MS`, which is true for every negative delta. A backwards system-clock step keeps a *deleted* token authenticating for the whole length of the step — reproduced at one hour — while the module's own doc claims "the window is a bound and not an approximation" and three learner-facing sentences promise "within a second".
+
+Both are the shipped security control failing in a way the new suite is green through, which is the failure mode this codebase's own test comments keep warning about.
+
+The remaining findings are documentation drift the new prose-drift test does not cover (README.md is the one learner-facing file it was not pointed at, in the same change that edited it), a credential-file allowlist in `repo.ts` with demonstrable holes, and test-hygiene items.
 
 ## Critical Issues
 
-### CR-01: The advertised revocation mechanism does not work on a running server, and it is the stated justification for a 30-day persistent credential
+### CR-01: A one-time handoff ticket is never spent when the browser already holds a session cookie
 
-**File:** `server/src/index.ts:83-117`, `server/src/index.ts:1105-1119`, `server/src/index.ts:1191`, `.env.example:36-38`, `README.md:63`, `scripts/doctor.mjs:118`
-
+**File:** `server/src/index.ts:1149-1163`
 **Issue:**
-01-19 widens the browser credential from a memory-only session cookie to a
-persistent 30-day one (`maxAge: SESSION_MAX_AGE_S`, `index.ts:1118`). The comment
-directly above it states what makes that defensible:
-
-> "the value is HMAC-SHA256 of the install token, so deleting or rotating the token
-> file invalidates every cookie ever issued, with no code change and no per-session
-> bookkeeping."
-
-The same promise is now shipped in three learner-facing places, as security advice:
-
-- `.env.example:37-38` — "deleting the token file signs every browser out"
-- `index.ts:1191` (the `DERIVE_HOST` widened-bind warning) — "deleting that file
-  signs all of them out"
-- `README.md:63` / `scripts/doctor.mjs:118` — the 30-day story built on it
-
-It is not true of a running server. `TOKEN` is read exactly once, at module
-evaluation (`index.ts:103`, via `ensureToken()`), `SESSION` is derived once from it
-(`index.ts:107`), and both are then frozen in module state. `grep` confirms nothing
-else ever re-reads `TOKEN_PATH` — it appears afterwards only inside error strings.
-Deleting or rotating `~/.derive/token` therefore changes nothing until the process
-restarts: every previously-issued `derive_session` cookie keeps working, and the old
-`x-derive-token` header keeps working too.
-
-The failure window is exactly the one that matters. A learner who believes a cookie
-or the token has leaked — on a widened `DERIVE_HOST=0.0.0.0` bind over plain HTTP,
-which this very warning line is about — follows the instruction the server printed,
-deletes the file, and believes they have cut access off. They have not. Worse, the
-delete also means `ensureToken()` will mint a *different* token on the next restart,
-so the learner has no signal that the revocation they performed was a no-op; the app
-simply keeps working for the attacker until an unrelated restart happens.
-
-This is not a stale comment: it is a security control that the product instructs the
-user to rely on, in four places, and it does not do what it says.
-
-**Fix:** either make revocation real, or stop claiming it. Making it real is a few
-lines — compare against the file rather than a boot-time snapshot:
+The document middleware returns on the cookie before it ever reaches `redeemTicket`:
 
 ```ts
-/** The install token as it is on disk right now. Cached for one second so a credential check is not a stat+read per request, but short enough that deleting or rotating the file signs every browser out while the server is still up — which is what .env.example, the startup warning and the doctor all promise. */
-let cached: { token: string; session: Buffer; tokenBuf: Buffer; at: number } | null = null;
-function credentials() {
-  const now = Date.now();
-  if (cached && now - cached.at < 1_000) return cached;
-  let token = '';
-  try {
-    token = readFileSync(TOKEN_PATH, 'utf8').trim();
-  } catch {
-    /* rotated out from under us; every credential is refused until it is back */
-  }
-  const session = createHmac('sha256', token).update('derive browser session v1').digest('hex');
-  cached = { token, session: Buffer.from(session), tokenBuf: Buffer.from(token), at: now };
-  return cached;
-}
+const cookie = offered(getCookie(c, SESSION_COOKIE));
+if (matchesSession(cookie)) return next();          // <- returns here
+...
+if (redeemTicket(c.req.query('ticket'))) { ... }    // <- never reached
 ```
 
-…and have the `/api/*` middleware and the document middleware compare against
-`credentials()` rather than the module-level `TOKEN_BUF`/`SESSION_BUF`. Note that
-`registerSecret` must then be called on each new value as it is loaded, or the
-redaction chokepoint silently stops covering the live token.
+`server/src/tickets.ts` states the threat model this ticket exists for: the MCP server puts the companion-page URL on a browser opener's argv, and `/proc/<pid>/cmdline` is world-readable on Linux, so "the URL carries one of these instead: a random value that is worth a single request and one minute". `server/src/mcp.ts:219` repeats it — "acceptable only because what it now carries expires in sixty seconds **and is spent on first use**". The single-use half does not hold whenever the learner's browser is already signed in, which is the ordinary case for a 30-day cookie.
 
-If that is judged too much machinery, the minimum acceptable fix is to correct all
-four learner-facing sentences to say what is actually required — "delete the token
-file **and restart derive** to sign every browser out" — and to correct the
-`issueSession` comment, so a future maintainer does not build on a property that
-does not exist.
+Reproduced against `server/dist/index.js`:
 
----
+```
+ticket=a3527c9e7388...
+--- browser already holding the cookie opens the ticket URL ---
+status=200                       <- no 302, no redeem
+--- is that ticket still redeemable afterwards? ---
+HTTP/1.1 302 Found
+set-cookie: derive_session=0b4748483b9f...   <- still live, still buys a full session
+```
+
+Any other local account that reads the opener's command line within the remaining TTL gets a session cookie and therefore the whole API: every lesson, the library, and `POST /api/materials/repo` against any readable folder. `server/test/security.test.ts:501` ("is refused the second time") asserts single-use only for a cookie-less `fetch`, so the suite is green through this.
+
+**Fix:** redeem/strip before the cookie short-circuit, so presenting a handoff always consumes it and always ends in the query-dropping 302:
+
+```ts
+const ticket = c.req.query('ticket');
+const presented = offered(c.req.header('x-derive-token')) || offered(c.req.query('token'));
+const handoff = (ticket !== undefined && redeemTicket(ticket)) || matchesToken(presented);
+if (handoff) {
+  issueSession(c);
+  return c.redirect(new URL(c.req.path, 'http://127.0.0.1').pathname, 302);
+}
+if (matchesSession(offered(getCookie(c, SESSION_COOKIE)))) return next();
+return c.json({ error: ... }, 401);
+```
+
+Add a case to `server/test/security.test.ts`'s ticket group that mints a ticket, opens it **with a valid session cookie attached**, and asserts the response is a 302 and that the ticket is refused afterwards.
+
+### CR-02: The credential cache serves a revoked token for the whole length of a backwards clock step
+
+**File:** `server/src/credentials.ts:104-105`
+**Issue:**
+
+```ts
+export function credentials(now = Date.now()): Credentials {
+  if (cache && now - cache.at < TOKEN_CACHE_MS) return { token: cache.token, session: cache.session };
+```
+
+When `now < cache.at` the difference is negative and therefore always `< TOKEN_CACHE_MS`, so the cached value is served; and because a cache *hit* never advances `cache.at`, it keeps being served until wall-clock time passes `cache.at` again. A backwards step — NTP correction on a laptop, VM suspend/resume, a learner fixing a wrong clock — silently suspends the revocation this whole phase delivers.
+
+Reproduced (`credentials.ts` driven directly, token file deleted after the first read, clock stepped back one hour):
+
+```
+after deletion, with a clock stepped back 1h, matchesToken(A) = true
+window is 1000 ms
+still stale 59 minutes later = true
+```
+
+This contradicts the module's own claim at `credentials.ts:98-103` ("at exactly one window the file is read again rather than the cached value served, so the window is a bound and not an approximation") and the three learner-facing sentences `server/test/security.test.ts:737-758` asserts, which promise "within a second". `server/test/credentials.test.ts` only ever moves its pinned clock forward, so nothing catches it.
+
+**Fix:** treat any non-monotonic reading as stale, and prefer a monotonic source:
+
+```ts
+if (cache && now >= cache.at && now - cache.at < TOKEN_CACHE_MS) return { token: cache.token, session: cache.session };
+```
+
+Better still, gate on `performance.now()` (monotonic across clock steps) and keep the `now` parameter only for the pinned-clock tests. Either way add a case to `server/test/credentials.test.ts` that writes A, reads at `T0`, deletes the file, and asserts `matchesToken(A, T0 - 3_600_000) === false`.
 
 ## Warnings
 
-### WR-01: `endTurn`'s new transaction makes the `turn_end` event unreachable on failure, and the idempotency guard prevents any retry
+### WR-01: The install token is not dropped from the URL when the browser already holds a cookie
 
-**File:** `server/src/driver.ts:108-117`, `server/src/index.ts:1027-1035`
+**File:** `server/src/index.ts:1150`
+**Issue:** Same root cause as CR-01 for the other credential. `index.ts:1116-1142` says a browser "presents the install token once, in the URL, and is answered with a 302 to the same path with the query string dropped, so the token does not come to rest in the history" — and `index.ts:213-218` gives the reason: "a credential in a URL comes to rest in server logs, browser history and Referer". With a live cookie, the short-circuit skips the 302 and the URL stands.
 
-**Issue:** 01-18 folds `finishTurn` + `closeUsage` into one `withTx`. The atomicity
-is right, but neither call site is exception-safe, and the sink sets its guard
-*before* the write:
+Reproduced:
+
+```
+--- 2nd open of the SAME ?token= link WITH the cookie ---
+HTTP/1.1 200 OK        <- the ?token=… URL stays in the address bar and in history
+```
+
+`README.md:63` instructs the learner to do exactly this ("to sign in again, or in another browser, open the same link"), as does the startup line at `index.ts:1177`. Because default referrer policy is `strict-origin-when-cross-origin`, every same-origin subresource of that document also carries the full `?token=…` as `Referer`.
+
+**Fix:** the CR-01 fix resolves this too — handle `?token=`/`?ticket=` before the cookie check so a presented credential always produces the stripping 302.
+
+### WR-02: Re-opening the printed link does not extend the 30-day cookie, though four places say it does
+
+**File:** `server/src/index.ts:1150`; `.env.example:37`; `README.md:54,63`; `scripts/doctor.mjs:118`
+**Issue:** `issueSession()` is only called on the token and ticket branches. With a live cookie the middleware calls `next()` and sets no cookie, so `Max-Age` is not refreshed. Reproduced: `set-cookie` headers on a cookie-carrying re-open of the `?token=` link: **0**.
+
+The learner is told the opposite in four places:
+- `.env.example:37` — "opening the same link again signs it in for another 30"
+- `scripts/doctor.mjs:118` — "opening the same link again signs it in for another 30"
+- `README.md:63` — "to sign in again, or in another browser, open the same link"
+- `index.ts:1177` — "To sign in again, or in another browser, open the same link"
+
+A learner who does this every week is still signed out on day 31 from first sign-in.
+
+**Fix:** with the CR-01 ordering in place a presented credential always reaches `issueSession`, which refreshes `Max-Age` and makes all four sentences true. Add a case asserting a second handoff returns a fresh `Max-Age=2592000` even when a valid cookie was attached.
+
+### WR-03: README.md was edited by this change and is exempt from the prose-drift test the change added
+
+**File:** `server/test/security.test.ts:747-751`
+**Issue:** The new `describe('the revocation window and the sentences that promise it')` exists because "a security control and the sentence advertising it saying different things ... is what the fourth verification found, and a green suite is what let it ship". Its `places` list is `.env.example` and two slices of `server/src/index.ts`. `README.md:59` carries the same sentence ("deleting it signs every browser out within a second, without restarting derive"), was added in this very diff, and is the most learner-facing of the four — and it is not in the list. `scripts/doctor.mjs`, which also talks to the learner about the token file, is not either.
+
+**Fix:**
 
 ```ts
-endTurn: (payload) => {
-  if (ended) return;
-  ended = true;                             // guard raised first
-  endTurnRow(turnId, turnStatusOf(payload)); // can throw (SQLITE_BUSY, disk full)
-  emit(lessonId, 'turn_end', payload);       // never reached if it does
-},
+const places: [string, string][] = [
+  ['.env.example', readFileSync(new URL('../../.env.example', import.meta.url), 'utf8')],
+  ['README.md', readFileSync(new URL('../../README.md', import.meta.url), 'utf8')],
+  ["issueSession's doc in server/src/index.ts", issueDoc],
+  ['the widened-bind warning in server/src/index.ts', widened],
+];
 ```
 
-`closeUsage` → `recordUsage` → `q.insertUsage.run(...)` is a real write and can fail.
-Before the change, `finishTurn` had already committed, so the turn at least read as
-finished. Now both halves roll back *and* `ended` is already `true`, so
-`agent.ts:299-303`'s `catch`/`finally` pair calls `sink.endTurn` twice more and both
-return immediately. Net result: the turn row stays `'running'`, `busy()`
-(`index.ts:284-290`) reports the lesson busy for the rest of the process's life, and
-no `turn_end` ever reaches the SSE stream, so the browser sits on an in-flight turn.
-The boot sweep repairs the row, but only on the next restart.
+(README.md as it stands passes; the point is that nothing stops the next edit from breaking it.)
 
-The same shape is at `index.ts:1033`: `endTurn(turn.id, ...)` is unguarded, so a
-throw propagates out of the external-action route as a 500 and `emit(id, 'turn_end',
-payload)` on the next line never runs.
+### WR-04: One session value serves every browser and every device, with no per-browser revocation
 
-**Fix:** raise the guard only after the write lands, and never let a ledger failure
-cost the learner the event:
+**File:** `server/src/credentials.ts:52-53,113`; `server/src/index.ts:1107`
+**Issue:** `SESSION_PURPOSE` is a fixed string, so `session = HMAC(token, "derive browser session v1")` is a single value handed to every browser that ever signs in — on this machine and, under `DERIVE_HOST=0.0.0.0`, on every device on the LAN. Consequences that are stated nowhere a learner reads:
+
+- A leaked cookie from any one browser is full API access from anywhere that passes `guardLocal` — there is no binding to the browser, the device, or the sign-in.
+- "Sign this one device out" is impossible; the only lever is rotating the token, which by `index.ts:1101-1104`'s own admission also signs out every other browser, the long-running stdio MCP server and the plugin hook until each restarts.
+
+The 30-day lifetime is justified at `index.ts:1090-1096` purely by "what makes that lifetime defensible is revocation" — but the only revocation available is all-or-nothing.
+
+**Fix:** either state the limitation in the learner-facing text alongside the revocation promise, or mint per-browser values — `session = HMAC(token, SESSION_PURPOSE + ':' + randomBytes(16).toString('hex'))` sent as `<salt>.<mac>`, verified by recomputing from the salt. That keeps "deleting the token file signs everyone out within a second" (every value still derives from the live token) while making a single leaked cookie revocable on its own.
+
+### WR-05: `isSecretName` misses credential files a folder import will read and hand to the tutor
+
+**File:** `server/src/repo.ts:68-72`
+**Issue:** `fromDirectory` refuses only `/` and `$HOME`; any other readable directory is fair game, and the only content control is this name allowlist. It covers `.pem`, `.key`, `credentials`, `.netrc`, `.npmrc`, `auth.json`, `id_*` and `.env*`, and misses at least:
+
+- `~/.docker/config.json` — `extname` is `.json`, which is in `TEXT_EXTS`, and the name matches nothing in `isSecretName`; holds registry auth.
+- `~/.config/gh/hosts.yml` — `.yml` is in `TEXT_EXTS`; holds a GitHub OAuth token.
+- `secrets.yaml`, `secrets.yml`, `credentials.json`, `service-account.json`, `*.tfvars`-adjacent `.tf`/`.hcl` files — all in `TEXT_EXTS`.
+
+`SKIP_DIRS` does not contain `.config`, `.docker` or `.ssh`, so none of these directories is pruned either. `collectRepo` is reachable from `attach_material`, which the *tutor model* calls, and the tutor's context routinely contains attacker-influenced text (an imported README, a fetched library resource) — so a prompt-injection payload can name the path. The collected text lands in the materials table and comes back out of `GET /api/materials/:id?text=1`.
+
+**Fix:** widen the refusal and add a directory prune, and drive both in `server/test/guards.test.ts`'s `knows a secret-shaped name` case:
 
 ```ts
-endTurn: (payload) => {
-  if (ended) return;
-  try {
-    endTurnRow(turnId, turnStatusOf(payload));
-  } catch (e) {
-    // The ledger row is the boot sweep's to repair; the learner's turn is not.
-    console.error('[turn]', e);
-  }
-  ended = true;
-  emit(lessonId, 'turn_end', payload);
-},
-```
-
-and wrap the `index.ts:1033` call the same way so `emit` and the 200 still happen.
-
-### WR-02: The browser credential is a constant that never rotates, so `Max-Age` bounds only the honest browser
-
-**File:** `server/src/index.ts:106-113`, `server/src/index.ts:1105-1119`
-
-**Issue:** `SESSION = HMAC-SHA256(TOKEN, 'derive browser session v1')` is one fixed
-value for the whole install — it is not per-browser, carries no identity, no issue
-time and no nonce, and is identical in every cookie ever handed out. The comment at
-`index.ts:112` justifies the new lifetime as "short enough that a browser profile
-nobody opens again does not carry a working credential indefinitely." That is only
-true of the honest browser's copy. A `Max-Age` is a client-side hint; it places no
-bound whatsoever on a value that has been captured. Anyone who reads one
-`derive_session` cookie — over the plaintext LAN traffic that `DERIVE_HOST=0.0.0.0`
-explicitly enables — holds a credential that is valid forever, subject only to
-CR-01's non-functioning revocation.
-
-Separately, moving from a memory-only cookie to `Max-Age=2592000` moves the value
-from browser memory into the profile's on-disk cookie store, where it now survives
-browser restarts and backups. That is a deliberate UX trade, but the comment
-presents the change as a security bound when it is a convenience bound.
-
-**Fix:** at minimum, correct the comment so it states the real property ("a `Max-Age`
-bounds the honest browser's copy; the value itself is constant and is revoked only by
-rotating the token file"). If a real bound is wanted, make the cookie carry its own
-expiry and verify it server-side, e.g. `value = ts + '.' + HMAC(TOKEN, 'derive
-browser session v1|' + ts)` with a server-side `ts + SESSION_MAX_AGE_S*1000 >
-Date.now()` check — which also gives per-issue revocation for free.
-
-### WR-03: `repo.ts`'s security rationale claims clone-argv pins that do not exist
-
-**File:** `server/src/repo.ts:123` (comment), `server/src/repo.ts:303` (the clone argv it points at)
-
-**Issue:** The `gitListFiles` comment explains why five knobs are *not* pinned on the
-listing argv, and ends:
-
-> "…and they are already pinned where they are reachable, on the clone argv below."
-
-The clone argv below is:
-
-```ts
-['-c', 'http.followRedirects=false', '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', 'clone', ...]
-```
-
-Of the five knobs the comment names — `core.sshCommand`, `credential.helper`,
-`filter.*.clean`, `diff.external`, `uploadpack.packObjectsHook`, `protocol.*` — only
-`protocol.*` is actually pinned. The other four are not pinned anywhere in this file.
-Nor does the clone path set `GIT_CONFIG_NOSYSTEM=1`, which the listing path does.
-
-I could not construct an exploit from this today (a hostile *remote* cannot write the
-fresh clone's config, and credential helpers are host-scoped), so the practical risk
-is low. The defect is that a load-bearing security comment in a file whose module
-docstring is entirely about confinement asserts a mitigation that is absent. Per
-`CLAUDE.md`, comments here exist "so a future change does not undo it by accident" —
-this one guarantees the opposite: the next maintainer who makes one of those knobs
-reachable will read that it is already handled.
-
-**Fix:** either pin them, which costs nothing and makes the comment true —
-
-```ts
-execFileSync('git', ['-c', 'http.followRedirects=false', '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.pager=cat', '-c', 'credential.helper=', '-c', 'core.sshCommand=false', 'clone', '--depth', '1', '--quiet', url, tmp], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '' } });
-```
-
-— or rewrite the sentence to say they are unreachable on both paths and are pinned on
-neither.
-
-### WR-04: `pnpm check` still has no PORT validation, so the preflight either crashes or disagrees with the server it is checking
-
-**File:** `scripts/doctor.mjs:14`, `scripts/doctor.mjs:97-103`
-
-**Issue:** 01-16 added `readPort` to `config.ts` so the server refuses an unusable
-`PORT` loudly at startup. `scripts/doctor.mjs` — the preflight whose entire job is to
-name what is wrong before the first lesson — was not updated:
-
-```js
-const PORT = Number(process.env.PORT ?? 4310);
-```
-
-With `PORT=abc` this is `NaN`; with `PORT=70000` it is out of range. Either value
-reaches `s.listen(PORT, ...)` at line 100, where Node throws `ERR_SOCKET_BAD_PORT`
-synchronously inside the `new Promise` executor. The promise rejects, the top-level
-`await` on line 97 throws, and the doctor dies on an unhandled rejection — no report,
-no `✗ Server` line, no fix hint, just a Node stack trace. Meanwhile the server has a
-clear sentence for exactly the same input. The one script that exists to translate
-failures into English is the one that does not.
-
-**Fix:** reuse the same rule and report it as a finding rather than a crash:
-
-```js
-const rawPort = process.env.PORT;
-const PORT = Number((rawPort ?? '4310').trim());
-if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
-  fail('Port', `PORT=${rawPort} is not a port`, 'Set PORT in .env to a whole number between 1 and 65535, or leave it unset for 4310.');
-}
-```
-
-and guard the `listen` probe on that so the report still prints.
-
-### WR-05: `startDeriveServer` lets a caller's `env.PORT` silently desynchronise the child's port from the `base` the helper returns
-
-**File:** `server/test/spawn.ts:68-73`
-
-**Issue:** The env is built as `{ ...process.env, PORT: String(port), ..., ...env }` —
-the caller's `env` is spread **last**, so a caller passing `PORT` overrides the
-OS-confirmed port while `base` and the returned `port` (lines 69, 88) still hold the
-helper's value. The child then binds a port nothing polls, `/api/health` never
-answers on `base`, the deadline expires five times over, and the suite fails with
-"the derive server did not start in 5 attempts" — the exact misdiagnosis IN-05 and
-this helper exist to eliminate.
-
-This is live today: `security.test.ts:110` forwards an arbitrary caller `env` into the
-helper, and its own old `startServer` explicitly supported `env.PORT`
-(`Number(env.PORT ?? ...)`). 01-16 removed the one call site that used it
-(`security.test.ts:323`) but left the trap armed, with a docstring that invites it
-("`env` is merged over the defaults, so a case can widen the bind or change the
-backend without restating the rest").
-
-**Fix:** make the invariant unbreakable rather than documented:
-
-```ts
-const { PORT: _ignored, ...rest } = env;
-const child = spawn(process.execPath, [entry], {
-  env: { ...process.env, DERIVE_DATA_DIR: dataDir, DERIVE_BACKEND: 'claude', ...rest, PORT: String(port) },
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-```
-
-or throw on `'PORT' in env` with a sentence saying the helper owns the port.
-
-### WR-06: On Windows the "shell-free" browser open spawns `cmd.exe`, which is a shell
-
-**File:** `server/src/mcp.ts:219-221`
-
-**Issue:** The comment asserts the property the change was made for:
-
-> "An argument vector, not a command string: no /bin/sh is involved, so the URL is one
-> argv element of the opener rather than a fragment of a shell command."
-
-True on darwin and linux. On win32 the vector is `['cmd', ['/c', 'start', '', url]]`,
-and `cmd.exe` re-parses its command line with its own rules — `&`, `|`, `^`, `<`,
-`>`, `%VAR%` are metacharacters that CRT-style argv quoting does not neutralise. This
-is the `BatBadBut`/CVE-2024-27980 class: `execFile` gives no protection when the
-executable being spawned *is* the shell.
-
-Today the URL is `http://<host>/lesson/<uuid>?ticket=<hex>` — `host` comes from
-`baseUrl(c.req.url)` (`index.ts:1081-1084`), i.e. a Host header `guardLocal` already
-validated, and the path components are a UUID and hex — so no metacharacter reaches
-it and I cannot demonstrate injection. The defect is that the comment records a
-guarantee the win32 branch does not provide, on a line whose only reason to exist is
-that guarantee.
-
-**Fix:** skip the shell on Windows too, using the ShellExecute-equivalent rather than
-`cmd`:
-
-```ts
-const [cmd, args]: [string, string[]] =
-  process.platform === 'darwin' ? ['open', [url]]
-  : process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
-  : ['xdg-open', [url]];
-```
-
-If `cmd /c start` must stay, say so in the comment: "on win32 this is cmd.exe, which
-re-parses its command line; the URL is safe only because its host is one guardLocal
-already accepted and the rest is a UUID and hex."
-
-### WR-07: `guards.test.ts` leaks a temp directory per case, including one full of executable hook scripts, with no cleanup
-
-**File:** `server/test/guards.test.ts:94-104`, `:114-211`
-
-**Issue:** `hostileRepo()` and `sentinelPath()` each `mkdtempSync` into `tmpdir()`,
-and the new `describe('a repository that carries a command')` block calls them across
-seven cases plus three more inline `mkdtempSync` calls (`derive-hooks-`,
-`derive-empty-`, `derive-plain-`). Nothing removes any of them; the file's only
-`after` (`:140`) closes an HTTP fixture. A full run leaves roughly a dozen scratch
-directories behind, one of which (`derive-hooks-`) contains three `chmod 0755`
-`/bin/sh` scripts.
-
-The sibling suite gets this right — `security.test.ts:504` keeps a `scratch: string[]`
-and removes every entry in its `after` (`:549`). The new code in `guards.test.ts` was
-written against the same pattern and skipped it.
-
-**Fix:** mirror `security.test.ts`:
-
-```ts
-const scratch: string[] = [];
-const scratchDir = (prefix: string) => {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  scratch.push(dir);
-  return dir;
+const SECRET_DIRS = new Set(['.ssh', '.aws', '.gnupg', '.docker', '.kube', '.config/gh']);
+export const isSecretName = (path: string) => {
+  const name = basename(path);
+  const ext = extname(name).toLowerCase();
+  if (['.pem', '.key', '.p12', '.pfx', '.jks', '.keystore', '.ppk'].includes(ext)) return true;
+  if (/^(credentials|auth\.json|hosts\.yml|hosts\.yaml|\.netrc|\.npmrc|\.pypirc|\.git-credentials|\.htpasswd|\.pgpass)$/.test(name)) return true;
+  if (/^(secrets?|service[-_]?account)\./i.test(name)) return true;
+  return name.startsWith('id_') || name.startsWith('.env');
 };
-after(() => {
-  for (const dir of scratch) rmSync(dir, { recursive: true, force: true });
-});
 ```
 
-and route `hostileRepo`, `sentinelPath` and the three inline calls through it. The
-`derive-guards-` data dir set at `:37` should go in the same sweep.
-
-### WR-08: Two of the three "hostile repository" cases pass without exercising the pin they are named for
-
-**File:** `server/test/guards.test.ts:129-154`
-
-**Issue:** The `core.fsmonitor` case (`:117`) is real — `ls-files --others` genuinely
-spawns that command, and removing `-c core.fsmonitor=false` from `repo.ts:124` would
-turn it red. The other two do not have that property:
-
-- `core.hooksPath` (`:129`): `git ls-files` runs no hooks at all. None of
-  `pre-commit`, `post-index-change` or `fsmonitor-watchman` is invoked by a
-  `ls-files -z --cached --others --exclude-standard` — `fsmonitor-watchman` is only
-  reached through `core.fsmonitor`, which the preceding case already pins. Delete
-  `-c core.hooksPath=/dev/null` from the argv and this case still passes.
-- `core.pager` (`:145`): git pages only when stdout is a TTY. `execFileSync` gives it
-  a pipe, so the pager is never consulted. Delete `-c core.pager=cat` and this case
-  still passes.
-
-Both assert `existsSync(sentinel) === false` against a command that was never going to
-run, so they read as coverage for pins that have no regression test. The only thing
-actually holding those two pins in place is the source-text assertion at `:156-165`,
-which is brittle (see IN-01).
-
-**Fix:** state the real claim in the case name and comment — these are
-defence-in-depth pins for knobs `ls-files` does not reach, asserted by the argv case
-below rather than driven — or make them drive something, e.g. run the pager case with
-`stdio: 'inherit'` on a pty so the pager is genuinely consulted. Leaving them named
-"does not run the command its config names in core.pager" implies a reproduction that
-does not exist.
-
-### WR-09: `config.ts`'s import-time PORT throw also kills the stdio MCP server, which never uses PORT
-
-**File:** `server/src/config.ts:9-16`, `server/src/mcp.ts:40`
-
-**Issue:** `readPort` runs in `config.ts`'s module body, and `mcp.ts:40` imports
-`{ TOKEN_PATH, VERSION }` from it. The MCP server addresses Derive through
-`DERIVE_URL` (`mcp.ts:43`) and has no use for `PORT` at all — but a learner with
-`PORT=abc` exported in their shell now gets the stdio MCP server dying at startup with
-`the PORT setting must be a whole number…`, surfaced inside Claude Code or Codex as an
-MCP server that failed to start for a reason that has nothing to do with it. Side
-effects on import are deliberate in this codebase, but a *throwing* one in a shared
-config module reaches every process that imports it.
-
-**Fix:** keep validation eager for the server and lazy for everyone else — either
-export a `assertPort()` that `index.ts` calls before `serve()`, or make `PORT` a
-getter so the throw happens at first use:
-
-```ts
-let port: number | undefined;
-/** The port this server answers on. Validated on first read rather than at import, so the stdio MCP server — which addresses Derive by DERIVE_URL and never reads this — is not killed by a PORT it does not use. */
-export const portOf = () => (port ??= readPort(process.env.PORT));
-```
-
----
+and add `.ssh`, `.aws`, `.gnupg`, `.docker`, `.kube` to `SKIP_DIRS`.
 
 ## Info
 
-### IN-01: Source-text assertions are brittle against hand formatting
+### IN-01: The two boot-time `registerSecret` calls are redundant with the live read
 
-**File:** `server/test/security.test.ts:566-572`, `server/test/security.test.ts:707-714`, `server/test/guards.test.ts:156-165`
+**File:** `server/src/index.ts:94-95`
+**Issue:** `registerSecret(sessionValue())` calls `credentials()`, which at `credentials.ts:116-118` already registers both the token and the session on a cold cache. Line 94's `registerSecret(BOOT_TOKEN)` is therefore also covered, and line 95's argument is registered twice. Harmless (the registry is a `Set`), but the comment presents them as the thing that makes the guarantee, when the guarantee now lives in `credentials()`.
+**Fix:** keep one line with a comment saying it only forces the first read before any route exists — `credentials();` — or delete both and note that `ensureToken()` on line 85 is followed by a `credentials()` warm-up.
 
-**Issue:** Several cases assert on the *text* of a source file, including exact
-whitespace (`/const addr = localAddress\(c\);\n {2}if \(!addr\) return new
-Set<string>\(\);/`), an exact call spelling (`/execFile\(cmd, args, \(\) =>
-undefined\)/`), a numeric literal's underscore (`/timeout: 30_000/`), and the presence
-or absence of a *comment* (`!source.includes('fail closed to loopback')`). `CLAUDE.md`
-records that this repo has no formatter and formatting is by hand, so any reindent,
-rename or comment edit fails these without a behaviour change.
+### IN-02: A CORS preflight is answered before `guardLocal` runs
 
-**Fix:** where the property genuinely cannot be driven (the `hostNames` no-address
-branch, a `/proc/<pid>/cmdline` read), keep the source assertion but loosen it to the
-one token that is the regression — e.g. `assert.ok(!/if \(!addr\) return new
-Set\(LOOPBACK_NAMES\)/.test(source))` — and drop the comment-text assertions entirely.
+**File:** `server/src/index.ts:168` vs `207-211`
+**Issue:** `cors()` is registered ahead of the credential middleware and short-circuits `OPTIONS`, so `index.ts:207-211`'s claim that the guard runs on "every route ... health included" is not true for preflights. Reproduced: `OPTIONS /api/lessons` with `Host: evil.example` and `Origin: http://evil.example` returns `204` with the allow-methods and allow-headers lists, while the same request as `GET` returns `403`. No `access-control-allow-origin` is set, so a browser still blocks the real request — the leak is only the confirmation that the server exists plus its method/header lists to something that reached the port by a rebind.
+**Fix:** register `cors()` after the guard, or run `guardLocal(c)` inside a small wrapper in front of it, and soften the "every route" sentence to name the preflight exception.
 
-### IN-02: `\bexec\(` will false-positive on any future `RE.exec(` in `mcp.ts`
+### IN-03: `registerSecret` is fed whatever bytes the token file held at read time
 
-**File:** `server/test/security.test.ts:710`
+**File:** `server/src/credentials.ts:107-119`
+**Issue:** `writeFileSync` (both `ensureToken`'s and a learner's rotation) truncates before it writes. A credential check that lands mid-write registers a partial value permanently — `clearSecrets` is tests-only — and it is then scanned against every event, export and vault mirror for the life of the process. The comment at line 115 says growth is "bounded, because a rotation is a rare deliberate act", which torn reads weaken.
+**Fix:** require the shape before registering (`if (/^[0-9a-f]{64}$/.test(token))`), or document `~/.derive/token` rotation as write-temp-then-`rename` in the learner-facing text.
 
-**Issue:** `assert.ok(!/\bexec\(/.test(source), 'the MCP server still spawns a shell to
-open the browser')` matches any `.exec(` call, not just `child_process.exec`.
-`mcp.ts` happens to contain none today, but the sibling module `repo.ts` uses
-`GITHUB_RE.exec(s)`; the first regex match added to `mcp.ts` fails this case with a
-message accusing the author of spawning a shell.
+### IN-04: A non-numeric `?after=` silently drops the whole event backlog
 
-**Fix:** anchor on the import instead: `assert.ok(!/^import \{[^}]*\bexec\b[^}]*\} from
-'node:child_process'/m.test(source))`.
+**File:** `server/src/index.ts:392,396`
+**Issue:** `Number(c.req.query('after') ?? 0)` yields `NaN` for junk, and `ev.seq > NaN` is false for every event, so the SSE stream replays nothing and the lesson renders as empty rather than erroring.
+**Fix:** `const raw = Number(c.req.query('after') ?? 0); const after = Number.isFinite(raw) && raw >= 0 ? raw : 0;`
 
-### IN-03: `server/test/` is outside `tsconfig.include`, so the new shared helper is never typechecked
+### IN-05: `recentCards` is not cleared when a lesson is deleted
 
-**File:** `server/tsconfig.json:13`, `server/package.json` (`typecheck`, `test`)
+**File:** `server/src/index.ts:380-387,795`
+**Issue:** `DELETE /api/lessons/:id` clears `held` but not `recentCards`, so the map keeps up to five card strings per lesson for the life of the process, including lessons that no longer exist.
+**Fix:** add `recentCards.delete(id);` next to `held.delete(id);` at line 384.
 
-**Issue:** `"include": ["src"]` and `typecheck` is `tsc -p tsconfig.json --noEmit`, so
-nothing under `test/` is ever typechecked; `pnpm test` runs it through `tsx`, which is
-transpile-only. That was tolerable for `*.test.ts`, but `spawn.ts` is now shared
-production-ish infrastructure that four suites depend on, with an exported type and a
-public signature, and no compiler ever looks at it.
+### IN-06: `security.test.ts` imports a `src` module without first scoping `DERIVE_DATA_DIR`
 
-**Fix:** add a `server/tsconfig.test.json` extending the base with `"include":
-["src", "test"]` and `"noEmit": true`, and run it as a second step of `typecheck`.
+**File:** `server/test/security.test.ts:34`
+**Issue:** `credentials.test.ts:27-29` and `guards.test.ts:36-37` both point `DERIVE_DATA_DIR` at a scratch directory before a dynamic import, with a comment explaining why. `security.test.ts` statically imports `../src/credentials.js` (and therefore `../src/config.js`) with no such guard, so in that process `TOKEN_PATH` and `DB_PATH` bind to the learner's real `~/.derive`. Nothing is read or written today — but the module is one import-time `readFileSync` away from touching a real install, and `config.ts:16` also runs `readPort(process.env.PORT)` at that import, so a developer with `PORT` set in their shell to a non-port sees the entire security suite fail to load rather than one targeted message.
+**Fix:** set `process.env.DERIVE_DATA_DIR` to a scratch dir at the top of the file and switch to `await import(...)`, matching the two sibling suites, or import only the constant from a module with no config dependency.
 
-### IN-04: `startDeriveServer`'s `opts` object is entirely unused, and one of its branches is dead
+### IN-07: The revocation cases are order-coupled through a shared mutated token file
 
-**File:** `server/test/spawn.ts:29-32`, `:58`, `:65`, `:96`
+**File:** `server/test/security.test.ts:653,675,702`
+**Issue:** Case 2 starts by writing a token back because "the case above left the file absent"; case 3 asserts `live !== own.token`, which only holds because case 2 rotated. Run with `--test-name-pattern` or a `.only`, case 3 asserts on a token the process *did* read at boot and its comment ("this case is meant to run on a token the process did not read at boot") becomes false — or it fails for the wrong reason.
+**Fix:** give case 3 its own rotation in a `before`, or rotate in a group-level `beforeEach` so each case is self-contained.
 
-**Issue:** No caller passes `opts` (all four call sites pass at most `entry, env`), so
-`dataDir`, `deadlineMs` and `attempts` are speculative API. In particular `const owned
-= opts.dataDir === undefined` (`:65`) is always `true`, making the `if (owned)` guard
-at `:96` dead. `SPAWN_ATTEMPTS` and `freePort` are exported but referenced only inside
-this file. The loop counter `attempt` (`:64`) is never read.
+### IN-08: The window-prose test pins a literal rather than deriving it from the constant
 
-**Fix:** drop `opts` and the `owned` branch until a caller needs them, un-export
-`SPAWN_ATTEMPTS`/`freePort`, and write the loop as `for (let i = 0; i < attempts;
-i++)`.
+**File:** `server/test/security.test.ts:740,754`
+**Issue:** The coupling between `TOKEN_CACHE_MS` and the three sentences is `assert.equal(TOKEN_CACHE_MS, 1_000)` plus a hardcoded `/within a second/`. A future change that widens the window to 5 s and updates only the first assertion leaves the regex passing on three now-wrong sentences. The `TOKEN_CACHE_MS` doc at `credentials.ts:46-48` claims "a case asserts they agree", which is stronger than what the case does.
+**Fix:** derive the phrase — `const said = TOKEN_CACHE_MS === 1_000 ? 'within a second' : \`within ${TOKEN_CACHE_MS / 1000} seconds\`;` — and match on that.
 
-### IN-05: A `freePort()` rejection leaks the temp dir it was created after, and aborts the retry loop
+### IN-09: `ensureToken` never checks the mode of a token file that already exists
 
-**File:** `server/test/spawn.ts:66-68`
+**File:** `server/src/credentials.ts:70-87`
+**Issue:** The 0600 mode is only applied on creation. A file restored from a backup, copied between machines, or left behind by an older version at 0644 is used silently; only `pnpm check` (`scripts/doctor.mjs:80-82`) notices, and it is not on the start path. `credentials.ts:32-35` rests the whole "an account that can write the token can replace the credential" acceptance on the file being 0600.
+**Fix:** `statSync(TOKEN_PATH)` after the read and either `chmodSync(TOKEN_PATH, 0o600)` or refuse loudly when `(mode & 0o077) !== 0` on non-Windows, naming `chmod 600` in the message.
 
-**Issue:** `mkdtempSync` runs at `:66`, `await freePort()` at `:68`. If the probe's
-`listen` errors, the promise rejects, the rejection propagates straight out of
-`startDeriveServer` — past the retry loop it was supposed to be retried by, and past
-the `rmSync` at `:96` — leaving a `derive-server-` directory behind and reporting a
-raw `EADDRINUSE`/`EACCES` rather than the helper's own sentence.
+### IN-10: `resetCredentialCache` is an exported production API labelled "Tests only"
 
-**Fix:** allocate the port first, or wrap the body in `try`/`catch` that cleans up and
-continues to the next attempt.
+**File:** `server/src/credentials.ts:152-155`
+**Issue:** Nothing in `server/src` imports it (confirmed by grep); only `credentials.test.ts` does. An exported name that the comment says must not be used is a name that eventually gets used — and calling it from a route would make the revocation window unmeasurable.
+**Fix:** acceptable as-is given the project's no-barrel, named-export convention, but mirror `secrets.ts`'s `clearSecrets` wording exactly and consider naming it `__resetCredentialCacheForTests`.
 
-### IN-06: `redeemTicket` compares by Map lookup where the rest of the credential path uses `timingSafeEqual`
+### IN-11: `sweepOrphanMaterials()` is a module-scope side effect in the middle of route registration
 
-**File:** `server/src/tickets.ts:55`
-
-**Issue:** `tickets.get(value)` is a hash lookup with data-dependent timing, while
-`index.ts:187-190` deliberately uses `timingSafeEqual` for the token and the session
-value. With 256 bits of entropy and a 60-second life the practical risk is nil, and
-the asymmetry is probably correct — but it is undocumented, so it reads as an
-oversight rather than a decision.
-
-**Fix:** one sentence on `redeemTicket` saying why the timing-safe comparison the rest
-of the credential path uses is not needed here (32 random bytes, one use, one minute).
-
-### IN-07: `readPort` silently accepts hex and exponent spellings
-
-**File:** `server/src/config.ts:9-14`
-
-**Issue:** `Number('0x10')` is `16` and `Number('1e3')` is `1000`, both integers in
-range, so `PORT=0x10` starts the server on port 16. Nothing breaks — `String(PORT)` is
-`'16'`, so `guardLocal`'s comparison stays consistent — but the error message promises
-"a whole number between 1 and 65535" and these are not the spellings a learner meant.
-
-**Fix:** `if (!/^\d+$/.test(raw.trim())) throw ...` before the `Number` conversion.
-
-### IN-08: The migration-4 idempotency case does not reach `backfillUsage`
-
-**File:** `server/test/migrations.test.ts:414-422`
-
-**Issue:** `it('writes nothing the second time the runner runs')` calls `migrate(old)`
-twice, but the second call returns at `runMigrations`'s `if (pending.length === 0)
-return from` (`migrations.ts:396`) because `user_version` is already 4 —
-`backfillUsage` is never entered. The case therefore asserts that the version guard
-works, not that the `NOT EXISTS` clause does. (The `NOT EXISTS` clause *is* covered, by
-'leaves a turn that already reported exactly the row it reported' at `:431`.)
-
-**Fix:** call `backfillUsage` directly, or re-run with `MIGRATIONS.filter(m =>
-m.version === 4)` against a database stood on version 3, so the statement itself runs
-twice.
-
-### IN-09: `finishTurn` now has no production caller
-
-**File:** `server/src/db.ts:500-502`
-
-**Issue:** `grep` across `server/src` finds `finishTurn` referenced only inside `db.ts`
-(by `endTurn`) — both former call sites moved to `endTurn`. It survives as a
-deliberately-retained export with a comment explaining why ("a caller that genuinely
-wants only the status write should have to say so"), plus one test use at
-`tx.test.ts:1006`. Noted so the structural pass does not read it as an oversight.
-
-**Fix:** none required; the comment already carries the reason.
-
-### IN-10: `canBuildRepo()` names a `/bin/sh` precondition it never checks
-
-**File:** `server/test/guards.test.ts:45-54`
-
-**Issue:** The docstring and the skip message say "a machine without git, **or one
-where a /bin/sh command means nothing**", but the function only probes `git
---version` and `process.platform !== 'win32'`. On a POSIX machine without `/bin/sh`
-the cases would run and pass vacuously (the command cannot run, so the sentinel is
-absent either way) while claiming to have proven the pin.
-
-**Fix:** `if (!existsSync('/bin/sh')) return false;`, or trim the message to what is
-actually checked.
+**File:** `server/src/index.ts:277`
+**Issue:** It sits between `lessonView` and the first `app.get`, so boot-time work is split across the file (the `closeOpenTurns` sweep is at line 70, `ensureToken` at 85, this at 277). `CLAUDE.md` names deliberate import-time side effects as a real pattern here, but they should be findable in one place.
+**Fix:** move it up next to the `closeOpenTurns` loop under the same "boot cleanup" comment.
 
 ---
 
-_Reviewed: 2026-09-20_
+_Reviewed: 2026-09-20T17:52:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
