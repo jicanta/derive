@@ -255,7 +255,7 @@ describe('the Host check', () => {
     // The point of this case is the polarity above it: hostNames returns an empty set when the connection has no local address to judge, so a runtime that did not expose one would refuse every request here. The whole suite passing is therefore the evidence that the address IS available under @hono/node-server — a red run here would mean the address is missing, not that failing closed is wrong.
     for (const host of [`localhost:${port}`, `127.0.0.1:${port}`]) {
       assert.equal((await raw('/api/lessons', { 'x-derive-token': token, host })).status, 200, `the API refused ${host}`);
-      assert.equal((await raw('/', { 'x-derive-token': token, host })).status, 302, `the document route refused ${host}`);
+      assert.equal((await raw('/', { 'x-derive-token': token, host })).status, 200, `the document route refused ${host}`);
     }
   });
 
@@ -410,6 +410,32 @@ describe('the document routes', () => {
     const line = cookieFrom(res);
     assert.ok(line, 'the handoff handed out no session cookie');
     assert.ok(!line.includes(token), 'the handoff handed out the install token');
+  });
+
+  it('spend the token in the URL even for a browser that already holds a cookie, so it never rests in the address bar', async () => {
+    // The four sentences in .env.example, the README, the doctor and the startup line all say re-opening the printed link signs this browser in for another thirty days. That is what this drives.
+    const cookie = `${SESSION_COOKIE}=${await sessionValue()}`;
+    const res = await fetch(`${base}/?token=${token}`, { headers: { cookie }, redirect: 'manual' });
+    assert.equal(res.status, 302);
+    const location = res.headers.get('location') ?? '';
+    assert.ok(!location.includes('?'), `the token stayed in the URL for a signed-in browser: ${location}`);
+    const line = cookieFrom(res);
+    assert.ok(line, 'the re-open handed out no session cookie, so the thirty days were not renewed');
+    assert.ok(!line.includes(token), 'the re-open handed out the install token');
+  });
+
+  it('let a header client through without a redirect, twice in a row, so it cannot be made to loop', async () => {
+    for (const attempt of [1, 2]) {
+      const res = await fetch(`${base}/`, { headers: { 'x-derive-token': token }, redirect: 'manual' });
+      assert.equal(res.status, 200, `attempt ${attempt} was not served`);
+      assert.equal(res.headers.get('location'), null, `attempt ${attempt} was redirected`);
+      assert.equal(cookieFrom(res), '', `attempt ${attempt} was handed a session cookie`);
+    }
+  });
+
+  it('refuse a token in the URL that does not match, even from a browser holding a valid cookie', async () => {
+    const cookie = `${SESSION_COOKIE}=${await sessionValue()}`;
+    assert.equal((await fetch(`${base}/?token=wrong`, { headers: { cookie }, redirect: 'manual' })).status, 401);
   });
 
   it('cannot be turned into a redirect off this server', async () => {

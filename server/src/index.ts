@@ -1100,12 +1100,8 @@ if (existsSync(distDir)) {
    *
    * One place covers both document routes, serveStatic and the catch-all;
    * /api/* has its own middleware with its own credential step and passes
-   * straight through here. A browser presents the install token once, in the
-   * URL, and is answered with a 302 to the same path with the query string
-   * dropped, so the token does not come to rest in the history; afterwards it
-   * holds only the HttpOnly cookie, which is what the whole API runs on. A
-   * browser cannot read the token file, so the learner opens the app from the
-   * link the startup line prints.
+   * straight through here. A browser cannot read the token file, so the
+   * learner opens the app from the link the startup line prints.
    *
    * Loopback and a widened bind take the identical path, which is why there
    * is no branch left here to get the polarity of wrong: the document routes
@@ -1117,23 +1113,29 @@ if (existsSync(distDir)) {
    * The cookie and the token are both compared against the token file as it
    * is now, read live behind a one-second cache, so deleting or rotating that
    * file refuses every browser here within a second, without restarting
-   * derive. The order is unchanged and is what a reader should be able to
-   * rely on: the cookie, then the install token, then the one-time ticket.
+   * derive. The order is what a reader should be able to rely on: the
+   * `?token=` in the URL, then the cookie, then the x-derive-token header. A
+   * URL credential goes first because it has to be spent and dropped even for
+   * a browser that already holds a cookie; a match is answered with a 302 to
+   * the same path with the query gone, and a `?token=` that does not match is
+   * a 401 rather than something to ignore. The cookie and the header pass
+   * straight through, because there is nothing in either to strip from a URL.
    */
   app.use('/*', async (c, next) => {
     if (c.req.path.startsWith('/api/')) return next();
     const refusal = guardLocal(c);
     if (refusal) return refusal;
 
-    const cookie = offered(getCookie(c, SESSION_COOKIE));
-    if (matchesSession(cookie)) return next();
-
-    const presented = offered(c.req.header('x-derive-token')) || offered(c.req.query('token'));
-    if (matchesToken(presented)) {
+    const query = c.req.query('token');
+    if (query !== undefined) {
+      if (!matchesToken(offered(query))) return c.json({ error: `open this page once as ${c.req.path}?token=<the token in ${TOKEN_PATH}> to let this browser in` }, 401);
       issueSession(c);
       // A caller-supplied path is not a Location: resolving it against a fixed base collapses a protocol-relative "//elsewhere" to a path on this server and percent-encodes a control character that would otherwise split the header.
       return c.redirect(new URL(c.req.path, 'http://127.0.0.1').pathname, 302);
     }
+
+    if (matchesSession(offered(getCookie(c, SESSION_COOKIE)))) return next();
+    if (matchesToken(offered(c.req.header('x-derive-token')))) return next();
 
     return c.json({ error: `open this page once as ${c.req.path}?token=<the token in ${TOKEN_PATH}> to let this browser in` }, 401);
   });
