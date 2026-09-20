@@ -1,12 +1,12 @@
 ---
 phase: 01-foundation
-verified: 2026-09-19T22:15:00Z
+verified: 2026-09-20T12:10:00Z
 status: gaps_found
-score: 3/5 must-haves verified
+score: 4/5 must-haves verified
 covered_files:
   - .env.example
-  - .github/workflows/ci.yml
   - .planning/REQUIREMENTS.md
+  - .planning/ROADMAP.md
   - .planning/phases/01-foundation/01-01-PLAN.md
   - .planning/phases/01-foundation/01-01-SUMMARY.md
   - .planning/phases/01-foundation/01-02-PLAN.md
@@ -37,245 +37,284 @@ covered_files:
   - .planning/phases/01-foundation/01-14-SUMMARY.md
   - .planning/phases/01-foundation/01-15-PLAN.md
   - .planning/phases/01-foundation/01-15-SUMMARY.md
+  - .planning/phases/01-foundation/01-16-PLAN.md
+  - .planning/phases/01-foundation/01-16-SUMMARY.md
+  - .planning/phases/01-foundation/01-17-PLAN.md
+  - .planning/phases/01-foundation/01-17-SUMMARY.md
+  - .planning/phases/01-foundation/01-18-PLAN.md
+  - .planning/phases/01-foundation/01-18-SUMMARY.md
+  - .planning/phases/01-foundation/01-19-PLAN.md
+  - .planning/phases/01-foundation/01-19-SUMMARY.md
   - .planning/phases/01-foundation/01-REVIEW.md
   - README.md
-  - codex/skills/derive-learn/SKILL.md
-  - codex/skills/derive-review/SKILL.md
-  - method/00-identity.md
-  - method/10-philosophy.md
-  - method/20-tools.md
-  - method/30-quiz-options.md
-  - method/40-discipline.md
-  - method/50-checks.md
-  - method/60-process.md
-  - method/70-material.md
-  - method/80-library.md
-  - method/90-preferences.md
-  - method/95-writing-style.md
-  - method/surfaces/app.md
-  - method/surfaces/claude-code.md
-  - method/surfaces/codex-learn.md
-  - method/surfaces/codex-review.md
-  - package.json
-  - plugin/commands/learn.md
-  - plugin/commands/review.md
-  - plugin/hooks/mirror.mjs
-  - plugin/skills/teach/SKILL.md
-  - pnpm-lock.yaml
-  - scripts/check-method.mjs
   - scripts/doctor.mjs
-  - scripts/render-method.mjs
-  - server/package.json
-  - server/src/agent.ts
-  - server/src/codex.ts
   - server/src/config.ts
   - server/src/db.ts
   - server/src/driver.ts
-  - server/src/drivers/fake.ts
-  - server/src/events.ts
-  - server/src/export.ts
   - server/src/index.ts
-  - server/src/library.ts
   - server/src/mcp.ts
-  - server/src/method.generated.ts
   - server/src/migrations.ts
-  - server/src/prompt.ts
   - server/src/repo.ts
-  - server/src/secrets.ts
-  - server/src/tools.ts
+  - server/src/tickets.ts
   - server/test/api.test.ts
-  - server/test/driver.test.ts
   - server/test/guards.test.ts
   - server/test/mcp.test.ts
   - server/test/migrations.test.ts
-  - server/test/secrets.test.ts
   - server/test/security.test.ts
+  - server/test/spawn.ts
   - server/test/tx.test.ts
   - server/test/usage.test.ts
-  - server/test/wire-surface.json
-  - server/test/wire-surface.test.ts
-  - web/src/lib/api.ts
-  - web/src/lib/useLesson.ts
-  - web/vite.config.ts
-covered_digest: "v1:sha256:530db952a6deb12030d8eb2c0cafed52627a4c6bb1b893459bed7deb5e232678"
+covered_digest: "v1:sha256:60a55f075a6269988e1094aef2656f49b129b0856f252ce288d2b7623b39dfde"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
   previous_score: 3/5
   gaps_closed:
-    - "The repo importer followed symlinks out of the tree — reproduced closed: a folder holding README.md plus notes.md -> DATA_DIR/token, sub/hosts.md -> /etc/passwd and linkeddir -> an outside folder imported as text \"README.md\\n# A normal readme\" and nothing else; GET /api/materials/:id?text=1 returned 0 occurrences of the install token and 0 of /etc/passwd's root line."
-    - "The document route handed an API credential to a caller that presented nothing — reproduced closed: GET / with no headers on 127.0.0.1 is 401 with no Set-Cookie; GET /?token=<install token> is 302 with Location `/` (query dropped) and Set-Cookie derive_session=<HMAC, != token>; that cookie then drives GET /api/lessons to 200."
-    - "server/src/index.ts:1075-1077 no longer claims the document routes are held to the API's standard; index.ts:102 now states the startup-line exception explicitly instead of claiming the token is never written out."
-    - "The boot sweep left swept turns without a usage row — reproduced closed: an open turn, SIGKILL of the server, restart; the turn came back `interrupted` with exactly one usage row, and turns(2) == usage(2)."
-    - "deleteLearner left turns and usage rows behind (WR-01) — reproduced closed: a learner with one lesson, one turn and one usage row leaves 0/0/0 after deleteLearner."
-  gaps_remaining:
-    - "Success Criterion 5 — a repo import still executes a command the imported repository carries, and the install token still comes back out of GET /api/materials/:id?text=1. The symlink path the prior pass found is genuinely closed; the same observable is reached by a different mechanism I reproduced end to end against the built server."
-    - "Success Criterion 5 (usage half) — on any database upgraded from a pre-phase install, the turns the migration backfills carry no usage row, so db.ts:640's 'Every turn gets a usage row, whichever driver ran it' is false on every existing learner's file."
-  regressions: []
+    - "Success Criterion 5 — a repo import executed a command the repository carried through `core.fsmonitor`. Reproduced closed against the built server: a local git repo whose own `.git/config` sets `core.fsmonitor` to a shell script, posted to `POST /api/materials/repo`, imported normally (201, README.md, 1 page) and left the sentinel unwritten, `STOLEN.txt` absent, and `GET /api/materials/:id?text=1` carrying 0 occurrences of the 64-hex install token. The pin is load-bearing: the identical `git ls-files` invocation without `-c core.fsmonitor=false` writes the sentinel (YES), with it does not (no)."
+    - "Success Criterion 5 (usage half) — the ledger invariant was false on every upgraded install. Reproduced closed: a database written by `server/src/db.ts` at b8f255c (one lesson, three events, `user_version` 0) opened on HEAD lands at `user_version` 4 with `turns: 1, usage: 1`, the one row all-null with `cost_source 'unknown'`, and `derive.db.bak-v0` written beside it. `server/src/db.ts:658-673` now states the boundary, including the migration-4 case, instead of asserting an invariant the upgrade path broke."
+    - "The install token on a process command line — `server/src/mcp.ts` now mints a one-use sixty-second ticket (`POST /api/handoff`) and spawns the opener with `execFile`, no shell, no token in the URL. Driven: handoff is 401 without a credential and 200 with it, the body carries no token, the first `GET /?ticket=` is 302 to `/` with the query dropped and a `Set-Cookie`, the second is 401, and an unminted ticket is 401."
+    - "`hostNames` fails closed — `server/src/index.ts:166` is `if (!addr) return new Set<string>();` and the surrounding doc states the consequence plainly."
+    - "The suite needed a second run — four consecutive `pnpm test` invocations on this tree each exited 0 with `# pass 196 / # fail 0 / # cancelled 0`. `server/test/spawn.ts` gives each spawned server an OS-confirmed-free port."
+  gaps_remaining: []
+  regressions:
+    - "New this round: the browser credential's advertised revocation mechanism does not work on a running server (01-REVIEW.md CR-01), reproduced end to end. See gaps below."
+    - "New this round: `server/src/repo.ts:123`'s security rationale asserts clone-argv pins that the clone argv at :303 does not carry (01-REVIEW.md WR-03)."
 gaps:
-  - truth: "The server answers only on 127.0.0.1 with a per-install token, rejects foreign Host and Origin, and no secret appears in any error, log, event, export or vault-mirror path"
+  - truth: "The browser session is revocable without a code change: deleting or rotating the install token file invalidates every cookie ever issued — stated in four learner-facing places as the justification for a thirty-day persistent credential"
+    status: failed
+    reason: >-
+      Reproduced end to end against the built server on a scratch data
+      directory and an OS-allocated port. A browser signed in with
+      `GET /?token=<t>` and held `derive_session=<hmac>; Max-Age=2592000`.
+      `~/.derive/token` was then deleted — the exact action the product
+      instructs the learner to take — and the server was left running.
+      `GET /api/lessons` with that cookie: 200. `GET /api/lessons` with the
+      old `x-derive-token` header: 200. `GET /` with that cookie: 200.
+      Nothing was revoked.
+
+      The mechanism is plain in the source and matches the reproduction:
+      `TOKEN = ensureToken()` reads `TOKEN_PATH` exactly once at module
+      evaluation (`server/src/index.ts:94`, called at :103), `SESSION` is
+      derived from it once at :107, and `TOKEN_BUF`/`SESSION_BUF` are frozen
+      module state. `grep -n TOKEN_PATH server/src/index.ts` shows the path
+      afterwards only inside error strings — nothing ever re-reads the file.
+      Deleting or rotating it changes nothing until the process restarts, and
+      because `ensureToken()` then mints a *different* token, the learner gets
+      no signal that the revocation they performed was a no-op.
+
+      This is not a stale comment. It is a security control the product tells
+      the learner to rely on, in four places, as the stated reason a thirty-day
+      persistent cookie is defensible: `.env.example:38`, `server/src/index.ts:1191`
+      (the `DERIVE_HOST` widened-bind warning, i.e. precisely the plaintext-LAN
+      scenario where a leaked cookie matters), `server/src/index.ts:1113` (the
+      `issueSession` rationale), and the thirty-day story `README.md:63` /
+      `scripts/doctor.mjs:118` build on it.
+
+      It falsifies plan 01-19's must-have truth — "The session cookie is
+      revocable without a code change: its value is derived from the install
+      token, so rotating or deleting the token file invalidates every cookie
+      ever issued. That is stated where a learner can find it." Only the second
+      sentence is true. It also violates the standing prohibition carried
+      verbatim by all four plans this round ("Never state an invariant the code
+      does not hold — fix the code or qualify the sentence, never neither").
+      01-19's own HC-1 sequence knows the difference: its step 5 says "Delete
+      `~/.derive/token`, **restart the server**, and reload" — the restart the
+      four shipped sentences omit.
+    artifacts:
+      - path: "server/src/index.ts"
+        issue: >-
+          Lines 83-117: `TOKEN`/`SESSION`/`TOKEN_BUF`/`SESSION_BUF` are
+          boot-time snapshots; the `/api/*` middleware (:260) and the document
+          middleware (:1155, :1158) compare against those snapshots, never
+          against the file. Line 1113's `issueSession` comment and line 1191's
+          widened-bind warning both state revocation that cannot happen while
+          the process lives. Line 1118 is where the thirty-day `maxAge` that
+          rests on it is set.
+      - path: ".env.example"
+        issue: 'Line 38: "deleting the token file signs every browser out" — false on a running server.'
+      - path: "README.md"
+        issue: 'Line 63: the thirty-day sign-in story is told with no mention that a restart is required to end it.'
+      - path: "scripts/doctor.mjs"
+        issue: 'Line 118: the closing line repeats the thirty-day story built on the same unavailable revocation.'
+      - path: "server/test/security.test.ts"
+        issue: >-
+          Line 584, `it('is revoked by rotating the install token, which is why
+          a thirty-day life is defensible')`, passes without driving revocation:
+          it starts a *second* server with its own data directory and asserts
+          the first refuses the second's cookie. That is install isolation, not
+          revocation. No case deletes or rotates the token file of a running
+          server, which is why a control that does not work shipped green.
+    missing:
+      - "Pick one and do it. (a) Make revocation real: read the token file behind a short cache (about one second) and have both credential middlewares compare against that live value rather than the boot snapshot, calling `registerSecret` on each new value so the redaction chokepoint keeps covering the live token. (b) Or correct all four learner-facing sentences plus the `issueSession` comment to say what is actually required — 'delete the token file **and restart derive** to sign every browser out'. Doing neither is what the standing prohibition forbids."
+      - "Whichever branch is taken, make `server/test/security.test.ts:584` drive it: delete or rewrite the token file of the running fixture server and assert the outcome the sentences promise. A case named for revocation that never revokes is the shape that let this ship."
+      - "This is a judgment call about a security posture, not a mechanical fix. Record the decision (real revocation vs corrected wording) before building, the way 01-18 recorded its ledger-shape branch."
+  - truth: "`server/src/repo.ts`'s security rationale describes mitigations that exist"
     status: partial
     reason: >-
-      The front door is genuinely closed and I reproduced every clause of it:
-      loopback-only bind, 401 with no credential, the one-time ?token= handoff,
-      foreign Host and Origin refused 403 on both the API and the document
-      routes, no token in the served markup, and the redaction chokepoint live
-      on the export path. What fails is the confinement of the repo importer.
-      `gitListFiles` (server/src/repo.ts:112-120) runs git with a bare argv
-      while the sibling clone path was pinned, and `git ls-files --others`
-      spawns whatever `core.fsmonitor` the imported repository's own
-      `.git/config` names. I chained it against the built server on a scratch
-      data dir and port: POST /api/materials/repo on an ordinary local git repo
-      whose config set core.fsmonitor to a shell command copied the 0600
-      install token into the repo tree, and the same import then read it back —
-      GET /api/materials/:id?text=1 returned the 64-hex token verbatim, one
-      occurrence. Material text does not pass the `emit` redaction chokepoint
-      (D-11, deliberate), so this is also how the token reaches the tutor model.
-      Plan 01-13's own truth — "A repo import reads no byte outside the tree it
-      was given" — is false as written. The second item below is separate: the
-      usage ledger's stated invariant does not survive the migration that
-      creates it.
+      The `gitListFiles` comment added this round (`server/src/repo.ts:123`)
+      names six knobs it deliberately does not pin on the listing argv —
+      `core.sshCommand`, `credential.helper`, `filter.*.clean`, `diff.external`,
+      `uploadpack.packObjectsHook`, `protocol.*` — and ends "they are already
+      pinned where they are reachable, on the clone argv below." The clone argv
+      at `server/src/repo.ts:303` carries only
+      `-c http.followRedirects=false -c protocol.allow=never -c
+      protocol.https.allow=always`. Of the six, only `protocol.*` is pinned;
+      the other five are pinned nowhere in the file. The clone path also does
+      not set `GIT_CONFIG_NOSYSTEM=1`, which the listing path now does.
+
+      No exploit follows from it today — a hostile remote cannot write the
+      fresh clone's config and credential helpers are host-scoped — so this is
+      a warning, not the blocker. It is recorded because it is the same
+      standing prohibition as the gap above, in a load-bearing security comment,
+      in the file whose whole module docstring is about confinement, and
+      `CLAUDE.md` says comments here exist "so a future change does not undo it
+      by accident". This one guarantees the opposite.
     artifacts:
       - path: "server/src/repo.ts"
-        issue: >-
-          Lines 112-120: execFileSync('git', ['-C', dir, 'ls-files', '-z',
-          '--cached', '--others', '--exclude-standard']) with no `-c
-          core.fsmonitor=false`, no `-c core.hooksPath=/dev/null`, no
-          GIT_CONFIG_NOSYSTEM, no GIT_TERMINAL_PROMPT=0 and no timeout — while
-          the clone path 20 lines below carries `-c http.followRedirects=false
-          -c protocol.allow=never -c protocol.https.allow=always` and
-          GIT_TERMINAL_PROMPT=0 for exactly the same reason. Reproduced twice:
-          directly (git 2.43.0, `git -C repo ls-files -z --cached --others
-          --exclude-standard` on a repo with core.fsmonitor set wrote the
-          sentinel and the stolen file, then listed STOLEN.txt among its output)
-          and through the server (POST /api/materials/repo → sentinel written,
-          token copied, token returned by GET /api/materials/:id?text=1). The
-          process is spawned before a single lstat/realpath check in
-          fromDirectory runs, so none of 01-13's confinement work is reached.
-          Reachable from the tutor model through `attach_material` with a folder
-          path — the entry point guards.test.ts:4-7 names in its own threat
-          model — and from the ordinary learner chain: clone a hostile repo,
-          ask Derive to study it.
-      - path: "server/src/migrations.ts"
-        issue: >-
-          Migration 2 backfills one `turns` row per turn_start in the event log
-          (line 244 backfillTurns); migration 3 creates the `usage` table and
-          backfills nothing. The boot sweep only closes `status = 'running'`, so
-          a backfilled turn that the log shows as finished never gets a row.
-          Reproduced with real pre-phase code: a database built by
-          `server/src/db.ts` at b8f255c (one lesson, two nodes, three events),
-          opened with HEAD, migrated 0 → 3, kept every row and wrote
-          derive.db.bak-v0 — and left `turns: 1, usage: 0`, the one turn status
-          'ok' with usage_rows 0. That makes db.ts:640 ("Every turn gets a usage
-          row, whichever driver ran it ... turn counts reconcile across every
-          view") false on every upgraded install, which is the majority case.
-          The honest row is the one closeUsage already writes for terminal
-          turns: nulls with cost_source 'unknown'.
-      - path: "server/test/guards.test.ts"
-        issue: >-
-          The suite's module doc puts a hostile repo handed over by the tutor
-          model inside the threat model, and cases cover leaf symlinks,
-          symlinked intermediate directories, ancestor loops and the clone
-          flags — but nothing covers a repository whose own `.git/config`
-          names a command. The suite is green over the confinement guarantee
-          01-13 states, while the reproduction above walks past it. This is the
-          shape 01-13's and 01-14's standing prohibition names.
+        issue: 'Line 123 asserts five pins that line 303 does not carry.'
     missing:
-      - "Pin the ls-files argv the way the clone argv is pinned, and neutralise the config that can spawn a process: `git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C <dir> ls-files ...` with `env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' }` and a timeout. Anything short of neutralising the spawning config leaves the same class open (core.pager, core.sshCommand, and the alias/hook surface git reads from a repo)."
-      - "Add a guards.test.ts case beside the symlink ones: a scratch repo with core.fsmonitor set to a command that writes a sentinel, imported with fromDirectory, and the sentinel asserted absent. It drives offline exactly as cheaply as the symlink cases do."
-      - "Correct the reach of 01-13's claim, or make it true: `fromDirectory` refuses to read outside the tree, but the import as a whole currently runs code the tree carries, so the sentence in repo.ts and in guards.test.ts's doc has to say which of the two it means."
-      - "Give backfilled turns the same honest blank the sweep gives swept ones — a fourth migration that writes one nulls/'unknown' usage row per turn with no row — or narrow db.ts:640 to say the invariant holds from the ledger's first version forward and that pre-ledger turns are unreported. One or the other; not neither."
-      - "Wrap the sibling `finishTurn` + `closeUsage` pairs at server/src/index.ts:1000-1002 and server/src/driver.ts:113-115 in withTx the way closeOpenTurns already does, or fold the pair into one exported endTurn(turnId, status) in db.ts, so a crash between the two statements cannot leave a turn that no sweep can ever reach."
+      - "Either add the pins to the clone argv (`-c core.sshCommand=false -c credential.helper= -c core.pager=cat -c core.fsmonitor=false -c core.hooksPath=/dev/null` plus `GIT_CONFIG_NOSYSTEM: '1'` in its env), which costs nothing and makes the sentence true, or rewrite the sentence to say the knobs are unreachable on both paths and pinned on neither."
 deferred: []
 advisory:
-  - finding: "server/src/mcp.ts:191-206 and 244 — openBrowser(withToken(l.url)) hands the long-lived install token to exec(), which spawns /bin/sh -c and then the browser, so the credential lands in two process command lines for as long as the browser runs."
-    category: security
-    reason: >-
-      New scope this round (withToken was added by 01-14, and mcp.ts is
-      git-modified in cc1f818..HEAD), and the mechanism is plain in the source,
-      but I could not reproduce it here — /proc/<pid>/cmdline for a spawned
-      child is not readable from this sandbox. It is also outside Success
-      Criterion 5's own enumeration (error, log, event, export, vault-mirror),
-      so it is raised rather than counted. Resolved by minting a single-use,
-      short-TTL handoff ticket the document middleware accepts once in place of
-      ?token=, which is safe to put in a URL and in the `url` field the model
-      reports; switching to execFile does not resolve it on its own.
-    evidence_status: "mechanism read from source and confirmed by the code path; live /proc reproduction blocked by the sandbox"
-  - finding: "server/src/index.ts:1126 — the startup line prints http://localhost:<port>/?token=<install token> to stdout on every start."
-    category: security
-    reason: >-
-      Reproduced: the captured stdout of the scratch server contains the 64-hex
-      token (grep -c = 1), in a file with ordinary permissions, while the token
-      file itself is 0600. Unlike the prior round this is now a stated decision
-      rather than a silent one — index.ts:102 names the startup line as the one
-      place the token is written out, and the comment at 1125 gives the reason
-      (a browser cannot read a 0600 file). Raised because under systemd/journald,
-      pm2 or `nohup … > out.log` it is a durable copy, and because the /api/*
-      comment at 230-234 removes a credential from a URL for exactly the reason
-      that applies here. Resolved by the same one-time ticket as the finding
-      above, which is safe to print because it expires.
-    evidence_status: "reproduced — token present in the captured server stdout log"
-  - finding: "server/src/index.ts:150-152 — hostNames returns the loopback name set when the connection's local address is unavailable, and its comment calls that 'fail closed to loopback'."
-    category: security
-    reason: >-
-      The returned set admits localhost / 127.0.0.1 / ::1 / [::1], which is the
-      forged loopback Host the check exists to refuse on a widened bind; failing
-      closed would be an empty set. Plan 01-14's own truth #2 asserts 'where an
-      address is consulted at all it fails closed, matching hostNames' own
-      choice at server/src/index.ts:152' — the choice at 152 is the permissive
-      one, so the plan's sentence and the code disagree. Impact is bounded: the
-      credential check stands behind it and the default bind is 127.0.0.1, and I
-      could not force localAddress to be undefined. Resolved by returning an
-      empty set and correcting the comment.
-    evidence_status: "code read; not reproduced — localAddress could not be made undefined from outside the process"
-  - finding: "server/src/mcp.ts:253 — start_lesson still returns a tokenless `url`, so with open_browser:false or DRIVER='app' the model reports a link that 401s."
+  - finding: "`server/src/driver.ts:108-117` and `server/src/index.ts:1033` — `endTurn`'s new transaction is not exception-safe, and the sink raises its idempotency guard before the write."
     category: other
     reason: >-
-      withToken was wired to the browser-open call only. The 401 body does say
-      what to do, but it asks a learner mid-lesson to read a 0600 file out of
-      their data directory, which is a live cost against the one-screen-one-next-
-      step rule. The default plugin path is unaffected (openBrowser fires and
-      the page opens authenticated), so this rides with the human parity check
-      rather than blocking. Resolved by the ticket in the first advisory.
+      01-REVIEW.md WR-01, confirmed by reading the source: `ended = true` is set
+      at driver.ts:110 before `endTurnRow(turnId, ...)` at :116, and
+      `emit(lessonId, 'turn_end', payload)` is on the line after it. If the
+      ledger write throws (SQLITE_BUSY, disk full) both halves roll back, the
+      guard is already up so `agent.ts`'s catch/finally retries return
+      immediately, the turn row stays `'running'` and `busy()` reports the
+      lesson busy for the rest of the process's life with no `turn_end` on the
+      SSE stream. The boot sweep repairs it, but only on the next restart. The
+      index.ts:1033 call is unguarded in the same way, so a throw becomes a 500
+      and skips the `emit` on the next line. 01-18's own must-have truth — the
+      pair lands in one transaction — does hold; this is a liveness regression
+      beside it, not a falsification of it. Raised rather than counted because I
+      could not force a write failure here.
+    evidence_status: "mechanism read from source and confirmed line by line; the failing write could not be induced in this sandbox"
+  - finding: "`server/src/config.ts:9-16` validates `PORT` in the module body, and `server/src/mcp.ts:40` imports from that module, so an invalid `PORT` kills the stdio MCP server that never reads it."
+    category: other
+    reason: >-
+      01-REVIEW.md WR-09, reproduced: `PORT=abc node server/dist/mcp.js` dies
+      with `Error: the PORT setting must be a whole number between 1 and 65535
+      (got abc)` before the transport is up. The MCP server addresses Derive by
+      `DERIVE_URL` and has no use for `PORT` at all, so a learner with a typo'd
+      `PORT` in their shell or `.env` gets the Claude Code plugin and the Codex
+      skills failing to start for a reason that has nothing to do with them —
+      on the very paths Success Criterion 1 is about. Raised rather than counted
+      because it requires an already-invalid setting and the server itself
+      refuses the same value. Resolved by making `PORT` a validated getter, or
+      by an `assertPort()` that only `index.ts` calls before `serve()`.
+    evidence_status: "reproduced — the built stdio MCP server exits at startup on PORT=abc"
+  - finding: "`server/src/index.ts:1182` still prints `http://localhost:<port>/?token=<install token>` to stdout on every start."
+    category: security
+    reason: >-
+      Reproduced again this round: the captured stdout of a scratch server
+      contains the 64-hex token exactly once, in a stream with ordinary
+      permissions, while the token file is 0600. A log is inside Success
+      Criterion 5's own enumeration, so this is on the edge of counting;
+      it is carried as advisory because it is a stated decision
+      (`server/src/index.ts:102` names the startup line as the one place the
+      token is written out, with the reason) and because the previous round
+      classified it the same way. What changed is that the one-time ticket the
+      advisory proposed now exists (`server/src/tickets.ts`) and was wired to
+      the MCP browser open but not to the startup line — a sixty-second ticket
+      cannot serve a link meant to be usable whenever the learner returns, so
+      resolving it needs a decision, not a substitution.
+    evidence_status: "reproduced — 1 occurrence of the install token in the captured server stdout"
+  - finding: "`server/src/mcp.ts:253` — `start_lesson` still returns a tokenless, ticketless `url`, so with `open_browser: false` or `DRIVER='app'` the model reports a link that 401s (WR-02, explicitly not absorbed by this round)."
+    category: other
+    reason: >-
+      Confirmed by reading: `withTicket` is applied only inside the
+      `open_browser !== false && DRIVER !== 'app'` branch; the returned object
+      carries `url: l.url`. The default plugin path is unaffected, so this
+      rides with the human parity run (HC-2) rather than blocking. It stays a
+      live cost against the one-screen-one-next-step rule: the 401 body asks a
+      learner mid-lesson to read a 0600 file out of their data directory.
     evidence_status: "code read; the default path is covered by mcp.test.ts, the non-default ones by nothing"
-  - finding: "The cookie issueSession sets carries no Max-Age and no Expires, so it dies with the browser session, while the startup line, README.md, .env.example and scripts/doctor.mjs all say 'once per browser'."
+  - finding: "`server/src/index.ts:106-113` — the session cookie's value is one constant for the whole install, so its `Max-Age` bounds only the honest browser (WR-02 in the review)."
+    category: security
+    reason: >-
+      Confirmed by reading and by the reproduction above: every cookie ever
+      issued by an install carries the identical `HMAC(TOKEN, 'derive browser
+      session v1')`, with no per-browser identity, no issue time and no nonce.
+      A `Max-Age` is a client-side hint and places no bound on a captured value;
+      moving from a memory-only cookie to `Max-Age=2592000` also moves the value
+      into the browser profile's on-disk store. Bundled here rather than in the
+      blocker because the blocker is the false revocation claim; this is the
+      comment at :112 presenting a convenience bound as a security bound.
+    evidence_status: "code read; the constant value was observed directly in the Set-Cookie header of the reproduction"
+  - finding: "`server/test/guards.test.ts:129-154` — two of the three 'hostile repository' cases pass without exercising the pin they are named for (WR-08); `server/test/guards.test.ts:94-211` leaks about a dozen temp directories per run, one full of 0755 /bin/sh scripts (WR-07); `server/test/spawn.ts:68-73` lets a caller's `env.PORT` desynchronise the child from the port the helper polls (WR-05)."
     category: other
     reason: >-
-      Reproduced: Set-Cookie: derive_session=…; Path=/; HttpOnly; SameSite=Strict
-      and nothing else. The code comment states the session-cookie choice
-      deliberately; four learner-facing strings then overstate it. Because the
-      handoff link is only printed at server start, a learner who closes their
-      browser on a long-running server has no printed link to return to.
-      Resolved by picking one — a maxAge, or 'once per browser session' in all
-      four strings plus a way to reprint the link.
-    evidence_status: "reproduced — the Set-Cookie header carries no expiry attribute"
-  - finding: "`pnpm test` exited 1 with 6 cancelled subtests on its first invocation and 0 with 159/159 on an identical second one."
-    category: other
-    reason: >-
-      Consistent with 01-REVIEW.md IN-05: security.test.ts:93/258 and
-      api.test.ts:53 pick a random port with no retry, and node:test runs files
-      concurrently, so a clash burns the 20-second start deadline and reads as a
-      product failure. Raised because a suite that fails one run in N is a CI
-      gate nobody trusts. Resolved by spawning with PORT=0 and reading the port
-      off the child's first stdout line.
-    evidence_status: "reproduced once — first run exit 1 / 6 cancelled, second run exit 0 / 159 passed"
+      Test-hygiene findings from 01-REVIEW.md, all in files this round modified.
+      Independently confirmed for WR-08 by the same experiment that proved the
+      `core.fsmonitor` pin load-bearing: `git ls-files` runs no hooks and pages
+      nothing into a pipe, so the `core.hooksPath` and `core.pager` cases assert
+      the absence of a command that was never going to run. They are
+      defence-in-depth pins with no regression test, held in place only by the
+      brittle source-text assertion at :156-165. Grouped as advisory because
+      none of them falsifies a phase must-have.
+    evidence_status: "WR-08 confirmed by direct experiment; WR-05 and WR-07 read from source"
+behavior_unverified_items: []
+coincidental_reliance_items: []
 human_verification:
-  - test: "Run one real lesson through the Claude Code plugin (/derive:learn, then /derive:review) and one through the Codex derive-learn skill, per WINDOWS.md #5 (HC-2). Run it after the Criterion 5 gap closes, since step 1 opens the browser companion page."
-    expected: "Both complete exactly as before the phase: the plan lands, a quiz is asked and graded, nodes lock, the review session runs. The Codex skill teaches rather than only quizzing."
-    why_human: "Requires a model and a provider login. mcp.test.ts drives the identical stdio wire with no model and is green, but it cannot exercise a model's own tool-selection, the transcript hook, or the Codex rollout mirror."
-  - test: "Open the printed http://localhost:4310/?token=… link in a real browser, start a lesson, answer a card, and watch the graph update (WINDOWS.md #4, HC-1). Then close the browser entirely, reopen it and go to http://localhost:4310/ with no query string."
-    expected: "The page loads after the 302, the SSE stream connects, cards render and answers land — all on the derive_session cookie, with no x-derive-token header sent by the page. After the browser restart the page is expected to 401, because the cookie has no expiry; confirm the learner has a usable way back in."
-    why_human: "No automated test drives a real browser. curl proves the cookie authenticates /api/lessons and that the handoff 302 sets it; nothing proves the page's own fetch and EventSource carry it, and no case covers the lesson stream on the cookie at all (01-REVIEW.md WR-09)."
+  - test: >-
+      HC-2 — the plugin and Codex parity run (Success Criterion 1's human half,
+      FOUND-04). On a machine with a Claude Code login: `pnpm build && pnpm start`,
+      then in a second terminal run `/derive:learn` through the plugin and take one
+      lesson from the probe through a plan, one taught node, one graded quiz and
+      `end_lesson`. Repeat on a ChatGPT login with the `derive-learn` Codex skill.
+    expected: >-
+      Both complete exactly as before the phase: the graph renders, cards are
+      answered from the terminal and mirrored into the browser, the understanding
+      gate refuses a lock without an intuition or transfer pass, and `end_lesson`
+      closes cleanly. No tool is missing, renamed or reshaped.
+    why_human: >-
+      Needs a real model, a provider login and a person on two terminals. The
+      machine half is already evidence — `server/test/wire-surface.json` is
+      byte-identical since 01-02 (`git diff --quiet 239d5f1..HEAD` exits 0) and
+      the modelless stdio smoke test walks start_lesson → set_plan → answer →
+      node_status → quiz → answer → end_lesson green — but no automated case runs
+      a model. `.planning/WINDOWS.md` entry 5.
+  - test: >-
+      HC-1 — real-browser session smoke. `pnpm build && pnpm start`; open the
+      printed `http://localhost:4310/?token=…` link in a real browser; start a
+      lesson and answer one card; close the browser entirely, reopen it and go to
+      `http://localhost:4310/` with no query string; then delete `~/.derive/token`,
+      restart the server, and reload with no query string.
+    expected: >-
+      302 to `/` with the query gone; the lesson stream connects and cards render
+      on the `derive_session` cookie with no `x-derive-token` header sent by the
+      page; the reopened browser loads without a query string; and after the token
+      file is deleted **and the server restarted** the reload is 401. Note that
+      without the restart it is 200 — that is the blocker above, and this check
+      should be re-run once it is resolved.
+    why_human: >-
+      No automated test drives a real browser. curl proves the cookie
+      authenticates `/api/lessons` and that the handoff 302 sets it; nothing
+      proves the page's own `fetch` and `EventSource` carry it, and no case covers
+      the lesson SSE stream on the cookie at all. `.planning/WINDOWS.md` entry 4.
+  - test: >-
+      An ordinary public URL fetched through `fetchPublic` (`server/src/library.ts`)
+      — add a link to the library from a machine with DNS and outbound network.
+    expected: >-
+      The page is fetched, its text extracted and stored as a resource, with the
+      SSRF guard admitting the public host rather than refusing it.
+    why_human: >-
+      The execution environment has no DNS or outbound network, so only the
+      refusal side of `assertPublicHost` is driven by the suite. Carried from
+      `.planning/WINDOWS.md` entry 3.
 ---
 
 # Phase 1: Foundation Verification Report
 
 **Phase Goal:** The tutor's 14 tools and its method text exist once and feed every surface; every driver sits behind one interface and one event sink; every turn's raw usage is recorded; the database migrates transactionally; the local server is hardened before it ever holds a key — and the Claude Code plugin and Codex paths are proven unchanged throughout.
-
-**Verified:** 2026-09-19T22:15:00Z
+**Verified:** 2026-09-20T12:10:00Z
 **Status:** gaps_found
-**Re-verification:** Yes — third round, after gap plans 01-13, 01-14 and 01-15. Every verdict below was re-established against the current tree; none was carried forward from the stale report.
+**Re-verification:** Yes — fourth pass, after gap-closure plans 01-16 … 01-19
 
 ## Goal Achievement
 
@@ -283,149 +322,137 @@ human_verification:
 
 | # | Truth (ROADMAP Success Criterion) | Status | Evidence |
 |---|---|---|---|
-| 1 | A lesson through the Claude Code plugin and one through the Codex skills both complete exactly as before; the wire-surface snapshot is unchanged and a stdio MCP smoke test (`tools/list`, `start_lesson`, `quiz`, `answer`, `end_lesson`) passes with no model | ? UNCERTAIN (machine half verified, human half outstanding) | `mcp.test.ts` drives `server/dist/mcp.js` over real stdio JSON-RPC: `tools/list` returns 22 tools in registry declaration order and its sorted name set equals the pre-phase binary's (`MCP_TOOLS_BEFORE`, from `git show b8f255ce`); then `start_lesson` → `set_plan` → `answer` → `set_phase` → `node_status` → mirrored prose → `quiz` → `answer` (server-graded `correct`, with an `instruction`) → `end_lesson`, no model anywhere. `wire-surface.test.ts` holds the 14 tutor tools, their order and their status labels against the pre-phase source, and `git diff --quiet 239d5f1..HEAD -- server/test/wire-surface.json` exits 0. The human half — a real lesson on each of the two terminals — needs a model and a login; no automated path exists. |
-| 2 | Editing a tool's schema or a sentence of the method in its single source updates the app system prompt, the plugin skill, the Codex skills, the `allowed-tools` lists and the HTTP action validation together; CI fails when any rendered copy drifts from the source | ✓ VERIFIED | Proven by two mutations, both reverted. (a) Appended one sentence to `method/10-philosophy.md`: `node scripts/check-method.mjs` exited 1 naming `server/src/method.generated.ts`, `plugin/skills/teach/SKILL.md` and both Codex `SKILL.md`s as drifted. (b) Added one tool to `server/src/tools.ts`: `wire-surface.test.ts` failed on the agent, mcp and http projections; after regenerating the fixture, `check-method` exited 1 again and, once its count guard was bumped, rendered `mcp__plugin_derive_derive__verifier_probe` into both `plugin/commands/*.md` `allowed-tools` lines; and `toolsFor('http')` — the source of `ACTION_SCHEMAS` at `index.ts:845` — carried the new tool. `.github/workflows/ci.yml` runs `pnpm method:check` before typecheck, build and test. |
-| 3 | A new driver is added by implementing one `Driver.runTurn(ctx, sink)` and reporting through the sink, with no change to the web UI, the SSE stream or the terminal mirrors (proven by a fake driver in tests) | ✓ VERIFIED | `server/src/driver.ts` declares `Driver = { name, runTurn(ctx, sink) }` and an `EventSink` no wider than `events.ts` plus `setSessionId`, `usage` and an idempotent `endTurn`. Three implementations satisfy it — `claudeDriver` (agent.ts:153), `codexDriver` (codex.ts:36), `fakeDriver` (drivers/fake.ts:44) — and dispatch is one line, `agent.ts:274`. `driver.test.ts` runs a whole scripted turn on the fake driver and asserts every stored and live event type is in a copy of `EVENT_TYPES` taken verbatim from `web/src/lib/useLesson.ts:236`; I diffed the two lists and they are identical. Suite green. |
-| 4 | An existing `~/.derive` database opens on the new version and migrates forward under a numbered, transactional runner; an interrupted `replaceGraph` or `deleteLesson` leaves no partial state | ✓ VERIFIED | Reproduced with the real pre-phase code, not a fixture: a git worktree at `b8f255c` ran its own `server/src/db.ts` against a scratch data dir to create a lesson, a two-node graph, three events and a locked node (`user_version` 0, no `turns`/`usage` tables). Opening that same file with HEAD's `db.ts` migrated it to `user_version` 3, added `turns` and `usage`, backfilled 1 turn from the event log, wrote `derive.db.bak-v0`, and returned every row unchanged (`limits:locked, deriv:pending`). Transactionality reproduced directly: a `replaceGraph` that throws on its second node left the original graph `a,b` intact; `deleteLesson` left 0 lessons / 0 nodes / 0 events; `deleteLearner` left 0 turns / 0 usage / 0 lessons for that learner. |
-| 5 | The server answers only on 127.0.0.1 with a per-install token, rejects foreign Host and Origin, and no secret appears in any error, log, event, export or vault-mirror path; every turn stores raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source | ✗ FAILED | The front door reproduces clean (table below). What fails: `POST /api/materials/repo` on a local git repo whose own `.git/config` sets `core.fsmonitor` executes that command as the server process — `git ls-files --others` spawns it — which copied the 0600 install token into the repo tree, and the same import then returned it verbatim from `GET /api/materials/:id?text=1`. Separately, on any database upgraded from a pre-phase install the migration-backfilled turns carry no usage row, so the ledger invariant `db.ts:640` states is false there. Details under Gaps Summary. |
+| 1 | Plugin and Codex lessons complete as before; the wire-surface snapshot is unchanged and a modelless stdio MCP smoke test passes | ✓ VERIFIED (machine half) / human (HC-2) | `git diff --quiet 239d5f1..HEAD -- server/test/wire-surface.json` exits 0 — the fixture has not moved since 01-02 (6e3d603), i.e. through every plan from 01-03 to 01-19. `server/test/mcp.test.ts` drives the *built* `server/dist/mcp.js` over stdio: `tools/list` in declaration order against the pre-phase set, then start_lesson → set_plan → answer → set_phase → node_status → quiz → answer → end_lesson with no model. Green on four consecutive full runs. The human half is HC-2, still open. |
+| 2 | Editing the single method source updates all five rendered targets together; CI fails on drift | ✓ VERIFIED | `pnpm method:check` → "6 rendered copies match method/", exit 0. Driven the other way in a copied tree (repo untouched): appending one sentence to `method/10-philosophy.md` made the checker report 4 drifted copies (`server/src/method.generated.ts`, `plugin/skills/teach/SKILL.md`, both Codex `SKILL.md`s) and exit 1. `.github/workflows/ci.yml` runs `pnpm method:check` as the first gate, before typecheck, build and test. |
+| 3 | A new driver is one `Driver.runTurn(ctx, sink)` with no change to the web UI, the SSE stream or the terminal mirrors | ✓ VERIFIED | `server/src/driver.ts` (136 lines) defines the interface and `sinkFor`; `server/src/drivers/fake.ts` (86 lines) is the proof driver, imported by `server/test/driver.test.ts:18` and `server/test/usage.test.ts:33`. `driver.test.ts` asserts the scripted sequence in call order against a copy of `EVENT_TYPES` taken from `web/src/lib/useLesson.ts`, plus `adding a driver takes one runTurn and nothing else`. `git diff --stat 0f70ebb..HEAD` shows no `web/` file touched this round. |
+| 4 | An existing `~/.derive` database migrates forward under a numbered transactional runner; an interrupted `replaceGraph` or `deleteLesson` leaves no partial state | ✓ VERIFIED | Reproduced with real pre-phase code: a database written by `server/src/db.ts` at b8f255c in a detached worktree (one lesson, three events, `PRAGMA user_version` 0, no `turns`/`usage` tables) opened on HEAD → `user_version` 4, rows preserved, `derive.db.bak-v0` written beside it. `withTx`, `replaceGraph`, `deleteLesson`, `deleteLearner` suites all green. |
+| 5 | Loopback-only bind with a per-install token, foreign Host and Origin refused, no secret on any error/log/event/export/vault path; every turn stores raw usage with the model id and a cost source | ✗ FAILED | Every enumerated clause holds and was reproduced (table below) — **but** the browser credential ships with an advertised revocation mechanism that does not work, in four learner-facing places, as the stated justification for a thirty-day persistent cookie. Reproduced: token file deleted on a running server, cookie still 200, old header still 200. See Gaps. |
 
-**Score:** 3/5 truths verified (0 present, behavior-unverified)
+**Score:** 4/5 truths verified (0 present, behavior-unverified)
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
-| `server/src/tools.ts` | The one tool contract: 22 entries, 14 on the agent surface, per-surface differences declared | ✓ VERIFIED | `toolsFor` / `descriptionFor` / `shapeFor` / `jsonSchemaOf` are the only readers; duplicate names throw at load; `ALL_TOOL_NAMES` = 22, `DERIVE_TOOL_NAMES` = 14 |
-| `server/src/agent.ts`, `codex.ts`, `mcp.ts`, `index.ts` | Every surface derives its tools from the registry | ✓ VERIFIED | agent.ts:77-80 `toolsFor('agent')`; codex.ts:54 `DERIVE_TOOL_NAMES`; mcp.ts:297-300 `toolsFor('mcp')`; index.ts:845 `ACTION_SCHEMAS = toolsFor('http')`. No hand-written description or schema left on any of them |
-| `method/` + `scripts/render-method.mjs` + `scripts/check-method.mjs` | One method source, six committed rendered copies, a gate that fails on drift | ✓ VERIFIED | 11 body sections + 4 surface preambles → 6 targets; `check-method` exits 1 and names each drifted file; CI runs it first |
-| `server/src/driver.ts`, `server/src/drivers/fake.ts` | One driver seam and one event sink; a fake driver in tests | ✓ VERIFIED | See truth 3 |
-| `server/src/migrations.ts` | Numbered, transactional migrations with a pre-migration snapshot | ✓ VERIFIED | 3 migrations; each `up` inside `BEGIN … PRAGMA user_version = n … COMMIT` with `ROLLBACK` + a redacted `[migrate]` line on failure; `VACUUM INTO` snapshot written once per upgrade |
-| `server/src/secrets.ts` + its call sites | One redaction chokepoint on errors, events, export and the vault mirror | ✓ VERIFIED | `redactDeep` on all four of `emit` / `emitUpdate` / `checkpoint` / `emitEphemeral`; `redact` on the exported note; `safeMessage` on every error body and every `console.error` in the server. Live: an export read back `the install token is [redacted] ok` |
-| `server/src/index.ts` (front door) | Loopback bind, per-install token, Host and Origin checks | ✓ VERIFIED | See the front-door table below |
-| `server/src/db.ts` (usage ledger) | Raw counts + model + cost source per turn | ⚠️ PARTIAL | Correct for every turn the ledger opens (live row below); absent for turns the migration backfills |
-| `server/src/repo.ts` | An importer confined to the tree it was given | ✗ FAILED | Symlink confinement holds; command execution from the repo's own config defeats it before any check runs |
+| `server/src/tools.ts` | One registry for all 22 wire tools | ✓ VERIFIED | 473 lines; imported by `agent.ts`, `codex.ts`, `mcp.ts`, `index.ts` — the four surfaces the criterion names |
+| `server/test/wire-surface.json` | Frozen snapshot | ✓ VERIFIED | 1737 lines, byte-identical since 6e3d603 |
+| `method/` + `server/src/method.generated.ts` | Single method source, rendered | ✓ VERIFIED | 6 rendered copies; drift driven red in a copied tree |
+| `server/src/driver.ts` | `Driver.runTurn(ctx, sink)` + one sink | ✓ VERIFIED | 136 lines, `sinkFor` is the single event path |
+| `server/src/drivers/fake.ts` | The proof driver | ✓ VERIFIED | 86 lines, wired into two suites |
+| `server/src/migrations.ts` | Numbered transactional runner | ✓ VERIFIED | 422 lines, four migrations, `snapshot()` before applying |
+| `server/src/tickets.ts` | One-use handoff ticket | ✓ VERIFIED | 59 lines, `mintTicket`/`redeemTicket`, wired at `index.ts:320` and `:1165` and `mcp.ts:204-263` |
+| `server/test/spawn.ts` | One shared OS-allocated-port spawn helper | ✓ VERIFIED | 109 lines; four consecutive green suite runs. `env.PORT` trap noted in Advisory |
+| `server/src/index.ts` | Hardened front door | ⚠️ HOLLOW | All enumerated hardening present and driven; the revocation control it advertises is not wired to anything that reads the token file after boot |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |---|---|---|---|---|
-| `server/src/tools.ts` | agent / mcp / http surfaces | `toolsFor`, `descriptionFor`, `shapeFor` | ✓ WIRED | Adding one registry entry propagated to all three, reproduced |
-| `server/test/wire-surface.json` | `plugin/commands/*.md` `allowed-tools` | `render-method.mjs` `mcpToolNames()` | ✓ WIRED | Two-step chain (registry → fixture → allowed-tools), with a CI gate on each step; reproduced |
-| `agent.ts runTurn` | `claudeDriver` / `codexDriver` / override | `driverOverride() ?? backend()` | ✓ WIRED | agent.ts:274, 297 |
-| driver `sink.usage` / `sink.endTurn` | `usage` table | `recordUsage` / `closeUsage` in `sinkFor` | ✓ WIRED | driver.ts:107-115 |
-| boot sweep | `usage` table | `closeOpenTurns` → `closeUsage` inside one `withTx` | ✓ WIRED | Reproduced across a SIGKILL |
-| external `end` action | `usage` table | `finishTurn` + `closeUsage`, **not** in one transaction | ⚠️ PARTIAL | index.ts:1000-1002 and driver.ts:113-115; a crash between the two leaves a turn no sweep can reach |
-| `POST /api/materials/repo` | `fromDirectory` confinement checks | `ingestRepo` → `collectRepo` → `fromDirectory` → `gitListFiles` | ✗ NOT_WIRED | `gitListFiles` spawns git before any confinement check runs; the checks are bypassed, not defeated |
-| migration 2 backfill | `usage` table | nothing | ✗ NOT_WIRED | Backfilled turns have no usage row and no later path writes one |
-| web page | `/api/*` and the SSE stream | `derive_session` cookie, same-origin default credentials | ✓ WIRED (untested end to end) | The dead meta-tag token path is gone from `api.ts` and `useLesson.ts`; both now document the cookie. No case drives the stream on it — human item HC-1 |
-
-### Front Door — reproduced against the built server (scratch port 4922, scratch `DERIVE_DATA_DIR`)
-
-| Check | Request | Result |
-|---|---|---|
-| Bind | `ss -ltnp` | `LISTEN 127.0.0.1:4922` only |
-| LAN reachability | `curl http://192.168.0.166:4922/` | connection refused |
-| Token file | `ls -la` | mode `-rw-------` (0600), 64 hex bytes |
-| Document route, no credential | `GET /` | **401**, no `Set-Cookie` |
-| Lesson page, no credential | `GET /lesson/abc` | **401** |
-| API, no credential | `GET /api/lessons` | **401** |
-| One-time handoff | `GET /?token=<token>` | **302**, `Location: /` (query dropped), `Set-Cookie: derive_session=<64 hex>; Path=/; HttpOnly; SameSite=Strict`; the value is **not** the token |
-| Cookie drives the API | `GET /api/lessons` + cookie | **200** |
-| Header token drives the API | `GET /api/lessons` + `x-derive-token` | **200** |
-| Foreign Host, API | `Host: evil.com` + token | **403** |
-| Foreign Origin, API | `Origin: http://evil.com` + token | **403** |
-| Foreign Host, document route | `Host: evil.com` + `?token=` | **403** |
-| Foreign Origin, document route | `Origin: http://evil.com` + `?token=` | **403** |
-| Health under the Host guard | `GET /api/health` / with `Host: evil.com` | **200** / **403** |
-| Token in an API query string | `GET /api/lessons?token=<token>` | **401** (no longer accepted) |
-| Token in the served markup | `GET /` after the handoff | 0 occurrences |
+| `method/*.md` | 6 rendered targets | `scripts/render-method.mjs` → `scripts/check-method.mjs` → CI | ✓ WIRED | drift driven red |
+| `server/src/tools.ts` | `mcp.ts`, `index.ts`, `agent.ts`, `codex.ts` | `descriptionFor`/`shapeFor`/`toolsFor` | ✓ WIRED | grep confirms all four import sites |
+| hostile `.git/config` | `gitListFiles` spawn | `-c core.fsmonitor=false` on the argv, before the process exists | ✓ WIRED | pin proven load-bearing by control experiment |
+| migration 2 `backfillTurns` | migration 4 `backfillUsage` | `turns` → `usage`, `NOT EXISTS`, `status <> 'running'` | ✓ WIRED | was NOT_WIRED last round; reproduced `turns: 1, usage: 1` |
+| `db.endTurn` | `finishTurn` + `closeUsage` | one `withTx` | ✓ WIRED | both former call sites (`driver.ts:116`, `index.ts:1033`) now call it |
+| `mcp.ts start_lesson` | `POST /api/handoff` → `execFile(opener)` → `GET /?ticket=` → `issueSession` | one-use 60s ticket | ✓ WIRED | full lifecycle driven |
+| `~/.derive/token` (the file) | the credential check on a live request | — | ✗ NOT_WIRED | **this is the blocker.** The middlewares compare against boot-time `TOKEN_BUF`/`SESSION_BUF`; nothing re-reads the file, so the advertised revocation reaches nothing |
 
 ### Data-Flow Trace (Level 4)
 
-| Artifact | Data | Source | Produces real data | Status |
+| Artifact | Data Variable | Source | Produces Real Data | Status |
 |---|---|---|---|---|
-| `usage` table | input/output/cache-read/cache-write/reasoning + model + cost_source | `recordUsage` from `sink.usage`; `closeUsage` for unreported turns | Yes | ✓ FLOWING — live row for a terminal turn: `driver 'claude-code', model null, all five counts null, cost_source 'unknown'`, exactly the honest blank the design specifies |
-| `turns` ↔ `usage` reconciliation | counts | `closeOpenTurns` → `closeUsage` | Yes, for turns the ledger opens | ⚠️ STATIC on upgraded databases — migration-backfilled turns have no row |
-| Exported note / vault mirror | lesson prose | `export.ts:176 redact(...)` | Yes | ✓ FLOWING — live export rendered `the install token is [redacted] ok` |
-| Material text | course material | `materials.ts` segments, **not** through `emit` | Yes | ✗ HOLLOW against the token: material text deliberately bypasses redaction (D-11), so the importer is the only control, and it is defeated |
+| `usage` table | `input/output/cache_read/cache_write/reasoning_tokens`, `model`, `cost_source` | `recordUsage` from the driver, `closeUsage`'s honest blank, migration 4's backfill | Yes | ✓ FLOWING |
+| `turns` table | `status`, `ended_at` | `endTurn` inside `withTx`, boot sweep | Yes | ✓ FLOWING |
+| material text | repo file contents | `gitListFiles` → `fromDirectory` → segments → `GET /api/materials/:id?text=1` | Yes, and no longer carries the token | ✓ FLOWING |
+| credential check | `TOKEN_BUF` / `SESSION_BUF` | `readFileSync(TOKEN_PATH)` **once, at import** | Stale by design after boot | ⚠️ STATIC |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| Workspace typechecks | `pnpm -r typecheck` | server Done, web Done | ✓ PASS |
-| Server builds | `pnpm --filter server build` | exit 0 | ✓ PASS |
-| Full suite | `pnpm test` (scratch `DERIVE_DATA_DIR`) | 159 tests, 159 pass, 0 fail — on the second invocation; the first exited 1 with 6 cancelled (port clash, IN-05) | ⚠️ PASS, flaky |
-| Method drift gate bites | one sentence appended to `method/10-philosophy.md`, then `node scripts/check-method.mjs` | exit 1, 4 copies named | ✓ PASS |
-| Registry propagates | one tool added to `server/src/tools.ts` | wire-surface fails on all 3 surfaces; after regeneration, both `allowed-tools` lines and `toolsFor('http')` carry it | ✓ PASS |
-| Pre-phase DB migrates forward | b8f255c worktree writes the DB, HEAD opens it | `user_version` 0 → 3, rows intact, `.bak-v0` written | ✓ PASS |
-| `replaceGraph` atomicity | a replacement that throws on its second node | original graph `a,b` intact | ✓ PASS |
-| Restart sweep closes the ledger | SIGKILL an open turn, restart | turn `interrupted`, 1 usage row, turns == usage | ✓ PASS |
-| Symlink import refused | folder with 3 symlinks out of the tree → `POST /api/materials/repo` → `GET …?text=1` | only `README.md`; 0 token occurrences, 0 `/etc/passwd` | ✓ PASS |
-| Redaction on export | mirror prose carrying the token → `GET …/export` | `the install token is [redacted] ok` | ✓ PASS |
-| **Repo import executes repo config** | repo with `core.fsmonitor` set → `POST /api/materials/repo` | sentinel written, token copied into the tree, **token returned by `GET /api/materials/:id?text=1`** | ✗ **FAIL** |
+| Build | `pnpm build` | exit 0 | ✓ PASS |
+| Suite, first invocation | `pnpm test` | exit 0, `# tests 196 / # pass 196 / # fail 0 / # cancelled 0` | ✓ PASS |
+| Suite, three more invocations | `pnpm test` ×3 | exit 0 each, 196/196, 0 cancelled | ✓ PASS |
+| Method drift gate, passing | `pnpm method:check` | "6 rendered copies match method/", exit 0 | ✓ PASS |
+| Method drift gate, failing | one sentence appended to `method/10-philosophy.md` in a copied tree | 4 drifted copies named, exit 1 | ✓ PASS |
+| Loopback bind + token | scratch server, `GET /api/lessons` | no credential 401, token header 200, token file mode 600 | ✓ PASS |
+| Foreign Host (raw socket) | `Host: evil.example` and `Host: evil.example:<port>` | 403 on `/api/lessons` and on `/` | ✓ PASS |
+| Foreign Origin | `Origin: http://evil.example` | 403 | ✓ PASS |
+| Handoff ticket lifecycle | `POST /api/handoff` then `GET /?ticket=` ×2 | 401 unauthed / 200 authed, body carries no token; first use 302 to `/`, second 401, unminted 401 | ✓ PASS |
+| No secret on egress | served markup, 404 body | 0 token occurrences, 0 session occurrences, token not in the 404 body | ✓ PASS |
+| Hostile repo import | `POST /api/materials/repo` on a repo with `core.fsmonitor` set | 201, sentinel absent, `STOLEN.txt` absent, 0 token occurrences in the material text | ✓ PASS |
+| The pin is load-bearing | same `ls-files` argv with and without `-c core.fsmonitor=false` | without: sentinel written; with: not written | ✓ PASS |
+| Pre-phase DB upgrade | b8f255c database opened on HEAD | `user_version` 4, `turns: 1, usage: 1`, row all-null `cost_source 'unknown'`, `derive.db.bak-v0` written | ✓ PASS |
+| **Advertised revocation** | delete `~/.derive/token` on a running server, reuse the cookie | cookie 200, old token header 200, `GET /` 200 | ✗ FAIL |
+| stdio MCP server with a bad PORT | `PORT=abc node server/dist/mcp.js` | dies at startup on a setting it never uses | ✗ FAIL (advisory) |
 
 ### Probe Execution
 
 | Probe | Command | Result | Status |
 |---|---|---|---|
-| — | — | No `scripts/*/tests/probe-*.sh` exists and no plan declares one | ? SKIP (no probes in this project) |
+| — | — | No `scripts/*/tests/probe-*.sh` exist and no plan declares one; this phase's proof net is `pnpm test`, `pnpm method:check` and the reproductions above | SKIPPED |
 
 ### Requirements Coverage
 
-| Requirement | Source Plans | Description | Status | Evidence |
+| Requirement | Source Plan | Description | Status | Evidence |
 |---|---|---|---|---|
-| FOUND-01 | 01-01, 01-02, 01-03, 01-15 | 14 tutor tools defined once; every driver, the MCP server and the HTTP action validation derive from it | ✓ SATISFIED | Truth 2; registry propagation reproduced to all three surfaces |
-| FOUND-02 | 01-03, 01-15 | Method text defined once, rendered everywhere, CI fails on drift | ✓ SATISFIED | Truth 2; drift gate reproduced |
-| FOUND-03 | 01-04, 01-15 | One driver interface, one event sink; a provider changes neither UI, SSE nor mirrors | ✓ SATISFIED | Truth 3 |
-| FOUND-04 | 01-01, 01-02, 01-08, 01-12, 01-14, 01-15 | Plugin and Codex paths keep working, proven by a wire-surface snapshot and a modelless stdio smoke test | ? NEEDS HUMAN | Machine half green and re-run (`mcp.test.ts`, `wire-surface.test.ts`); the real-terminal half is HC-2 below. REQUIREMENTS.md already records this as Needs Human — correct |
-| FOUND-05 | 01-05, 01-06, 01-11, 01-15 | Numbered transactional migrations; `replaceGraph` and `deleteLesson` transactional; existing DBs migrate forward | ✓ SATISFIED | Truth 4, reproduced with real pre-phase code |
-| FOUND-06 | 01-07 … 01-10, 01-12, 01-13, 01-14, 01-15 | Loopback bind, Host and Origin checks, per-install token, secrets redacted from every error, log, event and export path before any key is stored | ✗ BLOCKED | The bind, token, Host, Origin and redaction halves all reproduce clean. The importer executes attacker-supplied commands as the server process and returns the install token through the materials route. REQUIREMENTS.md already records this as Gaps Found — correct |
-| COST-01 | 01-06, 01-11, 01-15 | Every turn persists raw usage with the model id and a cost source | ⚠️ PARTIAL | Live row confirms all five counters, model and cost source for turns the ledger opens, and the restart sweep now closes them; migration-backfilled turns carry no row |
+| FOUND-01 | 01-01, 01-02 | 14 tutor tools defined once; every driver, MCP and HTTP validation derive from it | ✓ SATISFIED | `server/src/tools.ts` imported by all four surfaces; wire-surface fixture byte-identical; 12 wire-surface cases green |
+| FOUND-02 | 01-03 | Method defined once, rendered everywhere, CI fails on drift | ✓ SATISFIED | 6 rendered copies; drift driven red; CI gate is the first step |
+| FOUND-03 | 01-04 | One driver interface and one event sink | ✓ SATISFIED | `driver.ts` + `drivers/fake.ts` + `driver.test.ts`; no `web/` change this round |
+| FOUND-04 | 01-01, 01-02, 01-08, 01-16 | Plugin and Codex keep working, proven by snapshot + modelless smoke test | ? NEEDS HUMAN | Machine half fully satisfied and green ×4; human half is HC-2, open (WINDOWS.md entry 5) |
+| FOUND-05 | 01-05, 01-18 | Numbered transactional migrations; transactional graph/lesson writes; existing DBs migrate forward | ✓ SATISFIED | 0→4 upgrade reproduced with real pre-phase code; `withTx` suites green |
+| FOUND-06 | 01-07, 01-08, 01-09, 01-10, 01-13, 01-14, 01-17, 01-19 | Loopback bind, Host/Origin, per-install token, redaction before any key is stored | ✗ BLOCKED | Every enumerated clause reproduced closed. Blocked on the advertised revocation control that does not work (Gap 1) and the false clone-argv rationale (Gap 2) |
+| COST-01 | 01-06, 01-18 | Every turn persists raw usage with the model id and a cost source | ✓ SATISFIED | `usage` schema carries all five counters + `model` + `cost_source`; migration 4 backfill reproduced; `endTurn` transactional; usage and tx suites green |
 
-No orphaned requirements: REQUIREMENTS.md maps exactly FOUND-01..06 and COST-01 to Phase 1, and every one of those IDs appears in at least one plan's `requirements` frontmatter.
+No orphaned requirements: `.planning/REQUIREMENTS.md` maps exactly FOUND-01..06 and COST-01 to Phase 1, and every one is claimed by at least one plan's `requirements` field.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |---|---|---|---|---|
-| `server/src/repo.ts` | 112-120 | Unpinned `execFileSync('git', …)` on attacker-controlled data, while the sibling call 170 lines down is pinned | 🛑 Blocker | Arbitrary command execution as the server process; reproduced end to end |
-| `server/src/migrations.ts` | 202-228 | Migration creates the `usage` table but backfills nothing, while `db.ts:640` states the invariant unconditionally | 🛑 Blocker | Ledger does not reconcile on any upgraded install; reproduced |
-| `server/src/index.ts` | 1000-1002 | `finishTurn` + `closeUsage` outside a transaction, where the sibling `closeOpenTurns` wraps them | ⚠️ Warning | A crash between them leaves a turn no sweep can reach (`WHERE status = 'running'`) |
-| `server/src/index.ts` | 150-152 | `if (!addr) return new Set(LOOPBACK_NAMES)` documented as "fail closed" | ⚠️ Warning | Permissive polarity; plan 01-14's truth #2 asserts the opposite of what the line does |
-| `server/src/mcp.ts` | 203-206, 244 | Long-lived credential into `exec()`'s shell command line | ⚠️ Warning | Token readable from `/proc/<pid>/cmdline` by any local account for the browser's lifetime |
-| `server/src/index.ts` | 1126 | Install token printed to stdout every start | ⚠️ Warning | Durable copy of the credential under any log-capturing supervisor; now a stated decision |
-| `README.md`, `.env.example`, `scripts/doctor.mjs`, startup line | — | "once per browser" over a cookie with no expiry | ⚠️ Warning | Learner-facing sentence overstates what the cookie does |
-| `server/src/repo.ts` | 42, 211, 225 | Dead `TEXT_EXTS` entries and unreachable tar type branches | ℹ️ Info | Reads as handling a case it cannot reach (01-REVIEW.md IN-01, IN-02) |
-| `server/src/config.ts` | 8 | `PORT` unvalidated; `PORT=abc` makes `guardLocal` compare against the string `'NaN'` | ℹ️ Info | The server binds and then 403s every request (01-REVIEW.md IN-06) |
-
-No `TBD`, `FIXME` or `XXX` markers exist anywhere under `server/src`, `web/src`, `scripts/` or `method/`.
+| `server/src/index.ts` | 1113, 1191 | Comment and learner-facing warning assert a security property the code does not have | 🛑 Blocker | Gap 1 — reproduced |
+| `.env.example` | 38 | Same claim, as security advice | 🛑 Blocker | Gap 1 |
+| `server/test/security.test.ts` | 584 | Test named for revocation that never revokes anything | 🛑 Blocker | Gap 1 — this is why it shipped green |
+| `server/src/repo.ts` | 123 | Security rationale names pins that do not exist on the argv it points at | ⚠️ Warning | Gap 2 |
+| `server/src/driver.ts` | 110-117 | Idempotency guard raised before the write it guards; `turn_end` unreachable on failure | ⚠️ Warning | Advisory — lesson reads busy until restart |
+| `server/src/config.ts` | 9-16 | Throwing side effect on import of a module the stdio MCP server also imports | ⚠️ Warning | Advisory — reproduced; kills the plugin path on a setting it never uses |
+| `server/test/guards.test.ts` | 129-154, 94-211 | Two cases assert against a command that never runs; ~12 temp dirs leaked per run, one with 0755 `/bin/sh` scripts | ⚠️ Warning | Advisory — WR-07, WR-08 |
+| `server/test/spawn.ts` | 68-73 | Caller `env` spread after `PORT`, so a caller can desynchronise the child from the polled port | ⚠️ Warning | Advisory — WR-05 |
+| `server/src/mcp.ts` | 219-221 | "no shell is involved" is false on win32 (`cmd /c start`) | ℹ️ Info | WR-06; no metacharacter reaches the URL today |
+| repo-wide | — | `TODO`/`FIXME`/`TBD`/`XXX` markers in files this phase modified | ℹ️ Info | None found |
 
 ### Human Verification Required
 
-#### 1. Plugin and Codex parity run (HC-2)
+#### 1. HC-2 — the plugin and Codex parity run (FOUND-04's human half)
 
-**Test:** Run one real lesson through the Claude Code plugin (`/derive:learn`, then `/derive:review`) and one through the Codex `derive-learn` skill, per WINDOWS.md #5. Run it after the Criterion 5 gap closes, since step 1 opens the browser companion page.
-**Expected:** Both complete exactly as before the phase — the plan lands, a quiz is asked and graded, nodes lock, the review session runs — and the Codex skill teaches rather than only quizzing.
-**Why human:** Requires a model and a provider login. `mcp.test.ts` drives the identical stdio wire with no model and is green, but it cannot exercise a model's own tool selection, the transcript hook, or the Codex rollout mirror.
+**Test:** With a Claude Code login: `pnpm build && pnpm start`, then `/derive:learn` in a second terminal — probe, plan, one taught node, one graded quiz, `end_lesson`. Repeat on a ChatGPT login with the `derive-learn` Codex skill.
+**Expected:** Both complete exactly as before the phase; no tool missing, renamed or reshaped; the understanding gate still refuses a lock without an intuition or transfer pass.
+**Why human:** Needs a real model, a provider login and a person on two terminals. The machine half is already evidence and is green; nothing automated runs a model. `.planning/WINDOWS.md` entry 5.
 
-#### 2. Real-browser session smoke (HC-1)
+#### 2. HC-1 — real-browser session smoke
 
-**Test:** Open the printed `http://localhost:4310/?token=…` link in a real browser, start a lesson, answer a card, watch the graph update. Then close the browser entirely, reopen it, and go to `http://localhost:4310/` with no query string.
-**Expected:** The page loads after the 302, the SSE stream connects, cards render and answers land — all on the `derive_session` cookie, with no `x-derive-token` header sent by the page. After the browser restart the page is expected to 401 (the cookie has no expiry); confirm the learner has a usable way back in.
-**Why human:** No automated test drives a real browser. curl proves the cookie authenticates `/api/lessons` and that the handoff 302 sets it; nothing proves the page's own `fetch` and `EventSource` carry it, and no case covers the lesson stream on the cookie at all.
+**Test:** Open the printed `?token=…` link in a real browser; take a lesson; close the browser entirely and reopen at `/` with no query; then delete `~/.derive/token`, **restart the server**, and reload.
+**Expected:** 302 with the query dropped; the SSE stream and cards run on the `derive_session` cookie with no `x-derive-token` header from the page; the reopened browser loads; and after the delete **plus restart** the reload is 401.
+**Why human:** No automated case drives a real browser, the page's own `fetch`/`EventSource`, or the lesson SSE stream on the cookie. `.planning/WINDOWS.md` entry 4. Re-run this once Gap 1 is resolved, since its step 5 is exactly the control that is broken.
+
+#### 3. A public URL through `fetchPublic`
+
+**Test:** Add a link to the library from a machine with DNS and outbound network.
+**Expected:** Fetched, extracted and stored; the SSRF guard admits the public host.
+**Why human:** This environment has no DNS or outbound network, so only the refusal side of `assertPublicHost` is driven. `.planning/WINDOWS.md` entry 3.
 
 ### Gaps Summary
 
-Four of the five criteria hold, and three of them I re-established from scratch rather than accepting: the single-source contract bites under mutation, the driver seam is a real interface with three implementations and a test that pins the browser's own event vocabulary, and a database written by the pre-phase code at `b8f255c` migrates forward under the numbered runner with every row intact and a snapshot beside it. The front door is no longer the one the last report found: an unauthenticated `GET /` on loopback is now 401 and issues nothing, the `?token=` handoff drops the credential out of the URL in a 302 and hands back a derived cookie, foreign `Host` and `Origin` are refused on the document routes as well as the API, and the redaction chokepoint visibly holds on the export path. The four sub-failures the last round listed are genuinely closed and I reproduced each closure.
+Three of the four things this round set out to close are genuinely closed, and I reproduced each one rather than reading a summary. The repo importer no longer runs code the repository carries — a repo whose own `.git/config` names a command imports normally and leaves the command unexecuted, and the pin that does it is load-bearing under a control experiment. The ledger reconciles on an upgraded install — a database written by the real pre-phase code comes forward to `user_version` 4 with `turns: 1, usage: 1` and an honest all-null row rather than the `usage: 0` the last round found. The install token is off the browser opener's command line, replaced by a one-use sixty-second ticket whose whole lifecycle drives correctly, and `hostNames` now fails closed. The suite passes on its first invocation and on three more after it: 196/196, zero cancelled, four times running.
 
-What remains is the same **observable** as last round reached by a different mechanism, and it is the reason this phase cannot be called done. `git ls-files --others` runs `core.fsmonitor` from the target repository's own `.git/config` — a command git spawns. `gitListFiles` invokes it with a bare argv, while `git clone` twenty lines away was pinned by 01-13 with `protocol.allow=never`, `http.followRedirects=false` and `GIT_TERMINAL_PROMPT=0` for exactly this class of reason. I built a repo whose config set `core.fsmonitor` to a shell command, posted it to `/api/materials/repo` on the built server, and watched the command run as the server: it wrote a sentinel outside the tree and copied the 0600 install token into the tree, after which the very same import read the token back and `GET /api/materials/:id?text=1` returned it verbatim. Every `lstat` and `realpath` check 01-13 added is downstream of the spawn and never runs. The plan's own sentence — "A repo import reads no byte outside the tree it was given" — is false as written, and `guards.test.ts` is green over it because no case hands the importer a repository that carries a command. Material text deliberately does not pass the redaction chokepoint (D-11, and rightly so: a tutor that shreds a lesson about API credentials has broken the product), so the importer's refusal is the only control there is.
+What stops the phase is the fourth. 01-19 widened the browser credential from a memory-only cookie to a thirty-day persistent one, and wrote the justification into four learner-facing places: deleting the token file signs every browser out. It does not. `TOKEN` is read once at module evaluation and frozen; nothing re-reads the file. I signed a browser in, deleted `~/.derive/token` on the running server, and the cookie still answered 200 — as did the old `x-derive-token` header. The failure window is the one the sentence is printed for: the `DERIVE_HOST=0.0.0.0` warning, plaintext over a LAN, a learner who believes a credential has leaked, does what the server told them, and is not told it did nothing. The test named for this control passes by comparing two separate installs' cookies, which is isolation, not revocation — which is how a control that does not work shipped green. The plan's own HC-1 script knows the difference: its step 5 says delete the file *and restart the server*. The four shipped sentences omit the restart.
 
-This matters more than a local-machine footnote because of what the phase goal says it is for: "the local server is hardened **before it ever holds a key**." Phase 2 puts provider API keys in this process. A repo import that executes attacker-chosen code as that process reads them directly, past the token, past the Host check, past redaction. The realistic path needs no exotic attacker: the learner clones a hostile repository the ordinary way and asks Derive to study it, or a prompt-injected tutor calls `attach_material` with a folder path — the entry point `guards.test.ts`'s own module doc names.
+The second gap is the same standing prohibition in a smaller place: `repo.ts`'s new rationale says five git knobs "are already pinned where they are reachable, on the clone argv below", and the clone argv pins one of them. No exploit follows today; the defect is a load-bearing security comment, in the file whose entire docstring is about confinement, telling the next maintainer that something is handled when it is not.
 
-The second gap is smaller and is the sibling of the one 01-15 just fixed. `closeOpenTurns` now gives every swept turn a usage row, which I confirmed across a SIGKILL. But migration 2 backfills turns out of the event log and migration 3 backfills no usage for them, and the boot sweep only reaches rows still marked `running` — so on the pre-phase database I migrated, the one backfilled turn came back `status 'ok', usage_rows 0`. `db.ts:640` says without qualification that every turn gets a usage row and that turn counts reconcile across every view; on every upgraded install — which is every existing learner — that is not true. The fix is the same honest blank the sweep already writes, or a sentence that says which turns the invariant covers. One or the other, not neither: that is the standing prohibition three of these plans carry, and it is the reason this is recorded as a gap rather than as a note.
+Both are the same shape, and it is the shape every one of these four plans carried as its first prohibition: never state an invariant the code does not hold — fix the code or qualify the sentence, never neither. Gap 1 needs a decision (make revocation real behind a one-second cache of the token file, or correct all four sentences to say "and restart derive") recorded before it is built, and either way a test that actually revokes. Gap 2 is a one-line choice: add the pins, or say they are pinned nowhere.
+
+HC-1 and HC-2 remain outstanding and unclaimed, as every round has said. Nothing in 01-16 … 01-19 closes them, and nothing in this report does either.
 
 ---
 
-_Verified: 2026-09-19T22:15:00Z_
+_Verified: 2026-09-20T12:10:00Z_
 _Verifier: Claude (gsd-verifier)_
