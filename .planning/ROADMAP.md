@@ -39,7 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. An existing `~/.derive` database opens on the new version and migrates forward under a numbered, transactional runner; an interrupted `replaceGraph` or `deleteLesson` leaves no partial state
   5. The server answers only on 127.0.0.1 with a per-install token, rejects foreign Host and Origin, and no secret appears in any error, log, event, export or vault-mirror path; every turn stores raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
 
-**Plans**: 18/19 plans executed, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening); plus 4 gap-closure plans (01-09..01-12) in 4 waves closing the Success Criterion 5 authentication gaps found at the first verification; plus 3 more gap-closure plans (01-13..01-15) in 3 further waves closing the Criterion 5 gaps found at re-verification — the repo importer reading outside the tree it was given, the loopback credential posture being neither closed nor stated, and the record that asserts what does not hold; plus 4 more gap-closure plans (01-16..01-19) in 4 further waves closing what the third re-verification found — a repo import that *executes* what the repository carries (the same observable as the previous round reached by a different mechanism), a ledger invariant that is false on every upgraded install, the install token on a process command line, a permissive Host branch documented as fail-closed, a session sentence that overstates the cookie, and a suite that needed a second run. Every gap wave is serialised because each plan runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files
+**Plans**: 19/19 plans executed, in 7 waves following the fixed internal order (contract → method → seam → migrations → ledger → hardening); plus 4 gap-closure plans (01-09..01-12) in 4 waves closing the Success Criterion 5 authentication gaps found at the first verification; plus 3 more gap-closure plans (01-13..01-15) in 3 further waves closing the Criterion 5 gaps found at re-verification — the repo importer reading outside the tree it was given, the loopback credential posture being neither closed nor stated, and the record that asserts what does not hold; plus 4 more gap-closure plans (01-16..01-19) in 4 further waves closing what the third re-verification found — a repo import that *executes* what the repository carries (the same observable as the previous round reached by a different mechanism), a ledger invariant that is false on every upgraded install, the install token on a process command line, a permissive Host branch documented as fail-closed, a session sentence that overstates the cookie, and a suite that needed a second run. Every gap wave is serialised because each plan runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files
 
 Plans:
 **Wave 1**
@@ -119,7 +119,7 @@ Plans:
 
 **Gap wave 11** *(blocked on gap wave 10 completion)*
 
-- [ ] 01-19-PLAN.md — The browser credential: a single-use sixty-second handoff ticket instead of the install token on a shell command line, `hostNames` failing closed, and a session whose stated thirty-day life is what the cookie actually does (gap wave 11)
+- [x] 01-19-PLAN.md — The browser credential: a single-use sixty-second handoff ticket instead of the install token on a shell command line, `hostNames` failing closed, and a session whose stated thirty-day life is what the cookie actually does (gap wave 11)
 
 **Cross-cutting constraints:**
 
@@ -242,7 +242,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 18/19 | In Progress|  |
+| 1. Foundation | 19/19 | In Progress|  |
 | 2. Settings and Secrets | 0/TBD | Not started | - |
 | 3. Owned Loop: API Keys and Gateways | 0/TBD | Not started | - |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |
