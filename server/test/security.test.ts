@@ -249,6 +249,22 @@ describe('the Host check', () => {
     assert.equal((await raw('/api/lessons', { 'x-derive-token': token, host: `0.0.0.0:${port}` })).status, 403);
     assert.equal((await raw('/api/lessons', { 'x-derive-token': token, host: `[::]:${port}` })).status, 403);
   });
+
+  it('still lets every ordinary loopback request through, on the API and on the document routes alike', async () => {
+    // The point of this case is the polarity above it: hostNames returns an empty set when the connection has no local address to judge, so a runtime that did not expose one would refuse every request here. The whole suite passing is therefore the evidence that the address IS available under @hono/node-server — a red run here would mean the address is missing, not that failing closed is wrong.
+    for (const host of [`localhost:${port}`, `127.0.0.1:${port}`]) {
+      assert.equal((await raw('/api/lessons', { 'x-derive-token': token, host })).status, 200, `the API refused ${host}`);
+      assert.equal((await raw('/', { 'x-derive-token': token, host })).status, 302, `the document route refused ${host}`);
+    }
+  });
+
+  it('names nothing at all when the connection has no local address to be judged by', () => {
+    // Read off the source, for the reason the verification advisory gives: the connection's local address cannot be made undefined from outside the process, so neither a curl nor a case can drive this branch. What it guards is one `if`, and its polarity is the whole finding.
+    const source = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8');
+    assert.match(source, /const addr = localAddress\(c\);\n {2}if \(!addr\) return new Set<string>\(\);/);
+    assert.ok(!source.includes('new Set(LOOPBACK_NAMES)'), 'the no-address branch still hands back the loopback names it exists to refuse');
+    assert.ok(!source.includes('fail closed to loopback'), 'the comment still describes the permissive branch as closed');
+  });
 });
 
 /**

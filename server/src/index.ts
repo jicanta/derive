@@ -144,12 +144,23 @@ function localAddress(c: Context): string | undefined {
  * way to reach a widened server by a name rather than an address (D-12).
  * Deliberately not the four built-in loopback origins: adding those would
  * put 127.0.0.1 back in the set on a LAN connection, which is the forged
- * loopback Host this is here to refuse. With no address to go on, fail
- * closed to loopback.
+ * loopback Host this is here to refuse.
+ *
+ * With no address to go on there is no name this connection may legitimately
+ * use, so the set is empty and guardLocal refuses. Returning the loopback
+ * names there would have been the permissive answer, not the closed one:
+ * every spelling of loopback is exactly the forged Host a widened bind exists
+ * to reject. The consequence is worth stating plainly — a runtime that does
+ * not expose the connection's local address would make this server answer
+ * nothing at all. That is the correct failure for a check whose whole purpose
+ * is to refuse names it cannot justify, and the suite is the standing signal
+ * that the address is there under @hono/node-server: every case in it goes
+ * through this function, so an unavailable address turns the whole suite red
+ * rather than leaving a hole open.
  */
 function hostNames(c: Context): Set<string> {
   const addr = localAddress(c);
-  if (!addr) return new Set(LOOPBACK_NAMES);
+  if (!addr) return new Set<string>();
   const names = new Set<string>([addr]);
   if (addr.includes(':')) names.add(`[${addr}]`);
   if (isLoopback(addr)) for (const n of LOOPBACK_NAMES) names.add(n);
@@ -1115,9 +1126,11 @@ if (existsSync(distDir)) {
    * should be worthless by the time another account can read it there.
    *
    * Loopback and a widened bind take the identical path, which is why there
-   * is no branch left here to get the polarity of wrong: the connection's
-   * local address is not consulted at all, and a request that arrived on an
-   * address this process cannot name still has to present the token.
+   * is no branch left here to get the polarity of wrong: the document routes
+   * and /api/* run the same guardLocal, so the Host and Origin check has one
+   * implementation and one polarity rather than two to keep in step. A
+   * request that arrived on an address this process cannot name is refused by
+   * that guard, and one that passes it still has to present a credential.
    */
   app.use('/*', async (c, next) => {
     if (c.req.path.startsWith('/api/')) return next();
