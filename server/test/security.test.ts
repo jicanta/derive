@@ -30,6 +30,7 @@ import { networkInterfaces, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { mintTicket, redeemTicket, TICKET_TTL_MS } from '../src/tickets.js';
 import { startDeriveServer } from './spawn.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -422,6 +423,117 @@ describe('the document routes', () => {
 
   it('refuse a foreign Origin', async () => {
     assert.equal((await req('/', { origin: 'http://evil.com' })).status, 403);
+  });
+});
+
+/**
+ * The one-time handoff ticket, which is what the MCP server puts on a browser
+ * opener's command line instead of the install token. A ticket is good for one
+ * request and one minute, and it inherits the Host, Origin and credential
+ * checks rather than sitting in front of them.
+ */
+describe('the one-time handoff ticket', () => {
+  /** Mint one the way the MCP server does: over the API, with the install token. */
+  const mint = async (headers: Record<string, string> = { 'x-derive-token': token }) => fetch(`${base}/api/handoff`, { method: 'POST', headers });
+
+  it('is not minted for a caller that presented no credential', async () => {
+    const res = await fetch(`${base}/api/handoff`, { method: 'POST' });
+    assert.equal(res.status, 401);
+    assert.ok(!(await res.text()).includes(token));
+  });
+
+  it('is not minted for a foreign Host, because it inherits the guard rather than preceding it', async () => {
+    // raw() speaks GET, and the Host check runs before the method is routed at all, so a 403 here is the guard answering.
+    assert.equal((await raw('/api/handoff', { 'x-derive-token': token, host: 'evil.com' })).status, 403);
+  });
+
+  it('is minted for a caller holding the token, and is neither the token nor the session value', async () => {
+    const res = await mint();
+    assert.equal(res.status, 200);
+    const { ticket, expires_in } = (await res.json()) as { ticket: string; expires_in: number };
+    assert.match(ticket, /^[0-9a-f]{64}$/);
+    assert.notEqual(ticket, token);
+    assert.notEqual(ticket, await sessionValue());
+    assert.equal(expires_in, 60);
+  });
+
+  it('is minted for a browser holding only the session cookie too', async () => {
+    const res = await mint({ cookie: `${SESSION_COOKIE}=${await sessionValue()}` });
+    assert.equal(res.status, 200);
+  });
+
+  it('opens the page once, on the same 302 that drops the query and hands out the cookie', async () => {
+    const { ticket } = (await (await mint()).json()) as { ticket: string };
+    const res = await fetch(`${base}/?ticket=${ticket}`, { redirect: 'manual' });
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('location'), '/');
+    const line = cookieFrom(res);
+    assert.ok(line, 'the ticket handoff handed out no session cookie');
+    assert.ok(!line.includes(token), 'the ticket handoff handed out the install token');
+    // The same credential the token handoff produces, not a lesser one.
+    assert.equal((await req('/api/lessons', { cookie: `${SESSION_COOKIE}=${cookieValue(line)}` })).status, 200);
+  });
+
+  it('is refused the second time, and hands that request no cookie', async () => {
+    const { ticket } = (await (await mint()).json()) as { ticket: string };
+    assert.equal((await fetch(`${base}/?ticket=${ticket}`, { redirect: 'manual' })).status, 302);
+    const again = await fetch(`${base}/?ticket=${ticket}`, { redirect: 'manual' });
+    assert.equal(again.status, 401);
+    assert.equal(cookieFrom(again), '', 'a spent ticket was handed a session cookie');
+  });
+
+  it('is refused when it was never minted, empty, or blank', async () => {
+    assert.equal((await fetch(`${base}/?ticket=${'a'.repeat(64)}`, { redirect: 'manual' })).status, 401);
+    assert.equal((await fetch(`${base}/?ticket=`, { redirect: 'manual' })).status, 401);
+    assert.equal((await fetch(`${base}/?ticket=%20%20`, { redirect: 'manual' })).status, 401);
+  });
+
+  it('is what the MCP server puts on a command line, and the install token is not', () => {
+    // Read off the source, because the exposure is a process command line: this sandbox cannot watch another account read /proc/<pid>/cmdline, and the absence of the shell and of the token in the URL is exactly the regression to catch.
+    const source = readFileSync(new URL('../src/mcp.ts', import.meta.url), 'utf8');
+    assert.ok(!/\bexec\(/.test(source), 'the MCP server still spawns a shell to open the browser');
+    assert.ok(!source.includes("searchParams.set('token'"), 'the MCP server still puts the install token in the browser URL');
+    assert.match(source, /execFile\(cmd, args, \(\) => undefined\)/);
+    assert.match(source, /'\/api\/handoff'/);
+  });
+});
+
+/**
+ * The ticket's clock, driven rather than waited out. The document route proves
+ * that a ticket redeemTicket refuses is answered 401; these prove what it
+ * refuses. `redeemTicket` takes `now` for the reason `schedule.ts` does — a
+ * case that sat out a sixty-second expiry would add a minute to every run.
+ */
+describe('a handoff ticket that has run out of time', () => {
+  const T0 = 1_700_000_000_000;
+
+  it('is good right up to its last millisecond', () => {
+    const ticket = mintTicket(T0);
+    assert.equal(redeemTicket(ticket, T0 + TICKET_TTL_MS - 1), true);
+  });
+
+  it('is refused exactly on its expiry and after it', () => {
+    assert.equal(redeemTicket(mintTicket(T0), T0 + TICKET_TTL_MS), false);
+    assert.equal(redeemTicket(mintTicket(T0), T0 + TICKET_TTL_MS + 60_000), false);
+  });
+
+  it('is swept by the next mint rather than kept for ever', () => {
+    const stale = mintTicket(T0);
+    mintTicket(T0 + TICKET_TTL_MS + 1);
+    // Refused even when the clock is wound back, because the entry is gone rather than merely old.
+    assert.equal(redeemTicket(stale, T0), false);
+  });
+
+  it('is spent by a failed redeem too, so a value guessed at once is worthless', () => {
+    const ticket = mintTicket(T0);
+    assert.equal(redeemTicket(ticket, T0 + TICKET_TTL_MS), false);
+    assert.equal(redeemTicket(ticket, T0), false);
+  });
+
+  it('is never a blank string, whatever the clock says', () => {
+    assert.equal(redeemTicket('', T0), false);
+    assert.equal(redeemTicket('   ', T0), false);
+    assert.equal(redeemTicket(undefined, T0), false);
   });
 });
 

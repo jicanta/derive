@@ -57,6 +57,7 @@ import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief } from './prompt.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
 import { registerSecret, safeMessage } from './secrets.js';
+import { mintTicket, redeemTicket, TICKET_TTL_MS } from './tickets.js';
 import { shapeFor, toolsFor } from './tools.js';
 
 /**
@@ -287,6 +288,22 @@ app.get('/api/stats', (c) => {
   const learner = learnerOf(c);
   return c.json({ ...stats(learner), due: dueNodes(learner).length, vault: !!VAULT_DIR, library: listResources(learner).length, learner: getLearner(learner), backend: backend() });
 });
+
+/**
+ * Mint the browser's one-time handoff ticket.
+ *
+ * This route holds no credential code of its own and needs none: reaching
+ * this handler is itself the proof that the /api/* middleware above already
+ * ran guardLocal and already accepted either the x-derive-token header or the
+ * session cookie. What it returns is a one-use, one-minute stand-in for the
+ * `?token=` handoff, minted only for a caller that has already shown it holds
+ * the token — it is never the token and nothing about it is reversible to
+ * one, so D-09's commitment that no endpoint hands the token out still holds.
+ * It exists because the MCP server has to put the handoff on a process
+ * command line to open a browser, and a credential that travels that way
+ * should be worthless by the time anyone can read it there.
+ */
+app.post('/api/handoff', (c) => c.json({ ticket: mintTicket(), expires_in: TICKET_TTL_MS / 1000 }));
 
 // ---------- learners ----------
 
@@ -1091,7 +1108,11 @@ if (existsSync(distDir)) {
    * dropped, so the token does not come to rest in the history; afterwards it
    * holds only the HttpOnly cookie, which is what the whole API runs on. A
    * browser cannot read the token file, so the learner opens the app from the
-   * link the startup line prints.
+   * link the startup line prints. A one-time ticket is accepted in the same
+   * place and answered the same way, for the one caller that cannot use the
+   * token at all: the MCP server has to hand the URL to a browser opener
+   * through a process command line, and a credential that travels that way
+   * should be worthless by the time another account can read it there.
    *
    * Loopback and a widened bind take the identical path, which is why there
    * is no branch left here to get the polarity of wrong: the connection's
@@ -1110,6 +1131,12 @@ if (existsSync(distDir)) {
     if (presented && sameValue(presented, TOKEN_BUF)) {
       issueSession(c);
       // A caller-supplied path is not a Location: resolving it against a fixed base collapses a protocol-relative "//elsewhere" to a path on this server and percent-encodes a control character that would otherwise split the header.
+      return c.redirect(new URL(c.req.path, 'http://127.0.0.1').pathname, 302);
+    }
+
+    // The same handoff, on the credential the MCP server is allowed to put on a command line. Behind guardLocal and behind the cookie short-circuit, so it bypasses neither.
+    if (redeemTicket(c.req.query('ticket'))) {
+      issueSession(c);
       return c.redirect(new URL(c.req.path, 'http://127.0.0.1').pathname, 302);
     }
     return c.json({ error: `open this page once as ${c.req.path}?token=<the token in ${TOKEN_PATH}> to let this browser in` }, 401);
