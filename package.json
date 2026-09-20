@@ -22,7 +22,7 @@
     "node": ">=22.5"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^10.0.5"
   },
   "packageManager": "pnpm@10.33.2",
   "pnpm": {
