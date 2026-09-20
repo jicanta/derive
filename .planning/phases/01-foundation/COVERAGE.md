@@ -45,7 +45,7 @@ for the 22.
 | learner_profile | INTEGRATE | MCP-only driver tool; in the registry per D-05 |
 | learners | INTEGRATE | MCP-only driver tool; in the registry per D-05 |
 | end_lesson | INTEGRATE | MCP-only driver tool; in the registry per D-05 |
-| library | INTEGRATE | MCP-only catalog tool registered in `server/src/mcp.ts`; surfaces marked `mcp` only. The tool D-05's enumeration omits — in the registry and the snapshot because the plugin sees it, excluded from both commands' `allowed-tools` because they never allowed it |
+| library | INTEGRATE | MCP-only catalog tool in `server/src/mcp.ts`; surfaces `mcp` only. The tool D-05 omits: in the registry and snapshot because the plugin sees it, out of both `allowed-tools` lists as before |
 
 **Nothing is opted out; all 22 are in.** D-05 is explicit that the registry covers the whole
 surface because Phase 3's owned loop and Phase 4's description compaction both
