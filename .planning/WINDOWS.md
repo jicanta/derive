@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 8
+open_count: 10
 waived_count: 0
 fixed_count: 0
-total_count: 8
-last_updated: 2026-09-20T13:28:50.181Z
+total_count: 10
+last_updated: 2026-09-20T17:19:15.256Z
 ---
 
 # Broken Windows Ledger
@@ -23,6 +23,8 @@ last_updated: 2026-09-20T13:28:50.181Z
 | 6 | 01 | deviation | server/test/guards.test.ts |  | Clone pinning and tarball secret-name filter are asserted at the source, not driven: git has no outbound HTTP offline, so no case drives a real redirect | open |  | 2026-09-19T17:53:25.199Z |  |
 | 7 | 01 | deviation | server/test/security.test.ts |  | The install token's absence from the MCP browser-open command line is asserted by reading server/src/mcp.ts, not driven: the exposure is /proc/<pid>/cmdline, which a sandboxed test cannot observe | open |  | 2026-09-20T13:28:49.826Z |  |
 | 8 | 01 | deviation | server/test/security.test.ts |  | hostNames' fail-closed empty-set branch is asserted by reading server/src/index.ts, not driven: a connection's local address cannot be made undefined from outside the process | open |  | 2026-09-20T13:28:50.181Z |  |
+| 9 | 01 | deviation | server/test/security.test.ts |  | Rotating the token also signing out the stdio MCP server and the plugin hook is asserted by reading their boot-time token reads (server/src/mcp.ts:75, plugin/hooks/mirror.mjs:33), not driven: a stdio MCP server's credential lifetime cannot be observed from inside this suite | open |  | 2026-09-20T17:19:15.030Z |  |
+| 10 | 01 | unrun-verify | .planning/phases/01-foundation/01-20-PLAN.md |  | HC-1's expected result changed with this plan: step 5 now expects 401 after deleting ~/.derive/token with the server left RUNNING, no restart. The corrected six-step sequence is in 01-20-PLAN.md Task 3; still not performed by a human | open |  | 2026-09-20T17:19:15.256Z |  |
 
 ````json
 [
@@ -127,6 +129,32 @@ last_updated: 2026-09-20T13:28:50.181Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-20T13:28:50.181Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 9,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "server/test/security.test.ts",
+    "line": null,
+    "description": "Rotating the token also signing out the stdio MCP server and the plugin hook is asserted by reading their boot-time token reads (server/src/mcp.ts:75, plugin/hooks/mirror.mjs:33), not driven: a stdio MCP server's credential lifetime cannot be observed from inside this suite",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-20T17:19:15.030Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 10,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": ".planning/phases/01-foundation/01-20-PLAN.md",
+    "line": null,
+    "description": "HC-1's expected result changed with this plan: step 5 now expects 401 after deleting ~/.derive/token with the server left RUNNING, no restart. The corrected six-step sequence is in 01-20-PLAN.md Task 3; still not performed by a human",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-20T17:19:15.256Z",
     "resolved_at": null,
     "milestone": null
   }
