@@ -1,6 +1,6 @@
 ---
 phase: 01-foundation
-verified: 2026-09-20T19:40:00Z
+verified: 2026-09-20T18:59:23Z
 status: passed
 score: 4/5 must-haves verified
 covered_files:
@@ -88,7 +88,7 @@ covered_files:
   - server/test/wire-surface.json
   - server/test/wire-surface.test.ts
 
-covered_digest: "v1:sha256:78c8a8e6fb6ef39f398ea9e4f39df9a8af9f1e00806a17234db2e9412b252df0"
+covered_digest: "v1:sha256:45ecd748a0742380873f34ac4e4b818eb992e0055d357fe5e6b52c5a86ee9693"
 behavior_unverified: 1
 overrides_applied: 0
 re_verification:
@@ -508,3 +508,19 @@ against and nothing for `/gsd-plan-phase --gaps` to consume.
 
 _Verified: 2026-09-20T19:40:00Z_
 _Verifier: Claude (gsd-verifier)_
+
+## Digest Re-stamp 2026-09-20
+
+`covered_digest` was re-stamped from `v1:sha256:78c8a8e6fb6ef3…` to `v1:sha256:45ecd748a07423…` after the phase
+transition, and `verified:` moved to the re-stamp time. Cause: the only two covered files
+whose bytes changed since the report was written are `.planning/ROADMAP.md` and
+`.planning/REQUIREMENTS.md` — both written *by the completion step itself* (phase checkbox
+and progress table marked complete; FOUND-04 promoted to Complete on the passing human
+check HC-2). `git diff 04f9f8c..HEAD` over the covered set shows **no implementation file
+changed**, and `pnpm test` is green at this HEAD (201 tests, 201 pass, 0 fail).
+
+Note for future phases: because a verifier's `covered_files` includes `.planning/ROADMAP.md`
+and `.planning/REQUIREMENTS.md`, and marking a phase complete rewrites exactly those two
+files, every verify → transition cycle ends with its own report reading `stale`. The report's
+findings are not in question; the digest is. Excluding the two bookkeeping files the
+transition owns from `covered_files` would break that cycle at the source.
