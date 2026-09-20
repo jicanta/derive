@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 10
+open_count: 11
 waived_count: 0
 fixed_count: 0
-total_count: 10
-last_updated: 2026-09-20T17:19:15.256Z
+total_count: 11
+last_updated: 2026-09-20T17:35:28.787Z
 ---
 
 # Broken Windows Ledger
@@ -25,6 +25,7 @@ last_updated: 2026-09-20T17:19:15.256Z
 | 8 | 01 | deviation | server/test/security.test.ts |  | hostNames' fail-closed empty-set branch is asserted by reading server/src/index.ts, not driven: a connection's local address cannot be made undefined from outside the process | open |  | 2026-09-20T13:28:50.181Z |  |
 | 9 | 01 | deviation | server/test/security.test.ts |  | Rotating the token also signing out the stdio MCP server and the plugin hook is asserted by reading their boot-time token reads (server/src/mcp.ts:75, plugin/hooks/mirror.mjs:33), not driven: a stdio MCP server's credential lifetime cannot be observed from inside this suite | open |  | 2026-09-20T17:19:15.030Z |  |
 | 10 | 01 | unrun-verify | .planning/phases/01-foundation/01-20-PLAN.md |  | HC-1's expected result changed with this plan: step 5 now expects 401 after deleting ~/.derive/token with the server left RUNNING, no restart. The corrected six-step sequence is in 01-20-PLAN.md Task 3; still not performed by a human | open |  | 2026-09-20T17:19:15.256Z |  |
+| 11 | 01 | unrun-verify | server/test/guards.test.ts |  | The five clone-argv pins 01-21 added (ssh command, credential helper, fsmonitor, hooks path, pager) are asserted at the source, not driven: fromGitClone refuses anything that is not https:// before git is spawned and there is no DNS or outbound network here. Fold one repo import by GitHub URL into HC-2's run and confirm it still imports normally. | open |  | 2026-09-20T17:35:28.787Z |  |
 
 ````json
 [
@@ -155,6 +156,19 @@ last_updated: 2026-09-20T17:19:15.256Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-20T17:19:15.256Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 11,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": "server/test/guards.test.ts",
+    "line": null,
+    "description": "The five clone-argv pins 01-21 added (ssh command, credential helper, fsmonitor, hooks path, pager) are asserted at the source, not driven: fromGitClone refuses anything that is not https:// before git is spawned and there is no DNS or outbound network here. Fold one repo import by GitHub URL into HC-2's run and confirm it still imports normally.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-20T17:35:28.787Z",
     "resolved_at": null,
     "milestone": null
   }

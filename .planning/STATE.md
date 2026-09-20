@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Foundation
 status: executing
-stopped_at: Completed 01-20-PLAN.md
-last_updated: "2026-09-20T17:22:11.271Z"
+stopped_at: Completed 01-21-PLAN.md
+last_updated: "2026-09-20T17:37:58.032Z"
 last_activity: 2026-09-20
 last_activity_desc: Phase 01 execution started
-state_head: eb14843e364fdc080031d98c6a5145e553436dd8
+state_head: 1a0c868d64884ab407ac188d2fbdcb4faf287b89
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 21
-  completed_plans: 20
+  completed_plans: 21
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-17)
 ## Current Position
 
 Phase: 01 (Foundation) — EXECUTING
-Plan: 2 of 21
+Plan: 3 of 21
 Status: Ready to execute
 Last activity: 2026-09-20 — Phase 01 execution started
 
@@ -74,6 +74,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P14 | 41 min | 2 tasks | 8 files |
 | Phase 01 P15 | 22 min | 2 tasks | 4 files |
 | Phase 01 P20 | 116 min | 3 tasks | 7 files |
+| Phase 01 P21 | 9 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,9 @@ Recent decisions affecting current work:
 - [Phase 01]: Per 01-13 the same lstatSync substitution closes the directory-symlink cycle (advisory finding 5) as a consequence rather than a second mechanism, and an out-of-tree candidate increments the existing skipped count so the number the UI shows stays honest
 - [Phase 01]: Per 01-13 git clone is pinned with git config flags (http.followRedirects off, every protocol denied, https re-allowed) plus a disabled terminal prompt rather than a second copy of assertPublicHost, because git cannot re-check per hop the way fetchPublic does and two destination guards drift apart
 - [Phase 01]: Per 01-13 the tarball and clone cases are source assertions, matching the suite's AbortSignal.timeout precedent: git has no outbound HTTP offline, so the honest claim is that the absence of the flags is the regression to catch, and no doc-comment clause claims a redirect is refused in practice
+- [Phase 01]: Per 01-21 Gap 2 (FOUND-06) is closed by adding the pins rather than narrowing the sentence: fromGitClone's argv now carries the ssh-command, credential-helper, fsmonitor, hooks-path and pager pins beside its three transport flags and drops the machine's system config, so both git invocations in repo.ts have one machine-config posture — A clone is the path that opens a transport and can be asked for a credential, so those knobs belong on its argv; command-line -c is the one layer of git's config precedence a repository's own file cannot outrank, and five flags on a call that already carries three cost nothing
+- [Phase 01]: Per 01-21 the gitListFiles rationale names which knobs ride on which argv AND names the three that ride on neither (check-in content filters, an external diff driver, the pack-objects hook) with the reason, because a sentence listing only what is handled reads as coverage — Naming six knobs and pinning five is the same defect as naming six and pinning one, one knob narrower; the omission is what drifted last time
+- [Phase 01]: Per 01-21 the comment and the argv are held together by a case: argvOf slices from the execFileSync call, never from the function declaration, so the rationale comment is outside the slice by construction; the case was seen red with a pin removed and green with it restored — An assertion a comment can satisfy is not an assertion, and a gate that has not been seen failing is not known to be a gate
 
 ### Pending Todos
 
@@ -150,6 +154,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-20T17:22:11.190Z
-Stopped at: Completed 01-20-PLAN.md
+Last session: 2026-09-20T17:37:28.517Z
+Stopped at: Completed 01-21-PLAN.md
 Resume file: None
