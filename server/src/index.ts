@@ -1,5 +1,5 @@
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
@@ -12,6 +12,7 @@ import { z } from 'zod';
 import * as actions from './actions.js';
 import { interrupt, isBusy, runTurn } from './agent.js';
 import { backend, backendSource } from './backend.js';
+import { ensureToken, matchesSession, matchesToken, sessionValue } from './credentials.js';
 import { ALLOWED_ORIGINS, DERIVE_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, TOKEN_PATH, VAULT_DIR, VERSION } from './config.js';
 import {
   allNodes,
@@ -71,50 +72,27 @@ for (const t of closeOpenTurns('interrupted')) {
 }
 
 /**
- * The install token: read it, or make one the first time Derive runs.
- *
- * 32 bytes of randomness in a 0600 file next to the database, written with
- * "wx" so a second boot racing the first cannot clobber a token the app is
- * already holding. Nothing hands it out — everything on this machine except
- * the browser reads the file, and the browser is handed a separate derived
- * value instead — so a failure here has to be loud, or the learner is left
- * with an app that says 401 and no idea why.
+ * What `ensureToken()` returned at start. Not a credential: it is compared
+ * against nothing, and no check on any route consults it. It exists for one
+ * purpose — the startup line prints the link that signs a browser in, and a
+ * browser cannot read the 0600 file. Every credential check reads the file
+ * live instead (server/src/credentials.ts), behind a one-second cache, which
+ * is what makes deleting or rotating that file a revocation on a running
+ * server. Keeping a second, boot-frozen copy of the same value beside the live
+ * read is the defect this replaced; this one is kept because it is not that
+ * value's comparison, it is a string in a log line.
  */
-function ensureToken(): string {
-  if (!existsSync(TOKEN_PATH)) {
-    try {
-      writeFileSync(TOKEN_PATH, randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
-    } catch (e) {
-      // Losing the "wx" race to a concurrent boot is fine; that file is just as good.
-      if (!existsSync(TOKEN_PATH)) throw new Error(`could not write the derive token at ${TOKEN_PATH}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-  let token: string;
-  try {
-    token = readFileSync(TOKEN_PATH, 'utf8').trim();
-  } catch (e) {
-    throw new Error(`could not read the derive token at ${TOKEN_PATH}: ${e instanceof Error ? e.message : String(e)}. Delete that file and start derive again to make a new one.`);
-  }
-  if (!token) throw new Error(`the derive token at ${TOKEN_PATH} is empty. Delete that file and start derive again to make a new one.`);
-  return token;
-}
+const BOOT_TOKEN = ensureToken();
 
-/** This install's token. Deliberate module state: read once at boot, compared on every request, never emitted, and never returned by any route. The one place it is written out is the startup line, which prints the link that signs a browser in for thirty days — a browser cannot read the 0600 file and has no other way to present it. Every response is handed the derived value below instead, so no body, no header and no markup ever carries the token itself. */
-const TOKEN = ensureToken();
-const TOKEN_BUF = Buffer.from(TOKEN);
-
-/** The browser's credential, derived from the install token so it survives a restart and an open tab keeps working. It is never the token, and an HMAC is not reversible to one. */
-const SESSION = createHmac('sha256', TOKEN).update('derive browser session v1').digest('hex');
-const SESSION_BUF = Buffer.from(SESSION);
 /** The cookie the derived credential rides in. */
 const SESSION_COOKIE = 'derive_session';
 
 /** How long that cookie stays good for: long enough that a learner coming back after a holiday is not locked out mid-lesson, short enough that a browser profile nobody opens again does not carry a working credential indefinitely. */
 const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60;
 
-// Registered before a single route exists, so no request can be served while either value is still able to reach an error, a log line or a lesson note.
-registerSecret(TOKEN);
-registerSecret(SESSION);
+// Registered before a single route exists, so no request can be served while either value is still able to reach an error, a log line or a lesson note. Every later read registers whatever it newly sees, so a rotated-in token is covered the same way.
+registerSecret(BOOT_TOKEN);
+registerSecret(sessionValue());
 
 /** The four spellings of loopback a client may legitimately use. */
 const LOOPBACK_NAMES = ['localhost', '127.0.0.1', '::1', '[::1]'];
@@ -183,12 +161,6 @@ function splitHost(raw: string): { host: string; port: string } {
   return m ? { host: m[1].toLowerCase(), port: m[2] ?? '' } : { host: '', port: '' };
 }
 
-/** Constant-time string equality, falling back to plain inequality when the lengths already differ. */
-const sameValue = (supplied: string, expected: Buffer) => {
-  const buf = Buffer.from(supplied);
-  return buf.length === expected.length && timingSafeEqual(buf, expected);
-};
-
 /** A credential a request offers, or an empty string when it offered none. Whitespace-only is absent, never something to compare. */
 const offered = (raw: string | undefined) => (raw ?? '').trim();
 
@@ -248,6 +220,13 @@ function guardLocal(c: Context): Response | null {
  * reason — it exists so the credential does not come to rest, and its 302
  * drops it on the first response. An empty or whitespace-only value is
  * absent, never something to compare.
+ *
+ * Both credentials are compared against the token file as it is now, read
+ * live behind a one-second cache (server/src/credentials.ts), not against a
+ * value this process read at boot. This middleware and the document one
+ * below are the only two places that property is enforced, which is why it
+ * is written at both: deleting or rotating that file signs every browser and
+ * every header caller out within a second, without restarting derive.
  */
 app.use('/api/*', async (c, next) => {
   const refusal = guardLocal(c);
@@ -257,7 +236,7 @@ app.use('/api/*', async (c, next) => {
 
   const header = offered(c.req.header('x-derive-token'));
   const cookie = offered(getCookie(c, SESSION_COOKIE));
-  const ok = (header && sameValue(header, TOKEN_BUF)) || (cookie && sameValue(cookie, SESSION_BUF));
+  const ok = matchesToken(header) || matchesSession(cookie);
   if (!ok) return c.json({ error: `send the x-derive-token header, with the token in ${TOKEN_PATH}` }, 401);
 
   return next();
@@ -1110,12 +1089,22 @@ if (existsSync(distDir)) {
    *
    * What makes that lifetime defensible is revocation, and it is worth
    * writing down because no learner could infer it: the value is
-   * HMAC-SHA256 of the install token, so deleting or rotating the token file
-   * invalidates every cookie ever issued, with no code change and no per-
-   * session bookkeeping.
+   * HMAC-SHA256 of the install token, and every check reads that file live
+   * behind a one-second cache, so deleting or rotating it invalidates every
+   * cookie ever issued within a second, without restarting derive — no code
+   * change and no per-session bookkeeping.
+   *
+   * The value is taken from `sessionValue()` rather than from a constant read
+   * at boot, so the mint and the check have one source: a browser signing in
+   * a second after a rotation is handed a cookie the next request accepts
+   * rather than one it refuses.
+   *
+   * The honest cost: a rotation also signs out the long-running stdio MCP
+   * server and the plugin hook until each is restarted, because each reads
+   * the token file once at its own start.
    */
   function issueSession(c: Context) {
-    setCookie(c, SESSION_COOKIE, SESSION, { httpOnly: true, sameSite: 'Strict', path: '/', maxAge: SESSION_MAX_AGE_S });
+    setCookie(c, SESSION_COOKIE, sessionValue(), { httpOnly: true, sameSite: 'Strict', path: '/', maxAge: SESSION_MAX_AGE_S });
   }
 
   /** The app, exactly as it is on disk. The cookie that lets it call the API was set by the handoff that let this request past the middleware, so serving is only serving. */
@@ -1145,6 +1134,12 @@ if (existsSync(distDir)) {
    * implementation and one polarity rather than two to keep in step. A
    * request that arrived on an address this process cannot name is refused by
    * that guard, and one that passes it still has to present a credential.
+   *
+   * The cookie and the token are both compared against the token file as it
+   * is now, read live behind a one-second cache, so deleting or rotating that
+   * file refuses every browser here within a second, without restarting
+   * derive. The order is unchanged and is what a reader should be able to
+   * rely on: the cookie, then the install token, then the one-time ticket.
    */
   app.use('/*', async (c, next) => {
     if (c.req.path.startsWith('/api/')) return next();
@@ -1152,10 +1147,10 @@ if (existsSync(distDir)) {
     if (refusal) return refusal;
 
     const cookie = offered(getCookie(c, SESSION_COOKIE));
-    if (cookie && sameValue(cookie, SESSION_BUF)) return next();
+    if (matchesSession(cookie)) return next();
 
     const presented = offered(c.req.header('x-derive-token')) || offered(c.req.query('token'));
-    if (presented && sameValue(presented, TOKEN_BUF)) {
+    if (matchesToken(presented)) {
       issueSession(c);
       // A caller-supplied path is not a Location: resolving it against a fixed base collapses a protocol-relative "//elsewhere" to a path on this server and percent-encodes a control character that would otherwise split the header.
       return c.redirect(new URL(c.req.path, 'http://127.0.0.1').pathname, 302);
@@ -1179,7 +1174,7 @@ serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
   // The learner's next step is a link, not a lookup: a browser cannot read the 0600 token file, so the one-time handoff URL is printed where they already are.
   console.log(
     existsSync(distDir)
-      ? `derive server on http://localhost:${info.port}/?token=${TOKEN} — open that link once; the token drops out of the URL and a cookie keeps that browser signed in for 30 days. To sign in again, or in another browser, open the same link: it is printed every time the server starts, and the token in it is the one in ${TOKEN_PATH}`
+      ? `derive server on http://localhost:${info.port}/?token=${BOOT_TOKEN} — open that link once; the token drops out of the URL and a cookie keeps that browser signed in for 30 days. To sign in again, or in another browser, open the same link: it is printed every time the server starts, and the token in it is the one in ${TOKEN_PATH}`
       : `derive server on http://localhost:${info.port} (API only; run the web dev server too)`,
   );
   console.log(`tutor runs on ${backend() === 'codex' ? 'Codex (your ChatGPT login)' : 'Claude (your Claude Code login)'}${backendSource() === 'auto' ? ', picked automatically; set DERIVE_BACKEND to choose' : ''}`);

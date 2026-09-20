@@ -16,7 +16,7 @@ function readPort(raw: string | undefined): number {
 export const PORT = readPort(process.env.PORT);
 export const DATA_DIR = resolve(process.env.DERIVE_DATA_DIR ?? join(homedir(), '.derive'));
 export const DB_PATH = join(DATA_DIR, 'derive.db');
-/** The per-install token every /api request but health must carry. Written on first boot, read by the app, the dev proxy, the MCP server and the plugin hook; no endpoint ever hands it out. */
+/** The per-install token every /api request but health must carry. Written on first boot and read live by the server on every credential check, so deleting or rotating it signs every browser and every header caller out; read once at its own start by the dev proxy, the MCP server and the plugin hook, which is why a rotation signs those out until each restarts. No endpoint ever hands it out. */
 export const TOKEN_PATH = join(DATA_DIR, 'token');
 /** Which interface the server answers on. Loopback by default; DERIVE_HOST=0.0.0.0 opens it to the network, and the token stays mandatory there. */
 export const HOST = process.env.DERIVE_HOST?.trim() || '127.0.0.1';
