@@ -14,15 +14,21 @@
  * the same secret-name refusal the folder import runs; and a folder import
  * refuses a home directory, skips the files that hold credentials, and
  * skips a symlink rather than following it, including a directory link back
- * into its own ancestor.
+ * into its own ancestor; and that same folder import is handed a repository
+ * whose own .git/config names a command, for each of the three knobs the
+ * listing argv pins, so the two halves of what confinement means here are
+ * both driven — the import reads no byte outside the tree it was given, and
+ * it runs no code the tree carries.
  *
  * Offline by construction: the guards are driven directly, no private
- * address is ever connected to, and the one case that needs a server uses a
- * fixture on this machine.
+ * address is ever connected to, the hostile repositories are built in the
+ * temp directory and reach nothing, and the one case that needs a server uses
+ * a fixture on this machine.
  */
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -35,6 +41,30 @@ const { MAX_TARBALL_BYTES, collectRepo, fromDirectory, isSecretName, readCapped 
 
 /** Any clone- scratch directory the importer left behind in the data dir; the temp dir is made immediately before the spawn. */
 const cloneDirs = () => readdirSync(process.env.DERIVE_DATA_DIR!).filter((n) => n.startsWith('clone-'));
+
+/** Whether a hostile repository can be built and driven here at all. A machine without git, or one where a /bin/sh command means nothing, is a real state, and the cases that need one say they were skipped rather than asserting nothing. */
+function canBuildRepo(): boolean {
+  if (process.platform === 'win32') return false;
+  try {
+    execFileSync('git', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A scratch repository holding one ordinary file, whose own .git/config sets `key` to `value`. That config is the attacker's half of this: the learner cloned the repository, and git reads its config when the importer lists the tree. */
+function hostileRepo(key: string, value: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'derive-hostile-'));
+  execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+  writeFileSync(join(dir, 'README.md'), '# a project\n\nwith some words in it.');
+  execFileSync('git', ['add', 'README.md'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['config', key, value], { cwd: dir, stdio: 'ignore' });
+  return dir;
+}
+
+/** Where a command the repository named would leave its mark: a path in a scratch directory of its own, outside any repository, so its presence can only mean the command ran. */
+const sentinelPath = () => join(mkdtempSync(join(tmpdir(), 'derive-sentinel-')), 'ran');
 
 const refused = async (url: string) => {
   await assert.rejects(() => assertPublicHost(url), (e: Error) => /private or local address|could not look up|only http\(s\)|not a URL/.test(e.message));
@@ -256,6 +286,106 @@ describe('importing a folder', () => {
     const src = fromDirectory(dir);
     assert.deepEqual(
       src.files.map((f) => f.path),
+      ['README.md'],
+    );
+  });
+});
+
+describe('a repository that carries a command', () => {
+  const skip = canBuildRepo() ? false : 'git or a /bin/sh command means nothing on this machine, so there is no repository to build';
+
+  it('does not run the command its config names in core.fsmonitor', { skip }, () => {
+    // The reproduced vector: --others is what makes git consult core.fsmonitor, and git spawns it as this process before a single check in fromDirectory has run.
+    const sentinel = sentinelPath();
+    const dir = hostileRepo('core.fsmonitor', `/bin/sh -c "touch ${sentinel}; exit 1"`);
+    const src = fromDirectory(dir);
+    assert.equal(existsSync(sentinel), false, 'the repository ran the command its config named');
+    assert.deepEqual(
+      src.files.map((f) => f.path),
+      ['README.md'],
+    );
+  });
+
+  it('does not run a hook from the directory its config names in core.hooksPath', { skip }, () => {
+    const sentinel = sentinelPath();
+    const hooks = mkdtempSync(join(tmpdir(), 'derive-hooks-'));
+    for (const name of ['pre-commit', 'post-index-change', 'fsmonitor-watchman']) {
+      writeFileSync(join(hooks, name), `#!/bin/sh\ntouch ${sentinel}\nexit 1\n`);
+      chmodSync(join(hooks, name), 0o755);
+    }
+    const dir = hostileRepo('core.hooksPath', hooks);
+    const src = fromDirectory(dir);
+    assert.equal(existsSync(sentinel), false, 'the repository ran a hook from the directory its config named');
+    assert.deepEqual(
+      src.files.map((f) => f.path),
+      ['README.md'],
+    );
+  });
+
+  it('does not run the command its config names in core.pager', { skip }, () => {
+    const sentinel = sentinelPath();
+    const dir = hostileRepo('core.pager', `/bin/sh -c "touch ${sentinel}; cat"`);
+    const src = fromDirectory(dir);
+    assert.equal(existsSync(sentinel), false, 'the repository ran the pager its config named');
+    assert.deepEqual(
+      src.files.map((f) => f.path),
+      ['README.md'],
+    );
+  });
+
+  it('pins the listing to a config the repository cannot set', () => {
+    // Read off the source, in the register of the clone pin case above: the three cases before this one drive the knobs that are reachable offline, and a pin whose absence is the regression still has to be checked where it is written.
+    const source = readFileSync(new URL('../src/repo.ts', import.meta.url), 'utf8');
+    const listing = source.slice(source.indexOf('function gitListFiles'), source.indexOf('function walk'));
+    for (const flag of ['core.fsmonitor=false', 'core.hooksPath=/dev/null', 'core.pager=cat']) {
+      assert.ok(listing.includes(`'${flag}'`), `the listing argv is missing ${flag}`);
+    }
+    assert.match(listing, /GIT_CONFIG_NOSYSTEM: '1'/);
+    assert.match(listing, /timeout: 30_000/);
+  });
+
+  it('imports a repository with no files at all as an empty list', { skip }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'derive-empty-'));
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    assert.deepEqual(
+      fromDirectory(dir).files.map((f) => f.path),
+      [],
+    );
+  });
+
+  it('walks a folder with no .git at all, exactly as it did before', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'derive-plain-'));
+    writeFileSync(join(dir, 'README.md'), '# a project\n\nwith some words in it.');
+    assert.deepEqual(
+      fromDirectory(dir).files.map((f) => f.path),
+      ['README.md'],
+    );
+  });
+
+  it('imports a repository whose .git/config is empty, and one whose .git/config is malformed', { skip }, () => {
+    const empty = hostileRepo('core.fsmonitor', 'false');
+    writeFileSync(join(empty, '.git', 'config'), '');
+    assert.deepEqual(
+      fromDirectory(empty).files.map((f) => f.path),
+      ['README.md'],
+    );
+    // A config git cannot parse must not become a config git half-applies: the section header below is never closed, and the command on the next line must not run on the way to the error.
+    const sentinel = sentinelPath();
+    const broken = hostileRepo('core.fsmonitor', 'false');
+    writeFileSync(join(broken, '.git', 'config'), `[core\n\tfsmonitor = /bin/sh -c "touch ${sentinel}; exit 1"\n`);
+    assert.deepEqual(
+      fromDirectory(broken).files.map((f) => f.path),
+      ['README.md'],
+    );
+    assert.equal(existsSync(sentinel), false, 'a config git could not parse was half-applied');
+  });
+
+  it('admits the tree root itself, and still refuses a link inside the tree that resolves to it', { skip }, () => {
+    // The adjacency edge: fromDirectory compares `real !== rootReal` first, so a link whose target is the root passes the confinement check by being equal to it; what refuses the link is the lstat that follows, because a link is not a file.
+    const dir = hostileRepo('core.fsmonitor', 'false');
+    symlinkSync(dir, join(dir, 'self.md'));
+    assert.deepEqual(
+      fromDirectory(dir).files.map((f) => f.path),
       ['README.md'],
     );
   });

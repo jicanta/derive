@@ -4,6 +4,14 @@
  * ls-files` when git is there), a GitHub URL (the tarball, no git needed)
  * or any other git URL (a shallow clone), in an order that puts the README,
  * the docs and the manifests before the source.
+ *
+ * A repository is attacker-controlled data, so the import is confined in two
+ * separate senses and both are meant wherever this file says confined: it
+ * reads no byte outside the tree it was given — the realpath and lstat checks
+ * in fromDirectory — and it runs no code the tree carries, which is the pinned
+ * argv in gitListFiles rather than any check downstream of the spawn. Only the
+ * first was true and claimed before, and the second half is the one the gap was
+ * reached through.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
