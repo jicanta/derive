@@ -1,0 +1,48 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": null,
+  "phases": [
+    {
+      "number": "1",
+      "name": "Foundation",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "Settings and Secrets",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "Owned Loop: API Keys and Gateways",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "Local Models, Parity Proof and Usage",
+      "status": "pending"
+    },
+    {
+      "number": "5",
+      "name": "Learning Experience",
+      "status": "pending"
+    },
+    {
+      "number": "6",
+      "name": "Personalization",
+      "status": "pending"
+    },
+    {
+      "number": "7",
+      "name": "Adoption",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd:progress --next",
+    "label": "Advance to the next step (plan phase 2)",
+    "reason": "Phase 2 of 7 — needs a plan"
+  },
+  "updated_at": "2026-09-20T18:54:58.592Z"
+}
