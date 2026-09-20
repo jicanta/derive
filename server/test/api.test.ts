@@ -8,13 +8,14 @@
  * Needs `pnpm build` first (it runs server/dist/index.js).
  */
 import assert from 'node:assert/strict';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { startDeriveServer } from './spawn.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const entry = resolve(here, '../dist/index.js');
@@ -49,24 +50,8 @@ const nodes = async (lesson: string) => {
 
 before(async () => {
   assert.ok(existsSync(entry), `build first: ${entry} is missing`);
-  dataDir = mkdtempSync(join(tmpdir(), 'derive-api-'));
-  const port = 4400 + Math.floor(Math.random() * 500);
-  base = `http://127.0.0.1:${port}`;
-  server = spawn(process.execPath, [entry], { env: { ...process.env, PORT: String(port), DERIVE_DATA_DIR: dataDir, DERIVE_BACKEND: 'claude' }, stdio: ['ignore', 'pipe', 'pipe'] });
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`${base}/api/health`);
-      if (r.ok) {
-        token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
-        return;
-      }
-    } catch {
-      /* not up yet */
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error('server did not start');
+  ({ child: server, base, dataDir } = await startDeriveServer(entry));
+  token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
 });
 
 after(() => {
