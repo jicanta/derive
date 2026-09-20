@@ -47,7 +47,7 @@ const TEXT_EXTS = new Set([
   '.vue', '.svelte', '.astro', '.html', '.htm', '.css', '.scss', '.sass', '.less', '.md', '.markdown', '.mdx', '.rst', '.txt', '.tex',
   '.org', '.json', '.json5', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.xml', '.proto', '.graphql', '.gql', '.prisma',
   '.cmake', '.gradle', '.bzl', '.bazel', '.nix', '.el', '.vim', '.lisp', '.scm', '.rkt', '.zig', '.v', '.odin', '.nim', '.cr', '.sol',
-  '.tf', '.hcl', '.env.example', '.example', '.txt', '.csv', '.ipynb',
+  '.tf', '.hcl', '.example', '.csv', '.ipynb',
 ]);
 const TEXT_NAMES = new Set(['Makefile', 'Dockerfile', 'Rakefile', 'Gemfile', 'Procfile', 'CMakeLists.txt', 'LICENSE', 'LICENCE', 'README', 'NOTICE', 'CHANGELOG', 'AUTHORS', 'CODEOWNERS', 'Justfile', 'justfile', '.gitignore', '.editorconfig']);
 const MANIFESTS = new Set(['package.json', 'pyproject.toml', 'setup.py', 'Cargo.toml', 'go.mod', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'Gemfile', 'composer.json', 'mix.exs', 'pubspec.yaml', 'Package.swift', 'CMakeLists.txt', 'Makefile', 'Dockerfile', 'docker-compose.yml', 'compose.yaml', 'tsconfig.json']);
@@ -217,6 +217,7 @@ function* untar(buf: Uint8Array): Generator<{ path: string; data: Uint8Array }> 
   while (off + 512 <= buf.length) {
     if (buf[off] === 0) break;
     const size = parseInt(str(124, 12).trim() || '0', 8);
+    // A NUL type flag is the ustar convention for a regular file, so it is mapped to '0' here and the yield below has one value to compare rather than three.
     const type = String.fromCharCode(buf[off + 156] || 48);
     const prefix = str(345, 155);
     let name = str(0, 100);
@@ -231,7 +232,7 @@ function* untar(buf: Uint8Array): Generator<{ path: string; data: Uint8Array }> 
       name = longName;
       longName = null;
     }
-    if (type === '0' || type === '\0' || type === '') yield { path: name, data };
+    if (type === '0') yield { path: name, data };
   }
 }
 
