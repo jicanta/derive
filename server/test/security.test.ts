@@ -24,6 +24,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { networkInterfaces, tmpdir } from 'node:os';
@@ -669,6 +670,64 @@ describe('revoking the install token on a running server', () => {
 
     assert.equal((await fetch(`${own.base}/api/health`)).status, 200, 'the server died rather than refusing');
     assert.equal(existsSync(own.tokenPath), false, 'a credential check created a replacement token');
+  });
+
+  it('is rotated rather than merely broken when the token file is replaced', async () => {
+    // The case above left the file absent; put a known value back and let the window pass, so this one starts from a server that authenticates again.
+    const before = randomBytes(32).toString('hex');
+    writeFileSync(own.tokenPath, before, { mode: 0o600 });
+    await pastTheWindow();
+
+    const session = await signIn(before);
+    assert.equal((await fetch(`${own.base}/api/lessons`, { headers: { cookie: `${SESSION_COOKIE}=${session}` } })).status, 200, 'the browser was not signed in to begin with');
+
+    const rotated = randomBytes(32).toString('hex');
+    writeFileSync(own.tokenPath, rotated, { mode: 0o600 });
+    await pastTheWindow();
+
+    assert.equal((await fetch(`${own.base}/api/lessons`, { headers: { cookie: `${SESSION_COOKIE}=${session}` } })).status, 401, 'the pre-rotation cookie survived the rotation');
+    assert.equal((await fetch(`${own.base}/api/lessons`, { headers: { 'x-derive-token': before } })).status, 401, 'the pre-rotation token survived the rotation');
+    assert.equal((await fetch(`${own.base}/api/lessons`, { headers: { 'x-derive-token': rotated } })).status, 200, 'the rotated-in token does not authenticate');
+
+    // The half a deletion cannot show: the credential moved, it did not merely break. A cookie minted from a boot-time value would be refused by the very next check, which is the failure this last pair exists to catch.
+    const handoff = await fetch(`${own.base}/?token=${rotated}`, { redirect: 'manual' });
+    assert.equal(handoff.status, 302, 'the rotated-in token did not open the page');
+    const line = cookieFrom(handoff);
+    assert.ok(line, 'the rotated-in token bought no cookie');
+    assert.notEqual(cookieValue(line), session, 'the rotation handed the browser its pre-rotation cookie value back');
+    assert.notEqual(cookieValue(line), rotated, 'the cookie is the token');
+    assert.equal((await fetch(`${own.base}/api/lessons`, { headers: { cookie: `${SESSION_COOKIE}=${cookieValue(line)}` } })).status, 200, 'a cookie minted after the rotation was refused by the very next check');
+  });
+
+  it('scrubs a rotated-in token out of an error body the way it scrubs the boot one', async () => {
+    // What would have to be broken for this to fail is a live read that never registers what it reads: the redaction chokepoint only removes values it was given, so a token this process learned about from the file rather than at boot is covered only because credentials() hands each new read to registerSecret (D-11).
+    const live = readFileSync(own.tokenPath, 'utf8').trim();
+    assert.notEqual(live, own.token, 'this case is meant to run on a token the process did not read at boot');
+    const res = await fetch(`${own.base}/api/materials/repo`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-derive-token': live },
+      body: JSON.stringify({ source: live }),
+    });
+    assert.equal(res.status, 422);
+    const body = await res.text();
+    assert.ok(!body.includes(live), `the rotated-in token reached an error body: ${body}`);
+    assert.ok(body.includes('[redacted]'), body);
+  });
+});
+
+describe('the credential comparison has one source of truth', () => {
+  it('keeps no boot-time credential buffer and no local comparison helper in the route file', () => {
+    // Read off the source, in the register of the source-read cases in guards.test.ts. The defect this closes was not a wrong value but a second source of truth — a value read at boot sitting beside the live read — and the only way to catch its return is to assert that the second source does not exist. A case that drove behaviour would stay green while an unconsulted snapshot sat there, right up until an edit consulted it again.
+    const code = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8')
+      .split('\n')
+      .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
+      .join('\n');
+    for (const gone of ['TOKEN_BUF', 'SESSION_BUF', 'sameValue(']) {
+      assert.ok(!code.includes(gone), `server/src/index.ts consults ${gone} again: the credential has two sources of truth`);
+    }
+    for (const present of ['matchesToken(', 'matchesSession(', 'sessionValue()']) {
+      assert.ok(code.includes(present), `server/src/index.ts no longer goes through ${present}`);
+    }
   });
 });
 
