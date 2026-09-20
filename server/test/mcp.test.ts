@@ -15,12 +15,12 @@
  */
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { ALL_TOOL_NAMES } from '../src/tools.js';
+import { startDeriveServer } from './spawn.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const serverEntry = resolve(here, '../dist/index.js');
@@ -79,27 +79,10 @@ const teachProse = (lesson: string, node: string) =>
 before(async () => {
   assert.ok(existsSync(serverEntry), `build first: ${serverEntry} is missing`);
   assert.ok(existsSync(mcpEntry), `build first: ${mcpEntry} is missing`);
-  dataDir = mkdtempSync(join(tmpdir(), 'derive-mcp-'));
-  const port = 4400 + Math.floor(Math.random() * 500);
-  base = `http://127.0.0.1:${port}`;
-  server = spawn(process.execPath, [serverEntry], { env: { ...process.env, PORT: String(port), DERIVE_DATA_DIR: dataDir, DERIVE_BACKEND: 'claude' }, stdio: ['ignore', 'pipe', 'pipe'] });
-  const deadline = Date.now() + 20_000;
-  let up = false;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`${base}/api/health`);
-      if (r.ok) {
-        token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
-        up = true;
-        break;
-      }
-    } catch {
-      /* not up yet */
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  if (!up) throw new Error('server did not start');
+  ({ child: server, base, dataDir } = await startDeriveServer(serverEntry));
+  token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
 
+  // The mcp child is not a derive server — it speaks JSON-RPC over stdio and binds nothing — so it keeps its own spawn, and takes DERIVE_URL from the base the helper just returned.
   mcp = spawn(process.execPath, [mcpEntry], {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, DERIVE_URL: base, DERIVE_ANSWER_IN: 'terminal', DERIVE_DRIVER: 'claude-code', DERIVE_DATA_DIR: dataDir },

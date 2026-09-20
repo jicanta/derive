@@ -11,7 +11,7 @@
  * touch ~/.derive/derive.db.
  */
 import assert from 'node:assert/strict';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,6 +19,7 @@ import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { startDeriveServer } from './spawn.js';
 
 // db.ts opens the database on import, and backend() shells out on its first
 // call; pin both before anything under src/ is imported.
@@ -163,24 +164,8 @@ describe('a lesson driven from a terminal', () => {
 
   before(async () => {
     assert.ok(existsSync(entry), `build first: ${entry} is missing`);
-    dataDir = mkdtempSync(join(tmpdir(), 'derive-usage-api-'));
-    const port = 4900 + Math.floor(Math.random() * 400);
-    base = `http://127.0.0.1:${port}`;
-    server = spawn(process.execPath, [entry], { env: { ...process.env, PORT: String(port), DERIVE_DATA_DIR: dataDir, DERIVE_BACKEND: 'claude' }, stdio: ['ignore', 'pipe', 'pipe'] });
-    const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline) {
-      try {
-        const r = await fetch(`${base}/api/health`);
-        if (r.ok) {
-          token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
-          return;
-        }
-      } catch {
-        /* not up yet */
-      }
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    throw new Error('server did not start');
+    ({ child: server, base, dataDir } = await startDeriveServer(entry));
+    token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
   });
 
   after(() => {

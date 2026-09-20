@@ -20,13 +20,14 @@
  * Needs `pnpm build` first (it runs server/dist/index.js).
  */
 import assert from 'node:assert/strict';
-import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { type ChildProcess } from 'node:child_process';
+import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { request } from 'node:http';
-import { networkInterfaces, tmpdir } from 'node:os';
+import { networkInterfaces } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { startDeriveServer } from './spawn.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const entry = resolve(here, '../dist/index.js');
@@ -89,22 +90,9 @@ function lanAddress(): string | undefined {
  */
 async function startServer(env: Record<string, string> = {}): Promise<{ server: ChildProcess; base: string; port: number; dataDir: string; tokenPath: string; token: string }> {
   assert.ok(existsSync(entry), `build first: ${entry} is missing`);
-  const dir = mkdtempSync(join(tmpdir(), 'derive-sec-'));
-  const p = Number(env.PORT ?? 4900 + Math.floor(Math.random() * 90));
-  const url = `http://127.0.0.1:${p}`;
-  const child = spawn(process.execPath, [entry], { env: { ...process.env, PORT: String(p), DERIVE_DATA_DIR: dir, DERIVE_BACKEND: 'claude', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`${url}/api/health`);
-      if (r.ok) return { server: child, base: url, port: p, dataDir: dir, tokenPath: join(dir, 'token'), token: readFileSync(join(dir, 'token'), 'utf8').trim() };
-    } catch {
-      /* not up yet */
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  child.kill();
-  throw new Error('server did not start');
+  const { child, base: url, port: p, dataDir: dir } = await startDeriveServer(entry, env);
+  const path = join(dir, 'token');
+  return { server: child, base: url, port: p, dataDir: dir, tokenPath: path, token: readFileSync(path, 'utf8').trim() };
 }
 
 before(async () => {
@@ -255,7 +243,7 @@ describe('a widened bind', () => {
   let wide: Awaited<ReturnType<typeof startServer>> | undefined;
 
   before(async () => {
-    wide = await startServer({ DERIVE_HOST: '0.0.0.0', PORT: String(5000 + Math.floor(Math.random() * 90)) });
+    wide = await startServer({ DERIVE_HOST: '0.0.0.0' });
   });
 
   after(() => {
