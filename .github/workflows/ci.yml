@@ -15,12 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         # The version comes from packageManager in package.json.
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -50,5 +50,13 @@ jobs:
         env:
           CI: 'true'
 
-      - name: Doctor script runs
-        run: node scripts/doctor.mjs || true
+      # tsc covers server/src and web/src only, so the standalone .mjs files —
+      # the method renderer and its CI gate, the preflight doctor, and the
+      # Claude Code hook that ships in the plugin — have no other check.
+      # `pnpm check` runs doctor.mjs for real on a developer's machine; here it
+      # would only ever report a missing Claude login, so parse them instead.
+      - name: Standalone scripts parse
+        run: |
+          for f in scripts/render-method.mjs scripts/check-method.mjs scripts/doctor.mjs plugin/hooks/mirror.mjs; do
+            node --check "$f"
+          done
