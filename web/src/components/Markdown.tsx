@@ -10,6 +10,8 @@ function loadMermaid() {
     mermaidReady = import('mermaid').then((m) => {
       m.default.initialize({
         startOnLoad: false,
+        // mermaid 12 lays flowcharts out with ELK unless told otherwise; dagre keeps the diagrams lessons already rendered looking the same.
+        layout: 'dagre',
         theme: 'base',
         securityLevel: 'loose',
         fontFamily: 'Instrument Sans, system-ui, sans-serif',
