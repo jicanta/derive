@@ -37,8 +37,9 @@ export function codexLoggedIn(): boolean {
 export function codexBinary(): string | undefined {
   if (CODEX_BIN) return CODEX_BIN;
   try {
-    // pnpm keeps @openai/codex under the SDK's own node_modules, so resolve it from there.
-    const sdkPkg = createRequire(import.meta.url).resolve('@openai/codex-sdk/package.json');
+    // pnpm keeps @openai/codex under the SDK's own node_modules, so resolve it from there. The SDK's
+    // exports map only exposes its ESM entry point, so resolve that and step up to the package root.
+    const sdkPkg = join(dirname(fileURLToPath(import.meta.resolve('@openai/codex-sdk'))), '..', 'package.json');
     const codexPkg = createRequire(sdkPkg).resolve('@openai/codex/package.json');
     const target = ({ linux: 'linux', darwin: 'darwin', win32: 'win32' } as Record<string, string>)[process.platform];
     const arch = ({ x64: 'x64', arm64: 'arm64' } as Record<string, string>)[process.arch];
