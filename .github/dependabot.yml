@@ -12,3 +12,7 @@ updates:
     groups:
       dev:
         dependency-type: development
+    ignore:
+      # @types/node tracks the Node major Derive runs on (engines.node >=22.5); bump it with the runtime, not on its own.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]

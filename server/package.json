@@ -23,9 +23,9 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
+    "@types/node": "^22.20.1",
     "tsx": "^4.19.0",
-    "typescript": "^5.8.0"
+    "typescript": "^7.0.2"
   },
   "bin": {
     "derive-mcp": "dist/mcp.js"
