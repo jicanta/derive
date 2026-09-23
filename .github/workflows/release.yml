@@ -14,9 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -33,7 +33,7 @@ jobs:
             server/package.json server/dist server/tsconfig.json \
             web/package.json web/dist plugin codex docs
           tar -czf "out/derive-plugin-${GITHUB_REF_NAME}.tar.gz" plugin server/dist server/package.json
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: out/*.tar.gz
