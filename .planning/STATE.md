@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-20)
 Phase: 2 — Settings and Secrets
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-09-20 — Phase 01 complete, transitioned to Phase 2
+Last activity: 2026-09-23 - Completed quick task 260923-bus: fix GitHub issue 10: update pnpm from 10.33.2 to 12.5.1 and move onlyBuiltDependencies to pnpm-workspace.yaml allowBuilds
 
 Progress: [█░░░░░░░░░] 14%
 
@@ -147,6 +147,12 @@ None yet.
 - [Phase 3]: AI SDK 7 API shapes, OpenRouter per-response cost field path, and context compaction strategy are unverified in this repo
 - [Phase 4]: No measurement yet of which local models pass the understanding gate; the harness produces the answer
 - [Phase 7]: npm package name not yet reserved (`derive` is taken)
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260923-bus | fix GitHub issue 10: update pnpm from 10.33.2 to 12.5.1 and move onlyBuiltDependencies to pnpm-workspace.yaml allowBuilds | 2026-09-23 | f041709 | [260923-bus-fix-github-issue-10-update-pnpm-from-10-](./quick/260923-bus-fix-github-issue-10-update-pnpm-from-10-/) |
 
 ## Deferred Items
 
