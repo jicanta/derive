@@ -25,7 +25,7 @@
 import { claudeLoggedIn, codexLoggedIn } from './backend.js';
 import { BACKEND_SETTING, MODEL, type Backend } from './config.js';
 import { getSetting } from './db.js';
-import { providerOf, type ProviderId } from './providers.js';
+import { providerOf, type ProviderId, type ProviderSpec } from './providers.js';
 
 /** Where the provider came from: the environment, the settings table, or the logins the machine has. */
 export type TutorSource = 'environment' | 'settings' | 'detected';
@@ -50,6 +50,37 @@ export const modelKey = (id: string) => `model:${id}`;
 
 /** The settings key holding a provider's stored base URL. */
 export const baseUrlKey = (id: string) => `base_url:${id}`;
+
+/** Where a local row or the OpenAI-compatible row is reached: the base the learner stored, else the catalogue default, else null where the learner has not supplied one. */
+export function localBase(spec: Pick<ProviderSpec, 'id' | 'endpoint'>): string | null {
+  return getSetting(baseUrlKey(spec.id)) ?? spec.endpoint;
+}
+
+/** The port a base URL names, or the scheme's default when it names none. */
+export function portOf(base: string): number {
+  const u = new URL(base);
+  return u.port ? Number(u.port) : u.protocol === 'https:' ? 443 : 80;
+}
+
+/**
+ * A learner-typed base URL, reduced to what a probe and a later request may
+ * be pointed at: http or https only, no credentials the request would carry
+ * to the host, no query or fragment a path would be appended after, and the
+ * origin plus path with any trailing slash removed so `${base}/v1/models`
+ * joins cleanly. Each refusal is the sentence the row shows.
+ */
+export function normaliseBaseUrl(raw: string): string {
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    throw new Error('the base URL must start with http:// or https://');
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('the base URL must start with http:// or https://');
+  if (u.username || u.password) throw new Error('the base URL must not carry a username or password');
+  if (u.search || u.hash) throw new Error('the base URL must not have a query or fragment');
+  return `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
+}
 
 /** How old an observation may be before a turn re-runs the login detectors. Bounds the spawn, never replaces the decision. */
 export const DETECT_MS = 30_000;

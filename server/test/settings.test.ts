@@ -20,11 +20,13 @@ import assert from 'node:assert/strict';
 import { type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import { type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { startDeriveServer } from './spawn.js';
+import { freePort, startDeriveServer } from './spawn.js';
 
 // db.ts opens the database on import and the resolver may shell out on its
 // first detection; pin the data dir, unset the env locks and hide the
@@ -42,8 +44,9 @@ const { createLesson, deleteSetting, endTurn, getLesson, lastTurn, listEvents, s
 const { runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
 const { fakeDriver, setFakeScript } = await import('../src/drivers/fake.js');
-const { ACTIVE_PROVIDER, DETECT_MS, backendOf, currentDetection, currentTutor, lastDetection, modelKey, rememberDetection, resetDetection, resolveTutor } = await import('../src/settings.js');
-const { PROVIDERS, providerOfDriver } = await import('../src/providers.js');
+const { ACTIVE_PROVIDER, DETECT_MS, backendOf, baseUrlKey, currentDetection, currentTutor, lastDetection, localBase, modelKey, normaliseBaseUrl, portOf, rememberDetection, resetDetection, resolveTutor } = await import('../src/settings.js');
+const { PROVIDERS, providerOf, providerOfDriver } = await import('../src/providers.js');
+const { isLlamaCpp, isLmStudio, isOllama, probeJson } = await import('../src/probe.js');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const entry = resolve(here, '../dist/index.js');
@@ -56,7 +59,7 @@ after(() => {
 const hermetic = { DERIVE_BACKEND: '', DERIVE_MODEL: '', CODEX_HOME: codexHome, PATH: emptyBin };
 
 type Tutor = { provider: string; model: string | null; source: string; modelSource: string | null };
-type Row = { id: string; teaches: boolean; default_model: string | null; model: string | null; status: string; active: boolean };
+type Row = { id: string; teaches: boolean; default_model: string | null; model: string | null; base_url: string | null; base_url_default: string | null; status: string; active: boolean };
 type SettingsView = { active: Tutor; defaults_as_of: string; provider_locked: string | null; model_locked: string | null; rows: Row[] };
 
 /** A request against one spawned server, with its token. */
@@ -237,6 +240,157 @@ describe('read-only routes never spawn', { skip: process.platform === 'win32' },
     const view = await api<SettingsView>('/api/settings');
     assert.equal(view.json.rows.find((row) => row.id === 'claude-code')!.status, 'logged in');
   });
+
+  it('spawns the CLI exactly once per detect pass, and not for the reads that follow', async () => {
+    const before = runs();
+    const r = await api<SettingsView>('/api/settings/detect', {});
+    assert.equal(r.status, 200, r.text);
+    assert.equal(runs(), before + 1);
+    assert.equal(r.json.rows.find((row) => row.id === 'claude-code')!.status, 'logged in');
+    for (let i = 0; i < 3; i++) await api('/api/settings');
+    assert.equal(runs(), before + 1);
+  });
+});
+
+/** A loopback server answering one JSON body on one path, and 404 elsewhere; or HTML everywhere, the way a foreign dashboard on a default port does. */
+function fakeServer(answer: (url: string) => { status: number; type: string; body: string }): Promise<{ server: Server; port: number }> {
+  return new Promise((res) => {
+    const server = createServer((req, r) => {
+      const a = answer(req.url ?? '/');
+      r.statusCode = a.status;
+      r.setHeader('content-type', a.type);
+      r.end(a.body);
+    });
+    server.listen(0, '127.0.0.1', () => res({ server, port: (server.address() as AddressInfo).port }));
+  });
+}
+
+const jsonAt = (path: string, body: unknown) => (url: string) =>
+  url === path ? { status: 200, type: 'application/json', body: JSON.stringify(body) } : { status: 404, type: 'application/json', body: '{"error":"not found"}' };
+
+describe('detection over HTTP', () => {
+  let server: ChildProcess | undefined;
+  let dataDir = '';
+  let detectHome = '';
+  let api: ReturnType<typeof client>;
+  const fakes: Server[] = [];
+  const port = { ollama: 0, lmstudio: 0, llamacpp: 0, html: 0, closed: 0 };
+  const rows = async () => {
+    const r = await api<SettingsView>('/api/settings');
+    return new Map(r.json.rows.map((row) => [row.id, row]));
+  };
+  const detect = async () => {
+    const r = await api<SettingsView>('/api/settings/detect', {});
+    assert.equal(r.status, 200, r.text);
+    return { text: r.text, json: r.json, byId: new Map(r.json.rows.map((row) => [row.id, row])) };
+  };
+
+  before(async () => {
+    // A private Codex home, so writing an auth.json here signs nothing else in this file in.
+    detectHome = mkdtempSync(join(tmpdir(), 'derive-settings-detect-'));
+    const ollama = await fakeServer(jsonAt('/api/tags', { models: [] }));
+    const lmstudio = await fakeServer(jsonAt('/api/v0/models', { object: 'list', data: [] }));
+    const llamacpp = await fakeServer(jsonAt('/health', { status: 'ok' }));
+    // The FreqUI case: HTTP 200 text/html on every path, which is what an unrelated dashboard on 8080 answers.
+    const html = await fakeServer(() => ({ status: 200, type: 'text/html', body: '<!doctype html><title>FreqUI</title>' }));
+    fakes.push(ollama.server, lmstudio.server, llamacpp.server, html.server);
+    Object.assign(port, { ollama: ollama.port, lmstudio: lmstudio.port, llamacpp: llamacpp.port, html: html.port, closed: await freePort() });
+    const started = await startDeriveServer(entry, { ...hermetic, CODEX_HOME: detectHome });
+    server = started.child;
+    dataDir = started.dataDir;
+    api = client(started.base, readFileSync(join(dataDir, 'token'), 'utf8').trim());
+  });
+
+  after(() => {
+    server?.kill();
+    for (const f of fakes) f.close();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+    if (detectHome) rmSync(detectHome, { recursive: true, force: true });
+  });
+
+  it('reads checking on the local rows until a pass has looked', async () => {
+    const byId = await rows();
+    for (const id of ['ollama', 'lmstudio', 'llamacpp']) assert.equal(byId.get(id)!.status, 'checking', id);
+    assert.equal(byId.get('codex')!.status, 'not configured');
+  });
+
+  it('refuses a base URL on a row with a fixed endpoint', async () => {
+    const r = await api('/api/settings/anthropic', { base_url: 'http://x' }, 'PUT');
+    assert.equal(r.status, 400);
+    assert.equal(r.json.error, 'Anthropic has a fixed endpoint');
+  });
+
+  it('refuses a base URL that is not http or https, carries credentials, or has a query', async () => {
+    const scheme = await api('/api/settings/openai-compatible', { base_url: 'ftp://x' }, 'PUT');
+    assert.equal(scheme.status, 400);
+    assert.equal(scheme.json.error, 'the base URL must start with http:// or https://');
+    const creds = await api('/api/settings/openai-compatible', { base_url: 'http://u:p@127.0.0.1:9' }, 'PUT');
+    assert.equal(creds.status, 400);
+    assert.equal(creds.json.error, 'the base URL must not carry a username or password');
+    const query = await api('/api/settings/openai-compatible', { base_url: 'http://127.0.0.1:9/v1?x=1' }, 'PUT');
+    assert.equal(query.status, 400);
+    assert.equal(query.json.error, 'the base URL must not have a query or fragment');
+  });
+
+  it('stores a base URL as origin plus path without a trailing slash, and clears it with an empty string', async () => {
+    const stored = await api<Row>('/api/settings/openai-compatible', { base_url: 'http://127.0.0.1:9/v1/' }, 'PUT');
+    assert.equal(stored.status, 200, stored.text);
+    assert.equal(stored.json.base_url, 'http://127.0.0.1:9/v1');
+    const cleared = await api<Row>('/api/settings/openai-compatible', { base_url: '' }, 'PUT');
+    assert.equal(cleared.status, 200, cleared.text);
+    assert.equal(cleared.json.base_url, null);
+    assert.equal(cleared.json.base_url_default, null);
+  });
+
+  it('finds the Codex login and the three local servers at their stored bases in one pass', async () => {
+    writeFileSync(join(detectHome, 'auth.json'), '{}');
+    for (const id of ['ollama', 'lmstudio', 'llamacpp'] as const) {
+      const r = await api<Row>(`/api/settings/${id}`, { base_url: `http://127.0.0.1:${port[id]}` }, 'PUT');
+      assert.equal(r.status, 200, r.text);
+      assert.equal(r.json.base_url, `http://127.0.0.1:${port[id]}`);
+    }
+    const { byId, text } = await detect();
+    assert.equal(byId.get('codex')!.status, 'logged in');
+    assert.equal(byId.get('claude-code')!.status, 'not configured');
+    assert.equal(byId.get('ollama')!.status, `found on port ${port.ollama}`);
+    assert.equal(byId.get('lmstudio')!.status, `found on port ${port.lmstudio}`);
+    assert.equal(byId.get('llamacpp')!.status, `found on port ${port.llamacpp}`);
+    assert.ok(!text.includes('email'), text);
+  });
+
+  it('reads an HTML 200 on the llama.cpp base as not configured, never as found', async () => {
+    await api('/api/settings/llamacpp', { base_url: `http://127.0.0.1:${port.html}` }, 'PUT');
+    const { byId } = await detect();
+    assert.equal(byId.get('llamacpp')!.status, 'not configured');
+    assert.equal(byId.get('ollama')!.status, `found on port ${port.ollama}`);
+  });
+
+  it('answers within two seconds when the llama.cpp base is a closed port', async () => {
+    await api('/api/settings/llamacpp', { base_url: `http://127.0.0.1:${port.closed}` }, 'PUT');
+    const t0 = Date.now();
+    const { byId } = await detect();
+    assert.ok(Date.now() - t0 < 2000, `the pass took ${Date.now() - t0} ms`);
+    assert.equal(byId.get('llamacpp')!.status, 'not configured');
+  });
+
+  it('leaves Codex detected when only Codex is logged in and nothing is stored', async () => {
+    const active = await api<Tutor>('/api/settings/active');
+    assert.deepEqual(active.json, { provider: 'codex', model: null, source: 'detected', modelSource: null });
+    const byId = await rows();
+    assert.deepEqual([...byId.values()].filter((row) => row.active).map((row) => row.id), ['codex']);
+  });
+
+  it('falls back to Claude Code when nothing is logged in, with every login and local row not configured', async () => {
+    rmSync(join(detectHome, 'auth.json'));
+    for (const id of ['ollama', 'lmstudio']) await api(`/api/settings/${id}`, { base_url: `http://127.0.0.1:${port.closed}` }, 'PUT');
+    const { byId, json } = await detect();
+    for (const id of ['claude-code', 'codex', 'ollama', 'lmstudio', 'llamacpp']) assert.equal(byId.get(id)!.status, 'not configured', id);
+    assert.deepEqual(json.active, { provider: 'claude-code', model: null, source: 'detected', modelSource: null });
+    assert.equal(JSON.stringify(json).includes('email'), false);
+    const active = await api<Tutor>('/api/settings/active');
+    assert.equal(active.json.provider, 'claude-code');
+    assert.equal(active.json.source, 'detected');
+  });
 });
 
 describe('the environment locks its fields', () => {
@@ -401,5 +555,63 @@ describe('the resolver, in process', () => {
     assert.equal(currentTutor().provider, 'codex');
     assert.equal(currentDetection(T0 + DETECT_MS), null);
     fresh();
+  });
+});
+
+describe('base URLs and probes, in process', () => {
+  it('normalises a base URL to origin plus path with no trailing slash', () => {
+    assert.equal(normaliseBaseUrl('http://127.0.0.1:9/v1/'), 'http://127.0.0.1:9/v1');
+    assert.equal(normaliseBaseUrl('HTTPS://Host.example/'), 'https://host.example');
+    assert.equal(normaliseBaseUrl('  http://127.0.0.1:11434  '), 'http://127.0.0.1:11434');
+  });
+
+  it('refuses a scheme that is not http or https, credentials, and a query or fragment, each with its own sentence', () => {
+    assert.throws(() => normaliseBaseUrl('ftp://x'), { message: 'the base URL must start with http:// or https://' });
+    assert.throws(() => normaliseBaseUrl('not a url'), { message: 'the base URL must start with http:// or https://' });
+    assert.throws(() => normaliseBaseUrl('http://u:p@h'), { message: 'the base URL must not carry a username or password' });
+    assert.throws(() => normaliseBaseUrl('http://h/?q'), { message: 'the base URL must not have a query or fragment' });
+    assert.throws(() => normaliseBaseUrl('http://h/#f'), { message: 'the base URL must not have a query or fragment' });
+  });
+
+  it('reads the port a base names, or the scheme default', () => {
+    assert.equal(portOf('http://127.0.0.1:11434'), 11434);
+    assert.equal(portOf('https://host.example'), 443);
+    assert.equal(portOf('http://host.example/v1'), 80);
+  });
+
+  it('reads a local base from the table first and the catalogue second, and null where neither names one', () => {
+    const ollama = providerOf('ollama')!;
+    setSetting(baseUrlKey('ollama'), 'http://127.0.0.1:9');
+    assert.equal(localBase(ollama), 'http://127.0.0.1:9');
+    deleteSetting(baseUrlKey('ollama'));
+    assert.equal(localBase(ollama), 'http://127.0.0.1:11434');
+    assert.equal(localBase(providerOf('openai-compatible')!), null);
+  });
+
+  it('checks the shape each local server answers with, and nothing else about the body', () => {
+    assert.equal(isOllama({ status: 200, body: { models: [] } }), true);
+    assert.equal(isOllama({ status: 200, body: {} }), false);
+    assert.equal(isOllama({ status: 200, body: null }), false);
+    assert.equal(isOllama(null), false);
+    assert.equal(isLmStudio({ status: 200, body: { object: 'list', data: [] } }), true);
+    assert.equal(isLmStudio({ status: 200, body: { object: 'model' } }), false);
+    assert.equal(isLlamaCpp({ status: 200, body: { status: 'ok' } }), true);
+    // Still llama.cpp while a model loads.
+    assert.equal(isLlamaCpp({ status: 503, body: { error: { code: 503, message: 'Loading model', type: 'unavailable_error' } } }), true);
+    // The check is a shape, not a schema: extra keys beside status: ok are ignored.
+    assert.equal(isLlamaCpp({ status: 200, body: { status: 'ok', extra: [] } }), true);
+    assert.equal(isLlamaCpp({ status: 200, body: '<html>' }), false);
+    assert.equal(isLlamaCpp({ status: 503, body: { error: 'busy' } }), false);
+  });
+
+  it('probes JSON within its bound and reads a closed port as nothing', async () => {
+    const { server, port } = await fakeServer(jsonAt('/health', { status: 'ok' }));
+    try {
+      assert.deepEqual(await probeJson(`http://127.0.0.1:${port}/health`), { status: 200, body: { status: 'ok' } });
+      assert.deepEqual(await probeJson(`http://127.0.0.1:${port}/nope`), { status: 404, body: { error: 'not found' } });
+    } finally {
+      server.close();
+    }
+    assert.equal(await probeJson(`http://127.0.0.1:${await freePort()}/health`), null);
   });
 });

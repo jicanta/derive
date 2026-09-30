@@ -58,10 +58,11 @@ import { addResource, deleteResource, editResource, getResource, isKind, library
 import { ACCEPTED, describe, ingestMaterial, ingestRepo, materialsSection, MAX_FILE_BYTES } from './materials.js';
 import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief } from './prompt.js';
+import { detect } from './probe.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
 import { DEFAULTS_AS_OF, labelOf, PROVIDERS, providerOf, providerOfDriver, type ProviderSpec } from './providers.js';
 import { registerSecret, safeMessage } from './secrets.js';
-import { ACTIVE_PROVIDER, baseUrlKey, currentTutor, lastDetection, lockedBy, modelKey, resolveTutor, type Detection, type Local } from './settings.js';
+import { ACTIVE_PROVIDER, baseUrlKey, currentTutor, lastDetection, lockedBy, modelKey, normaliseBaseUrl, resetDetection, resolveTutor, type Detection, type Local } from './settings.js';
 import { shapeFor, toolsFor } from './tools.js';
 
 /**
@@ -351,6 +352,12 @@ const SettingsWrite = z
       .regex(/^[A-Za-z0-9._:/-]*$/, 'the model id may only contain letters, digits, . _ : / and -')
       .optional()
       .describe('The model id to store for this provider, or an empty string to clear it.'),
+    base_url: z
+      .string()
+      .trim()
+      .max(500, 'the base URL is longer than any endpoint needs')
+      .optional()
+      .describe('Where a local server or an OpenAI-compatible endpoint is reached, or an empty string to return to the catalogue default.'),
   })
   .strict();
 
@@ -421,17 +428,34 @@ app.put('/api/settings/:provider', async (c) => {
   if (!spec) return c.json({ error: 'unknown provider' }, 404);
   const parsed = SettingsWrite.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? 'the settings body could not be read' }, 400);
-  const { model } = parsed.data;
+  const { model, base_url } = parsed.data;
   if (model !== undefined && lockedBy('model')) return c.json({ error: 'the model is set by DERIVE_MODEL in the environment' }, 409);
+  if (base_url !== undefined && spec.auth !== 'key+url' && !spec.port) return c.json({ error: `${spec.label} has a fixed endpoint` }, 400);
   try {
     if (model !== undefined) {
       if (model) setSetting(modelKey(spec.id), model);
       else deleteSetting(modelKey(spec.id));
     }
+    if (base_url !== undefined) {
+      if (base_url) setSetting(baseUrlKey(spec.id), normaliseBaseUrl(base_url));
+      else deleteSetting(baseUrlKey(spec.id));
+    }
     return c.json(rowView(spec, currentTutor().provider));
   } catch (e) {
     return c.json({ error: safeMessage(e) }, 400);
   }
+});
+
+/**
+ * D-13's one pass, on demand: both logins and the three local probes, run
+ * together and remembered, then the same view the page loaded so it repaints
+ * from one shape. The page calls this when it opens and when the learner
+ * presses rescan; nothing else does, and nothing runs it on a timer.
+ */
+app.post('/api/settings/detect', async (c) => {
+  resetDetection();
+  await detect();
+  return c.json(settingsView());
 });
 
 // ---------- lessons ----------
