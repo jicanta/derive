@@ -174,6 +174,9 @@ const q = {
     INSERT INTO usage (turn_id, lesson_id, learner_id, driver, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost_source, cost_usd, ts)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
+  getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
+  setSetting: db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'),
+  deleteSetting: db.prepare('DELETE FROM settings WHERE key = ?'),
   usageOfTurn: db.prepare('SELECT * FROM usage WHERE turn_id = ? ORDER BY id'),
   usageOfLesson: db.prepare('SELECT * FROM usage WHERE lesson_id = ? ORDER BY id'),
   usageOfLearner: db.prepare('SELECT * FROM usage WHERE learner_id = ? ORDER BY id'),
@@ -423,6 +426,11 @@ export function setSessionId(id: string, sessionId: string) {
   q.setSession.run(sessionId, Date.now(), id);
 }
 
+/** Forget a lesson's provider conversation, so the next turn starts a fresh one; a provider change does this before the turn. */
+export function clearSessionId(id: string) {
+  q.setSession.run(null, Date.now(), id);
+}
+
 export function setPhase(id: string, phase: string) {
   q.setPhase.run(phase, Date.now(), id);
 }
@@ -449,6 +457,23 @@ export function listEvents(lessonId: string): StoredEvent[] {
   return (q.listEvents.all(lessonId) as { seq: number; type: string; payload: string; ts: number }[]).map(
     (r) => ({ ...r, payload: JSON.parse(r.payload) }),
   );
+}
+
+// ---------- settings ----------
+
+/** A per-install setting's value, or undefined when nothing is stored under the key. */
+export function getSetting(key: string): string | undefined {
+  return (q.getSetting.get(key) as { value: string } | undefined)?.value;
+}
+
+/** Store a per-install setting, replacing any value already under the key. */
+export function setSetting(key: string, value: string) {
+  q.setSetting.run(key, value, Date.now());
+}
+
+/** Remove a per-install setting; a key with nothing stored is left alone. */
+export function deleteSetting(key: string) {
+  q.deleteSetting.run(key);
 }
 
 // ---------- turns ----------

@@ -26,12 +26,14 @@ import {
   deleteLearner,
   deleteLesson,
   deleteMaterial,
+  deleteSetting,
   dueNodes,
   endTurn,
   findLearner,
   getLearner,
   getLesson,
   getMaterial,
+  getSetting,
   lastExternalLesson,
   lastTurn,
   listEvents,
@@ -43,6 +45,7 @@ import {
   renameLearner,
   updateLearnerPrefs,
   setAnswerIn,
+  setSetting,
   startTurn,
   stats,
   sweepOrphanMaterials,
@@ -57,7 +60,9 @@ import { ACCEPTED, describe, ingestMaterial, ingestRepo, materialsSection, MAX_F
 import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief } from './prompt.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
+import { providerOf } from './providers.js';
 import { registerSecret, safeMessage } from './secrets.js';
+import { ACTIVE_PROVIDER, lockedBy, modelKey, resolveTutor } from './settings.js';
 import { shapeFor, toolsFor } from './tools.js';
 
 /**
@@ -318,6 +323,63 @@ app.delete('/api/learners/:id', async (c) => {
     for (const l of listLessons(id)) await interrupt(l.id);
     deleteLearner(id);
     return c.json({ ok: true });
+  } catch (e) {
+    return c.json({ error: safeMessage(e) }, 400);
+  }
+});
+
+// ---------- settings ----------
+
+/**
+ * The fields a settings write may carry. The model id is bounded to the
+ * characters real ids use — local servers name models like `qwen/qwen3-8b:latest`,
+ * so `/` and `:` are allowed — and it is never rendered into prompt text; it
+ * reaches only the turn's model field. An empty string clears the stored value.
+ */
+const SettingsWrite = z
+  .object({
+    model: z
+      .string()
+      .trim()
+      .max(200, 'the model id is longer than any provider issues')
+      .regex(/^[A-Za-z0-9._:/-]*$/, 'the model id may only contain letters, digits, . _ : / and -')
+      .optional()
+      .describe('The model id to store for this provider, or an empty string to clear it.'),
+  })
+  .strict();
+
+/** What the next turn would run on. The plugin asks once per lesson start; it is per install, not per learner. */
+app.get('/api/settings/active', (c) => c.json(resolveTutor()));
+
+/** Make a provider the active tutor. Only a row whose driver exists can be chosen; the environment outranks the table. */
+app.post('/api/settings/active', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { provider?: unknown };
+  const spec = providerOf(String(body.provider ?? ''));
+  if (!spec) return c.json({ error: 'unknown provider' }, 404);
+  if (!spec.teaches) return c.json({ error: `teaching on ${spec.label} arrives with the next release` }, 400);
+  if (lockedBy('provider')) return c.json({ error: 'the provider is set by DERIVE_BACKEND in the environment' }, 409);
+  try {
+    setSetting(ACTIVE_PROVIDER, spec.id);
+    return c.json(resolveTutor());
+  } catch (e) {
+    return c.json({ error: safeMessage(e) }, 400);
+  }
+});
+
+/** Store one provider's fields. A field the environment sets is refused with the variable's name rather than silently outranked. */
+app.put('/api/settings/:provider', async (c) => {
+  const spec = providerOf(c.req.param('provider'));
+  if (!spec) return c.json({ error: 'unknown provider' }, 404);
+  const parsed = SettingsWrite.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? 'the settings body could not be read' }, 400);
+  const { model } = parsed.data;
+  if (model !== undefined && lockedBy('model')) return c.json({ error: 'the model is set by DERIVE_MODEL in the environment' }, 409);
+  try {
+    if (model !== undefined) {
+      if (model) setSetting(modelKey(spec.id), model);
+      else deleteSetting(modelKey(spec.id));
+    }
+    return c.json({ id: spec.id, model: getSetting(modelKey(spec.id)) ?? null });
   } catch (e) {
     return c.json({ error: safeMessage(e) }, 400);
   }

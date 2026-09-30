@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { createSdkMcpServer, query, tool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import * as actions from './actions.js';
-import { backend } from './backend.js';
 import { codexDriver, type Active } from './codex.js';
-import { DATA_DIR, EFFORT, MODEL, VERSION } from './config.js';
-import { getLesson, learnerProfile, startTurn, type GraphNodeInput } from './db.js';
+import { DATA_DIR, EFFORT, VERSION } from './config.js';
+import { clearSessionId, getLesson, lastTurn, learnerProfile, startTurn, type GraphNodeInput } from './db.js';
 import { driverOverride, sinkFor, type Driver, type EventSink, type TurnContext } from './driver.js';
 import { emit } from './events.js';
 import { librarySection } from './library.js';
@@ -13,6 +12,7 @@ import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
 import { systemPrompt } from './prompt.js';
 import { safeMessage } from './secrets.js';
+import { backendOf, resolveTutor } from './settings.js';
 import { DERIVE_TOOL_NAMES, TOOL_LABELS, descriptionFor, shapeFor, toolsFor } from './tools.js';
 
 export { DERIVE_TOOL_NAMES } from './tools.js';
@@ -268,17 +268,25 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
 
   if (opts.echoUser) emit(lessonId, 'user', { text: opts.echoUser });
 
-  // A turn begins in two places at once: the row the busy check and the usage
-  // ledger read, and the event the browser replays. The driver is chosen first
-  // only so the row can say which one ran it.
-  const driver = driverOverride() ?? (backend() === 'codex' ? codexDriver : claudeDriver);
-  const turnId = startTurn(lessonId, driver.name, MODEL);
-  emit(lessonId, 'turn_start', {});
+  // The provider and model are resolved here, per turn, so a change made on
+  // the settings page is what this turn runs on with no restart. A turn begins
+  // in two places at once: the row the busy check and the usage ledger read,
+  // and the event the browser replays. The driver is chosen first only so the
+  // row can say which one ran it.
+  const tutor = resolveTutor();
+  const driver = driverOverride() ?? (backendOf(tutor.provider) === 'codex' ? codexDriver : claudeDriver);
+  // D-04: a session id belongs to the provider that issued it. When the driver
+  // changed since the last turn, the lesson starts a fresh provider
+  // conversation; a model change on the same provider keeps resuming.
+  const last = lastTurn(lessonId);
+  if (last && last.driver !== driver.name && lesson.session_id) clearSessionId(lessonId);
+  const turnId = startTurn(lessonId, driver.name, tutor.model);
+  emit(lessonId, 'turn_start', { provider: tutor.provider, model: tutor.model });
 
   const pendingNotices = takeNotices(lessonId);
   if (pendingNotices.length) prompt = `${pendingNotices.join('\n\n')}\n\nThen, the learner's message:\n${prompt}`;
 
-  const instructions = systemPrompt(backend()) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
+  const instructions = systemPrompt(backendOf(tutor.provider)) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
 
   // The one dispatch, below: everything around it — the bookkeeping above and
   // the teardown after — is the same whichever driver runs.
@@ -286,9 +294,9 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
     lessonId,
     prompt,
     instructions,
-    model: MODEL,
+    model: tutor.model ?? undefined,
     effort: EFFORT,
-    sessionId: lesson.session_id ?? null,
+    sessionId: getLesson(lessonId)!.session_id ?? null,
     isStopping: () => stopping.has(lessonId),
     onActive: (handle) => active.set(lessonId, handle),
   };
