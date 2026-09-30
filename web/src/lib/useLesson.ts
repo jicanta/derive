@@ -29,10 +29,12 @@ export type LessonState = {
   error: string | null;
   lastCost: number | null;
   verified: number;
+  /** What the last turn ran on, for the header pill: seeded from the lesson view, updated by each turn_start. Null before any turn. */
+  tutor: { provider: string; model: string | null } | null;
 };
 
 type Action =
-  | { type: 'init'; lesson: Lesson; nodes: NodeRow[]; materials: Material[]; events: StoredEvent[]; busy: boolean }
+  | { type: 'init'; lesson: Lesson; nodes: NodeRow[]; materials: Material[]; events: StoredEvent[]; busy: boolean; tutor: { provider: string; model: string | null } | null }
   | { type: 'event'; ev: StoredEvent }
   | { type: 'connected'; value: boolean }
   | { type: 'error'; text: string };
@@ -49,6 +51,7 @@ const initial: LessonState = {
   error: null,
   lastCost: null,
   verified: 0,
+  tutor: null,
 };
 
 function rowsToNodes(rows: NodeRow[]): GraphNode[] {
@@ -68,7 +71,15 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
     case 'ready':
       return { ...s, busy: !!ev.payload?.busy, connected: true };
     case 'turn_start':
-      return { ...s, busy: true, status: s.lesson?.mode === 'external' ? 'Teaching in your terminal' : 'Thinking', error: null };
+      // The pill reads the turn, not the setting: a turn_start written before
+      // this field existed carries no provider and leaves the pill as it was.
+      return {
+        ...s,
+        busy: true,
+        status: s.lesson?.mode === 'external' ? 'Teaching in your terminal' : 'Thinking',
+        error: null,
+        tutor: typeof ev.payload?.provider === 'string' ? { provider: ev.payload.provider, model: ev.payload.model ?? null } : s.tutor,
+      };
     case 'turn_end': {
       const ok = ev.payload?.ok;
       // A companion lesson answered from the terminal ends its turn with the
@@ -221,6 +232,7 @@ function reducer(s: LessonState, a: Action): LessonState {
       st.materials = a.materials ?? st.materials;
       st.items = st.items.map((i) => (i.kind === 'assistant' ? { ...i, streaming: false } : i));
       st.busy = a.busy;
+      st.tutor = a.tutor;
       st.status = a.busy ? (a.lesson.mode === 'external' ? 'Teaching in your terminal' : 'Thinking') : null;
       return st;
     }
@@ -251,7 +263,7 @@ export function useLesson(id: string | undefined) {
       .then((d) => {
         if (cancelled) return;
         lastSeq.current = d.events.reduce((m, e) => Math.max(m, e.seq), 0);
-        dispatch({ type: 'init', lesson: d.lesson, nodes: d.nodes, materials: d.materials ?? [], events: d.events, busy: d.busy });
+        dispatch({ type: 'init', lesson: d.lesson, nodes: d.nodes, materials: d.materials ?? [], events: d.events, busy: d.busy, tutor: d.tutor ?? null });
         // A same-origin EventSource sends the derive_session cookie like any other request, so the stream needs nothing added to its URL.
         es = new EventSource(`/api/lessons/${id}/stream?after=${lastSeq.current}`);
         es.onopen = () => dispatch({ type: 'connected', value: true });

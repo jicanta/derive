@@ -103,6 +103,7 @@ export function HomePage() {
             <Link to="/atlas" className="hidden md:inline hover:text-ink-50">atlas</Link>
             <Link to="/library" className="hidden md:inline hover:text-ink-50">library</Link>
             <Link to="/you" className="hidden md:inline hover:text-ink-50">how you learn</Link>
+            <Link to="/settings" className="hidden md:inline hover:text-ink-50">settings</Link>
             <a href="https://github.com/jicanta/derive#in-your-terminal" className="hidden md:inline hover:text-ink-50">claude code · codex</a>
             <a href="https://github.com/jicanta/derive" className="hidden md:inline hover:text-ink-50">github</a>
             <LearnerMenu onChange={refresh} />

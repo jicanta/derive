@@ -28,7 +28,9 @@ export function LessonPage() {
   const [vault, setVault] = useState(false);
   const external = state.lesson?.mode === 'external';
   const terminal = external && state.lesson?.answer_in === 'terminal';
-  const driver = state.lesson?.driver === 'codex' ? 'codex' : 'claude code';
+  const driver = state.lesson?.driver === 'codex' ? 'codex cli' : 'claude code';
+  // What the last turn ran on, never what Settings currently says; the catalogue id reads as words.
+  const tutorLabel = state.tutor ? `${state.tutor.provider.replace(/-/g, ' ')} · ${state.tutor.model ?? 'default model'}` : '';
 
   useEffect(() => {
     api.stats().then((s) => setVault(s.vault)).catch(() => undefined);
@@ -111,13 +113,24 @@ export function LessonPage() {
           <ArrowLeft size={18} strokeWidth={1.8} />
         </Link>
         <h1 className="font-serif text-[22px] tracking-[-0.01em] truncate text-ink-50">{state.lesson?.topic ?? '…'}</h1>
+        {!external && state.tutor && (
+          <Link
+            to="/settings"
+            className="hidden md:inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 hover:text-ink-50 border hairline rounded-full px-2.5 h-6 transition-colors"
+            title="Which model is teaching. Change it in Settings; it applies from the next turn."
+          >
+            <span className="max-w-[28ch] truncate" title={tutorLabel}>
+              {tutorLabel}
+            </span>
+          </Link>
+        )}
         {external && (
           <span
             className="hidden md:inline-flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 border hairline rounded-full px-2.5 h-6"
             title={terminal ? 'Cards are answered in your terminal; answering here works too' : 'Cards are answered here in the browser'}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${state.connected ? 'bg-moss-400' : 'bg-ink-600'}`} />
-            companion · {driver}
+            companion · {driver} · terminal model
             {terminal && (
               <>
                 <span className="text-ink-600">·</span>

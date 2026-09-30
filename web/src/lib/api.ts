@@ -66,7 +66,7 @@ export const api = {
   lessons: () => get('/api/lessons').then((r) => j<LessonSummary[]>(r)),
   lesson: (id: string) =>
     get(`/api/lessons/${id}`).then((r) =>
-      j<{ lesson: Lesson; nodes: NodeRow[]; materials: Material[]; events: StoredEvent[]; busy: boolean; pending: boolean }>(r),
+      j<{ lesson: Lesson; nodes: NodeRow[]; materials: Material[]; events: StoredEvent[]; busy: boolean; pending: boolean; tutor: { provider: string; model: string | null } | null }>(r),
     ),
   createLesson: (topic: string, materials: string[] = []) => post('/api/lessons', { topic, materials }).then((r) => j<Lesson>(r)),
   /** Upload files; with a lesson id they attach at once, without one they wait for createLesson. */
