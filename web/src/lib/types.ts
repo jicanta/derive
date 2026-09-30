@@ -49,9 +49,15 @@ export type ProviderView = {
   model: string | null;
   /** The environment variable that locks the model, or null when the field is the learner's to set. */
   model_locked: string | null;
-  /** The stored base URL for a local or OpenAI-compatible row, or null for the catalogue default. */
+  /** The stored key as the page paints it — set or not, the last four characters when the key is long enough, the environment variable that locks it — or null on a row with no key field. The value is never in it. */
+  key: { set: boolean; hint: string | null; locked: string | null } | null;
+  /** True on the local rows whose server may be started with a bearer token: the key field reads `optional key`. */
+  key_optional: boolean;
+  /** The stored base URL for a local or OpenAI-compatible row, or null for the catalogue default. When the environment locks it, the address the row is actually probed on. */
   base_url: string | null;
   base_url_default: string | null;
+  /** The environment variable that locks the base URL (OLLAMA_HOST on the Ollama row), or null. */
+  base_url_locked: string | null;
   status: ProviderStatus;
   active: boolean;
 };
@@ -73,6 +79,8 @@ export type Settings = {
   /** The environment variable that locks the provider, or null. */
   provider_locked: string | null;
   model_locked: string | null;
+  /** Why ~/.derive/secrets.json could not be read, naming the path, or null when it is fine or absent. Nothing overwrites the file while this is set. */
+  secrets_error: string | null;
   rows: ProviderView[];
 };
 

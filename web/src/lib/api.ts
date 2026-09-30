@@ -109,8 +109,10 @@ export const api = {
   detectProviders: () => post('/api/settings/detect').then((r) => j<Settings>(r)),
   /** What the next turn would run on. */
   activeTutor: () => get('/api/settings/active').then((r) => j<TutorChoice>(r)),
-  /** Store one provider's fields; an empty string clears one. Answers the row as the page paints it. */
-  setProvider: (id: string, body: { model?: string; base_url?: string }) => post(`/api/settings/${id}`, body, 'PUT').then((r) => j<ProviderView>(r)),
+  /** Store one provider's fields; an empty string clears a model or base URL. A key is only ever written: the row comes back with `{ set, hint }` and the value is never read again. */
+  setProvider: (id: string, body: { key?: string; model?: string; base_url?: string }) => post(`/api/settings/${id}`, body, 'PUT').then((r) => j<ProviderView>(r)),
+  /** Forget a provider's stored key. The running process keeps redacting the value until it restarts; the note says so. */
+  removeKey: (id: string) => del(`/api/settings/${id}/key`).then((r) => j<{ ok: true; note: string }>(r)),
   /** Make a provider the active tutor from the next turn of every lesson. */
   useProvider: (id: string) => post('/api/settings/active', { provider: id }).then((r) => j<TutorChoice>(r)),
 };

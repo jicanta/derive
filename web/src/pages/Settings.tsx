@@ -16,6 +16,14 @@ const GROUPS: { id: ProviderView['group']; label: string }[] = [
   { id: 'local', label: 'on this machine' },
 ];
 
+/** The server names the file's path and says what went wrong; the page keeps only the reason, the file's short name already opens the sentence. */
+const secretsReason = (error: string): string => {
+  const at = error.indexOf(' could not be read: ');
+  if (at >= 0) return error.slice(at + ' could not be read: '.length);
+  const file = error.indexOf('secrets.json ');
+  return file >= 0 ? error.slice(file + 'secrets.json '.length) : error;
+};
+
 /** Login and local rows read `checking` while a pass is looking; a stored key or an environment value is a fact the pass does not change. */
 const checking = (r: ProviderView): ProviderView => (r.auth === 'login' || r.group === 'local' ? { ...r, status: 'checking' } : r);
 
@@ -134,6 +142,9 @@ export function SettingsPage() {
             GROUPS.map((g) => (
               <section key={g.id} className="mt-8">
                 <div className="eyebrow">{g.label}</div>
+                {g.id === 'keys' && settings.secrets_error && (
+                  <p className="mt-3 text-[14px] leading-relaxed text-rust-400">secrets.json could not be read: {secretsReason(settings.secrets_error)}. Fix or move the file; nothing here was overwritten.</p>
+                )}
                 <div className="mt-3 flex flex-col gap-6">
                   {settings.rows
                     .filter((r) => r.group === g.id)
