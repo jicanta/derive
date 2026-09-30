@@ -12,6 +12,7 @@ import { z } from 'zod';
 import * as actions from './actions.js';
 import { interrupt, isBusy, runTurn } from './agent.js';
 import { ensureToken, matchesSession, matchesToken, sessionValue } from './credentials.js';
+import { keyView, removeKey, secretsFileError, setKey } from './keys.js';
 import { ALLOWED_ORIGINS, DERIVE_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, TOKEN_PATH, VAULT_DIR, VERSION } from './config.js';
 import {
   allNodes,
@@ -62,7 +63,7 @@ import { detect } from './probe.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
 import { DEFAULTS_AS_OF, labelOf, PROVIDERS, providerOf, providerOfDriver, type ProviderSpec } from './providers.js';
 import { registerSecret, safeMessage } from './secrets.js';
-import { ACTIVE_PROVIDER, baseUrlKey, currentTutor, lastDetection, lockedBy, modelKey, normaliseBaseUrl, resetDetection, resolveTutor, type Detection, type Local } from './settings.js';
+import { ACTIVE_PROVIDER, baseUrlKey, currentTutor, envKeyFor, lastDetection, localBase, lockedBy, modelKey, normaliseBaseUrl, resetDetection, resolveTutor, type Detection, type Local } from './settings.js';
 import { shapeFor, toolsFor } from './tools.js';
 
 /**
@@ -342,9 +343,12 @@ app.delete('/api/learners/:id', async (c) => {
  * characters real ids use — local servers name models like `qwen/qwen3-8b:latest`,
  * so `/` and `:` are allowed — and it is never rendered into prompt text; it
  * reaches only the turn's model field. An empty string clears the stored value.
+ * A key is only ever written: keys.ts checks and stores it, and the answer
+ * describes it as `{ set, hint }`.
  */
 const SettingsWrite = z
   .object({
+    key: z.string().max(4096, 'the key is longer than any provider issues').optional().describe('The API key to store for this provider. Never read back.'),
     model: z
       .string()
       .trim()
@@ -361,10 +365,13 @@ const SettingsWrite = z
   })
   .strict();
 
+/** Whether a row has a key field: the pay-per-use and gateway rows always, the local rows only where their server may be started with a bearer token. */
+const takesKey = (spec: ProviderSpec): boolean => spec.auth === 'key' || spec.auth === 'key+url' || spec.optionalKey;
+
 /**
  * The status pill of one row, from one detection observation. Login and local
- * rows read `checking` until a pass has looked at them; key rows read `not
- * configured` until keys arrive. Absence is a fact, never a sentence.
+ * rows read `checking` until a pass has looked at them; a key row reads what
+ * it has, the environment first. Absence is a fact, never a sentence.
  */
 const statusOf = (spec: ProviderSpec, seen: Detection | null): string => {
   if (spec.auth === 'login') return seen ? (seen.logins[spec.id as 'claude-code' | 'codex'] ? 'logged in' : 'not configured') : 'checking';
@@ -373,34 +380,60 @@ const statusOf = (spec: ProviderSpec, seen: Detection | null): string => {
     const port = seen.local[spec.id as keyof Local];
     return port ? `found on port ${port}` : 'not configured';
   }
+  if (envKeyFor(spec.id)) return 'set from environment';
+  if (keyView(spec.id).set) return 'key set';
   return 'not configured';
 };
 
-/** One provider row as the settings page paints it: the catalogue facts, what is stored, what the environment locks, and the last pass. */
-const rowView = (spec: ProviderSpec, activeId: string, seen: Detection | null = lastDetection()) => ({
-  id: spec.id,
-  label: spec.label,
-  group: spec.group,
-  auth: spec.auth,
-  teaches: spec.teaches,
-  note: spec.note,
-  default_model: spec.defaultModel,
-  has_models_endpoint: !!spec.modelsPath,
-  port: spec.port,
-  model: getSetting(modelKey(spec.id)) ?? null,
-  model_locked: lockedBy('model'),
-  base_url: getSetting(baseUrlKey(spec.id)) ?? null,
-  base_url_default: spec.group === 'local' || spec.auth === 'key+url' ? spec.endpoint : null,
-  status: statusOf(spec, seen),
-  active: activeId === spec.id,
-});
+/** A key as the row paints it: `{ set, hint, locked }`, never the value. An environment key has no hint — the learner never typed it — and names its variable; a file key carries the hint keys.ts allows; a row with no key field carries null. */
+const keyOfRow = (spec: ProviderSpec): { set: boolean; hint: string | null; locked: string | null } | null => {
+  if (!takesKey(spec)) return null;
+  const env = envKeyFor(spec.id);
+  return env ? { set: true, hint: null, locked: env.name } : { ...keyView(spec.id), locked: null };
+};
 
-/** The whole page in one read: stored config at once, the active row computed once, and no child process behind any of it. */
+/** One provider row as the settings page paints it: the catalogue facts, what is stored, what the environment locks, and the last pass. */
+const rowView = (spec: ProviderSpec, activeId: string, seen: Detection | null = lastDetection()) => {
+  const baseUrlLocked = lockedBy(`base_url:${spec.id}`);
+  return {
+    id: spec.id,
+    label: spec.label,
+    group: spec.group,
+    auth: spec.auth,
+    teaches: spec.teaches,
+    note: spec.note,
+    default_model: spec.defaultModel,
+    has_models_endpoint: !!spec.modelsPath,
+    port: spec.port,
+    model: getSetting(modelKey(spec.id)) ?? null,
+    model_locked: lockedBy('model'),
+    key: keyOfRow(spec),
+    key_optional: spec.optionalKey,
+    // A locked address shows where the row is actually probed, so the disabled input reads the environment's value rather than a stored one it outranks.
+    base_url: baseUrlLocked ? localBase(spec) : (getSetting(baseUrlKey(spec.id)) ?? null),
+    base_url_default: spec.group === 'local' || spec.auth === 'key+url' ? spec.endpoint : null,
+    base_url_locked: baseUrlLocked,
+    status: statusOf(spec, seen),
+    active: activeId === spec.id,
+  };
+};
+
+/** The whole page in one read: stored config at once, the active row computed once, the secrets file's complaint if it has one, and no child process behind any of it. */
 const settingsView = () => {
   const active = currentTutor();
   const seen = lastDetection();
-  return { active, defaults_as_of: DEFAULTS_AS_OF, provider_locked: lockedBy('provider'), model_locked: lockedBy('model'), rows: PROVIDERS.map((s) => rowView(s, active.provider, seen)) };
+  return {
+    active,
+    defaults_as_of: DEFAULTS_AS_OF,
+    provider_locked: lockedBy('provider'),
+    model_locked: lockedBy('model'),
+    secrets_error: secretsFileError(),
+    rows: PROVIDERS.map((s) => rowView(s, active.provider, seen)),
+  };
 };
+
+/** The 409 a key write or removal gets while the environment carries that row's key. */
+const keyLockSentence = (spec: ProviderSpec, lock: string) => `the ${spec.label} key is set by ${lock} in the environment; unset it to store one here`;
 
 app.get('/api/settings', (c) => c.json(settingsView()));
 
@@ -428,10 +461,19 @@ app.put('/api/settings/:provider', async (c) => {
   if (!spec) return c.json({ error: 'unknown provider' }, 404);
   const parsed = SettingsWrite.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? 'the settings body could not be read' }, 400);
-  const { model, base_url } = parsed.data;
+  const { model, base_url, key } = parsed.data;
   if (model !== undefined && lockedBy('model')) return c.json({ error: 'the model is set by DERIVE_MODEL in the environment' }, 409);
   if (base_url !== undefined && spec.auth !== 'key+url' && !spec.port) return c.json({ error: `${spec.label} has a fixed endpoint` }, 400);
+  const baseUrlLock = base_url !== undefined ? lockedBy(`base_url:${spec.id}`) : null;
+  if (baseUrlLock) return c.json({ error: `the ${spec.label} address is set by ${baseUrlLock} in the environment` }, 409);
+  if (key !== undefined) {
+    if (spec.auth === 'login') return c.json({ error: `${spec.label} runs on its login and takes no key` }, 400);
+    if (!takesKey(spec)) return c.json({ error: `${spec.label} takes no key` }, 400);
+    const lock = lockedBy(`key:${spec.id}`);
+    if (lock) return c.json({ error: keyLockSentence(spec, lock) }, 409);
+  }
   try {
+    if (key !== undefined) setKey(spec.id, key);
     if (model !== undefined) {
       if (model) setSetting(modelKey(spec.id), model);
       else deleteSetting(modelKey(spec.id));
@@ -441,6 +483,24 @@ app.put('/api/settings/:provider', async (c) => {
       else deleteSetting(baseUrlKey(spec.id));
     }
     return c.json(rowView(spec, currentTutor().provider));
+  } catch (e) {
+    return c.json({ error: safeMessage(e) }, 400);
+  }
+});
+
+/**
+ * Forget a stored key (D-12). The file entry goes and nothing else does: the
+ * running process keeps redacting the value until it restarts, which the note
+ * says in the learner's words. An environment key is not the page's to remove.
+ */
+app.delete('/api/settings/:provider/key', (c) => {
+  const spec = providerOf(c.req.param('provider'));
+  if (!spec) return c.json({ error: 'unknown provider' }, 404);
+  const lock = lockedBy(`key:${spec.id}`);
+  if (lock) return c.json({ error: keyLockSentence(spec, lock) }, 409);
+  try {
+    removeKey(spec.id);
+    return c.json({ ok: true, note: 'the value stays hidden from logs and events until Derive restarts' });
   } catch (e) {
     return c.json({ error: safeMessage(e) }, 400);
   }

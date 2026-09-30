@@ -23,9 +23,14 @@
  * this module never reads it directly.
  */
 import { claudeLoggedIn, codexLoggedIn } from './backend.js';
-import { BACKEND_SETTING, MODEL, type Backend } from './config.js';
+import { BACKEND_SETTING, ENV_KEYS, MODEL, OLLAMA_HOST, type Backend, type EnvKeyName } from './config.js';
 import { getSetting } from './db.js';
+import { keyOf } from './keys.js';
 import { providerOf, type ProviderId, type ProviderSpec } from './providers.js';
+import { registerSecret } from './secrets.js';
+
+// An environment key is a live secret this process holds, exactly as a file key is, so it is protected from the moment the module loads and before any request can echo it. registerSecret ignores the unset ones.
+for (const value of Object.values(ENV_KEYS)) registerSecret(value);
 
 /** Where the provider came from: the environment, the settings table, or the logins the machine has. */
 export type TutorSource = 'environment' | 'settings' | 'detected';
@@ -51,8 +56,26 @@ export const modelKey = (id: string) => `model:${id}`;
 /** The settings key holding a provider's stored base URL. */
 export const baseUrlKey = (id: string) => `base_url:${id}`;
 
-/** Where a local row or the OpenAI-compatible row is reached: the base the learner stored, else the catalogue default, else null where the learner has not supplied one. */
+/**
+ * OLLAMA_HOST as a base URL. Ollama's own CLI accepts a bare host, a host:port
+ * or a URL there, so a missing scheme reads as http:// and a missing port as
+ * Ollama's default; a value that is not an address at all is passed through
+ * with the scheme prefixed, and the probe simply finds nothing there.
+ */
+function ollamaHostBase(raw: string): string {
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw.trim()) ? raw.trim() : `http://${raw.trim()}`;
+  try {
+    const u = new URL(withScheme);
+    if (!u.port) u.port = '11434';
+    return `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return withScheme;
+  }
+}
+
+/** Where a local row or the OpenAI-compatible row is reached: OLLAMA_HOST on the Ollama row when it is set, else the base the learner stored, else the catalogue default, else null where the learner has not supplied one. */
 export function localBase(spec: Pick<ProviderSpec, 'id' | 'endpoint'>): string | null {
+  if (spec.id === 'ollama' && OLLAMA_HOST) return ollamaHostBase(OLLAMA_HOST);
   return getSetting(baseUrlKey(spec.id)) ?? spec.endpoint;
 }
 
@@ -165,8 +188,23 @@ export function currentTutor(): TutorChoice {
 /** The dialect the two login drivers and systemPrompt() speak. Only teaching rows reach a turn in this release. */
 export const backendOf = (provider: string): Backend => (provider === 'codex' ? 'codex' : 'claude');
 
-/** The environment variable that locks a field, or null when the field is the learner's to set. */
-export function lockedBy(field: 'provider' | 'model'): string | null {
+/** The environment variable carrying a provider's key, with its value, or null when none of the row's variables is set. The catalogue lists a row's variables in precedence order, so the first set one wins (Google before Gemini). */
+export function envKeyFor(id: string): { name: string; value: string } | null {
+  for (const name of providerOf(id)?.envKeys ?? []) {
+    const value = Object.hasOwn(ENV_KEYS, name) ? ENV_KEYS[name as EnvKeyName] : undefined;
+    if (value) return { name, value };
+  }
+  return null;
+}
+
+/** The key a request to a provider would carry: the environment's, else the file's, else none. The file value is neither returned nor touched while the environment one stands. */
+export const effectiveKey = (id: string): string | undefined => envKeyFor(id)?.value ?? keyOf(id);
+
+/** The environment variable that locks a field, or null when the field is the learner's to set. `key:<id>` names the variable carrying that row's key; `base_url:ollama` is OLLAMA_HOST. */
+export function lockedBy(field: 'provider' | 'model' | `key:${string}` | `base_url:${string}`): string | null {
   if (field === 'provider') return BACKEND_SETTING ? 'DERIVE_BACKEND' : null;
-  return MODEL ? 'DERIVE_MODEL' : null;
+  if (field === 'model') return MODEL ? 'DERIVE_MODEL' : null;
+  if (field.startsWith('key:')) return envKeyFor(field.slice('key:'.length))?.name ?? null;
+  if (field === 'base_url:ollama') return OLLAMA_HOST ? 'OLLAMA_HOST' : null;
+  return null;
 }

@@ -18,6 +18,8 @@ export const DATA_DIR = resolve(process.env.DERIVE_DATA_DIR ?? join(homedir(), '
 export const DB_PATH = join(DATA_DIR, 'derive.db');
 /** The per-install token every /api request but health must carry. Written on first boot and read live by the server on every credential check, so deleting or rotating it signs every browser and every header caller out; read once at its own start by the dev proxy, the MCP server and the plugin hook, which is why a rotation signs those out until each restarts. No endpoint ever hands it out. */
 export const TOKEN_PATH = join(DATA_DIR, 'token');
+/** One key per provider, keyed by catalogue id, in a 0600 file beside the token and never inside derive.db, which is 0644. Written atomically and read live by keys.ts. */
+export const SECRETS_PATH = join(DATA_DIR, 'secrets.json');
 /** Which interface the server answers on. Loopback by default; DERIVE_HOST=0.0.0.0 opens it to the network, and the token stays mandatory there. */
 export const HOST = process.env.DERIVE_HOST?.trim() || '127.0.0.1';
 /** True when HOST is a loopback address, which is the default and the only quiet case. */
@@ -46,3 +48,22 @@ export const BACKEND_SETTING: Backend | undefined = process.env.DERIVE_BACKEND =
 export const CODEX_BIN = process.env.DERIVE_CODEX_BIN || undefined;
 /** Where Codex keeps its login, config and session logs. */
 export const CODEX_HOME = resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex'));
+
+/** The five variables a provider key may arrive in. */
+export type EnvKeyName = 'ANTHROPIC_API_KEY' | 'OPENAI_API_KEY' | 'GEMINI_API_KEY' | 'GOOGLE_API_KEY' | 'OPENROUTER_API_KEY';
+/**
+ * The provider keys the environment carries, each read once. A set variable
+ * outranks and locks the file value for its row: the row reads `set from
+ * environment`, names the variable to unset, and the page cannot store a
+ * competing key while it is set. The catalogue decides which variable a row
+ * reads first (Google before Gemini on the Gemini row).
+ */
+export const ENV_KEYS: Readonly<Record<EnvKeyName, string | undefined>> = {
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || undefined,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY || undefined,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY || undefined,
+  GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || undefined,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || undefined,
+};
+/** Where Ollama listens when not on its default port, in the form Ollama's own CLI reads (a host, host:port or URL). Locks the Ollama row's address: the row is probed there and reads `set from environment`. */
+export const OLLAMA_HOST = process.env.OLLAMA_HOST || undefined;

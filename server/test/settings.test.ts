@@ -19,7 +19,7 @@
 import assert from 'node:assert/strict';
 import { type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -39,6 +39,7 @@ process.env.DERIVE_BACKEND = '';
 process.env.DERIVE_MODEL = '';
 process.env.CODEX_HOME = codexHome;
 process.env.PATH = emptyBin;
+for (const name of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY', 'OLLAMA_HOST']) process.env[name] = '';
 
 const { createLesson, deleteSetting, endTurn, getLesson, lastTurn, listEvents, setSessionId, setSetting, startTurn } = await import('../src/db.js');
 const { runTurn } = await import('../src/agent.js');
@@ -47,6 +48,8 @@ const { fakeDriver, setFakeScript } = await import('../src/drivers/fake.js');
 const { ACTIVE_PROVIDER, DETECT_MS, backendOf, baseUrlKey, currentDetection, currentTutor, lastDetection, localBase, modelKey, normaliseBaseUrl, portOf, rememberDetection, resetDetection, resolveTutor } = await import('../src/settings.js');
 const { PROVIDERS, providerOf, providerOfDriver } = await import('../src/providers.js');
 const { isLlamaCpp, isLmStudio, isOllama, probeJson } = await import('../src/probe.js');
+const { hintOf, keyOf, resetKeyCache, setKey } = await import('../src/keys.js');
+const { redact, secretCount } = await import('../src/secrets.js');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const entry = resolve(here, '../dist/index.js');
@@ -55,12 +58,36 @@ after(() => {
   for (const dir of [scratch, emptyBin, codexHome]) rmSync(dir, { recursive: true, force: true });
 });
 
-/** The environment every spawn in this file gets: nothing env-locked, no login reachable. */
-const hermetic = { DERIVE_BACKEND: '', DERIVE_MODEL: '', CODEX_HOME: codexHome, PATH: emptyBin };
+/** The environment every spawn in this file gets: nothing env-locked, no key in the environment, no login reachable. */
+const hermetic = {
+  DERIVE_BACKEND: '',
+  DERIVE_MODEL: '',
+  CODEX_HOME: codexHome,
+  PATH: emptyBin,
+  ANTHROPIC_API_KEY: '',
+  OPENAI_API_KEY: '',
+  GEMINI_API_KEY: '',
+  GOOGLE_API_KEY: '',
+  OPENROUTER_API_KEY: '',
+  OLLAMA_HOST: '',
+};
 
 type Tutor = { provider: string; model: string | null; source: string; modelSource: string | null };
-type Row = { id: string; teaches: boolean; default_model: string | null; model: string | null; base_url: string | null; base_url_default: string | null; status: string; active: boolean };
-type SettingsView = { active: Tutor; defaults_as_of: string; provider_locked: string | null; model_locked: string | null; rows: Row[] };
+type KeyView = { set: boolean; hint: string | null; locked: string | null };
+type Row = {
+  id: string;
+  teaches: boolean;
+  default_model: string | null;
+  model: string | null;
+  key: KeyView | null;
+  key_optional: boolean;
+  base_url: string | null;
+  base_url_default: string | null;
+  base_url_locked: string | null;
+  status: string;
+  active: boolean;
+};
+type SettingsView = { active: Tutor; defaults_as_of: string; provider_locked: string | null; model_locked: string | null; secrets_error: string | null; rows: Row[] };
 
 /** A request against one spawned server, with its token. */
 const client = (base: string, token: string) => async <T = Record<string, unknown>>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<{ status: number; json: T; text: string }> => {
@@ -425,6 +452,231 @@ describe('the environment locks its fields', () => {
   it('reports both as coming from the environment', async () => {
     const r = await api<Tutor>('/api/settings/active');
     assert.deepEqual(r.json, { provider: 'claude-code', model: 'pinned-model', source: 'environment', modelSource: 'environment' });
+  });
+});
+
+describe('keys over HTTP', () => {
+  let server: ChildProcess | undefined;
+  let dataDir = '';
+  let api: ReturnType<typeof client>;
+  const GOOD = 'good-key-good-key-1234';
+  const secretsPath = () => join(dataDir, 'secrets.json');
+  const row = async (id: string) => {
+    const r = await api<SettingsView>('/api/settings');
+    return { text: r.text, row: r.json.rows.find((x) => x.id === id)! };
+  };
+
+  before(async () => {
+    const started = await startDeriveServer(entry, hermetic);
+    server = started.child;
+    dataDir = started.dataDir;
+    api = client(started.base, readFileSync(join(dataDir, 'token'), 'utf8').trim());
+  });
+
+  after(() => {
+    server?.kill();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('paints a key row as unset with no lock, and no key field on a login or Ollama row', async () => {
+    const r = await api<SettingsView>('/api/settings');
+    const byId = new Map(r.json.rows.map((x) => [x.id, x]));
+    assert.deepEqual(byId.get('openai')!.key, { set: false, hint: null, locked: null });
+    assert.equal(byId.get('openai')!.status, 'not configured');
+    assert.equal(byId.get('claude-code')!.key, null);
+    assert.equal(byId.get('ollama')!.key, null);
+    assert.deepEqual(byId.get('lmstudio')!.key, { set: false, hint: null, locked: null });
+    assert.equal(byId.get('lmstudio')!.key_optional, true);
+    assert.equal(byId.get('openai')!.key_optional, false);
+    assert.equal(byId.get('ollama')!.base_url_locked, null);
+    assert.equal(r.json.secrets_error, null);
+    assert.ok(!existsSync(secretsPath()));
+  });
+
+  it('stores a key and answers { set, hint } only, never the value', async () => {
+    const r = await api<Row>('/api/settings/openai', { key: GOOD }, 'PUT');
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json.key, { set: true, hint: '1234', locked: null });
+    assert.equal(r.json.status, 'key set');
+    assert.ok(!r.text.includes(GOOD), r.text);
+    const view = await api<SettingsView>('/api/settings');
+    assert.ok(!JSON.stringify(view.json).includes(GOOD));
+    assert.deepEqual(view.json.rows.find((x) => x.id === 'openai')!.key, { set: true, hint: '1234', locked: null });
+  });
+
+  it('writes the file 0600 as { providerId: key }', { skip: process.platform === 'win32' }, () => {
+    assert.equal(statSync(secretsPath()).mode & 0o777, 0o600);
+    assert.deepEqual(JSON.parse(readFileSync(secretsPath(), 'utf8')), { openai: GOOD });
+  });
+
+  it('gives a short key an empty hint, so the hint never reveals most of it', async () => {
+    const r = await api<Row>('/api/settings/anthropic', { key: 'abcdefg' }, 'PUT');
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json.key, { set: true, hint: '', locked: null });
+    assert.ok(!r.text.includes('abcdefg'));
+    assert.deepEqual(JSON.parse(readFileSync(secretsPath(), 'utf8')), { openai: GOOD, anthropic: 'abcdefg' });
+  });
+
+  it('refuses an empty, an absurdly long, and a whitespace-bearing key with the row sentence', async () => {
+    const empty = await api('/api/settings/openai', { key: '' }, 'PUT');
+    assert.equal(empty.status, 400);
+    assert.equal(empty.json.error, 'the key is empty');
+    const long = await api('/api/settings/openai', { key: 'k'.repeat(5000) }, 'PUT');
+    assert.equal(long.status, 400);
+    assert.match(String(long.json.error), /longer than any provider issues/);
+    const spaced = await api('/api/settings/openai', { key: 'a b' }, 'PUT');
+    assert.equal(spaced.status, 400);
+    assert.match(String(spaced.json.error), /spaces/);
+    // Nothing above touched the file.
+    assert.deepEqual(JSON.parse(readFileSync(secretsPath(), 'utf8')), { openai: GOOD, anthropic: 'abcdefg' });
+  });
+
+  it('refuses a key on a login row and on the Ollama row', async () => {
+    const login = await api('/api/settings/claude-code', { key: GOOD }, 'PUT');
+    assert.equal(login.status, 400);
+    assert.match(String(login.json.error), /runs on its login/);
+    const ollama = await api('/api/settings/ollama', { key: GOOD }, 'PUT');
+    assert.equal(ollama.status, 400);
+    assert.equal(ollama.json.error, 'Ollama takes no key');
+    assert.ok(!login.text.includes(GOOD) && !ollama.text.includes(GOOD));
+  });
+
+  it('removes a key, says the process still hides it, and removes the file with the last key', async () => {
+    const r = await api<{ ok: boolean; note: string }>('/api/settings/openai/key', undefined, 'DELETE');
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.json.ok, true);
+    assert.match(r.json.note, /until Derive restarts/);
+    assert.ok(!r.text.includes(GOOD));
+    const openai = await row('openai');
+    assert.deepEqual(openai.row.key, { set: false, hint: null, locked: null });
+    assert.equal(openai.row.status, 'not configured');
+    assert.ok(existsSync(secretsPath()), 'the other key kept the file');
+    const again = await api('/api/settings/anthropic/key', undefined, 'DELETE');
+    assert.equal(again.status, 200, again.text);
+    assert.ok(!existsSync(secretsPath()), 'the last key removed the file');
+    const unknown = await api('/api/settings/nope/key', undefined, 'DELETE');
+    assert.equal(unknown.status, 404);
+  });
+});
+
+describe('the environment locks its keys', () => {
+  let server: ChildProcess | undefined;
+  let dataDir = '';
+  let api: ReturnType<typeof client>;
+  const values = { OPENAI_API_KEY: 'from-env-from-env-1234', GEMINI_API_KEY: 'gem-key-gem-key-12345', GOOGLE_API_KEY: 'goo-key-goo-key-12345' };
+  const texts: string[] = [];
+
+  before(async () => {
+    const started = await startDeriveServer(entry, { ...hermetic, ...values, OLLAMA_HOST: '127.0.0.1:19999' });
+    server = started.child;
+    dataDir = started.dataDir;
+    api = client(started.base, readFileSync(join(dataDir, 'token'), 'utf8').trim());
+  });
+
+  after(() => {
+    server?.kill();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('reads set from environment with the variable named, Google before Gemini, and OLLAMA_HOST on the Ollama row', async () => {
+    const r = await api<SettingsView>('/api/settings');
+    texts.push(r.text);
+    const byId = new Map(r.json.rows.map((x) => [x.id, x]));
+    assert.deepEqual(byId.get('openai')!.key, { set: true, hint: null, locked: 'OPENAI_API_KEY' });
+    assert.equal(byId.get('openai')!.status, 'set from environment');
+    assert.deepEqual(byId.get('gemini')!.key, { set: true, hint: null, locked: 'GOOGLE_API_KEY' });
+    assert.deepEqual(byId.get('anthropic')!.key, { set: false, hint: null, locked: null });
+    assert.equal(byId.get('ollama')!.base_url_locked, 'OLLAMA_HOST');
+    assert.equal(byId.get('ollama')!.base_url, 'http://127.0.0.1:19999');
+    assert.equal(byId.get('lmstudio')!.base_url_locked, null);
+  });
+
+  it('answers 409 naming the variable on a key write and on a key removal', async () => {
+    const put = await api('/api/settings/openai', { key: 'x'.repeat(20) }, 'PUT');
+    texts.push(put.text);
+    assert.equal(put.status, 409);
+    assert.match(String(put.json.error), /OPENAI_API_KEY/);
+    const del = await api('/api/settings/openai/key', undefined, 'DELETE');
+    texts.push(del.text);
+    assert.equal(del.status, 409);
+    assert.match(String(del.json.error), /OPENAI_API_KEY/);
+    const gem = await api('/api/settings/gemini', { key: 'y'.repeat(20) }, 'PUT');
+    texts.push(gem.text);
+    assert.equal(gem.status, 409);
+    assert.match(String(gem.json.error), /GOOGLE_API_KEY/);
+  });
+
+  it('answers 409 on the Ollama address while OLLAMA_HOST is set', async () => {
+    const r = await api('/api/settings/ollama', { base_url: 'http://127.0.0.1:1' }, 'PUT');
+    texts.push(r.text);
+    assert.equal(r.status, 409);
+    assert.match(String(r.json.error), /OLLAMA_HOST/);
+  });
+
+  it('never echoes an environment value and never copies one into the file', async () => {
+    texts.push((await api('/api/settings/active')).text, (await api('/api/health')).text);
+    for (const t of texts) for (const v of Object.values(values)) assert.ok(!t.includes(v), t);
+    assert.ok(!existsSync(join(dataDir, 'secrets.json')));
+  });
+});
+
+describe('a secrets file that cannot be read', () => {
+  let server: ChildProcess | undefined;
+  let dataDir = '';
+  let api: ReturnType<typeof client>;
+  const corrupt = '{oops';
+
+  before(async () => {
+    dataDir = mkdtempSync(join(tmpdir(), 'derive-settings-corrupt-'));
+    writeFileSync(join(dataDir, 'secrets.json'), corrupt, { mode: 0o600 });
+    const started = await startDeriveServer(entry, hermetic, { dataDir });
+    server = started.child;
+    api = client(started.base, readFileSync(join(dataDir, 'token'), 'utf8').trim());
+  });
+
+  after(() => {
+    server?.kill();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('is loud on the settings view, refuses a key, and leaves the file exactly as it was', async () => {
+    const view = await api<SettingsView>('/api/settings');
+    assert.equal(view.status, 200, view.text);
+    assert.match(String(view.json.secrets_error), /could not be read/);
+    assert.ok(!view.text.includes('oops'), 'the error names the reason without quoting the file');
+    assert.deepEqual(view.json.rows.find((x) => x.id === 'openai')!.key, { set: false, hint: null, locked: null });
+    const put = await api('/api/settings/openai', { key: 'good-key-good-key-1234' }, 'PUT');
+    assert.equal(put.status, 400);
+    assert.match(String(put.json.error), /could not be read/);
+    const del = await api('/api/settings/openai/key', undefined, 'DELETE');
+    assert.equal(del.status, 400);
+    assert.equal(readFileSync(join(dataDir, 'secrets.json'), 'utf8'), corrupt);
+  });
+});
+
+describe('keys, in process', () => {
+  const secretsPath = join(scratch, 'secrets.json');
+
+  it('registers a key with the redaction chokepoint before it is written', () => {
+    setKey('openai', 'module-key-module-key-1');
+    assert.equal(redact('a module-key-module-key-1 b'), 'a [redacted] b');
+    assert.equal(keyOf('openai'), 'module-key-module-key-1');
+  });
+
+  it('registers every key it loads from a file written by hand', () => {
+    writeFileSync(secretsPath, '{ "anthropic": "hand-written-key-1234567" }\n', { mode: 0o600 });
+    resetKeyCache();
+    const before = secretCount();
+    assert.equal(keyOf('anthropic'), 'hand-written-key-1234567');
+    assert.equal(secretCount(), before + 1);
+    assert.equal(keyOf('openai'), undefined);
+    assert.equal(redact('hand-written-key-1234567'), '[redacted]');
+  });
+
+  it('hints with the last four characters of a key at least eight long, and nothing of a shorter one', () => {
+    assert.equal(hintOf('abcdefg'), '');
+    assert.equal(hintOf('abcdefgh'), 'efgh');
+    assert.equal(hintOf('  abcdefgh  '), 'efgh');
   });
 });
 
