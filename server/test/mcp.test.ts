@@ -135,9 +135,13 @@ describe('the built mcp server over stdio', () => {
   });
 
   it('walks a whole lesson with no model: start, plan, teach, check, answer, end', async () => {
-    const started = await call<{ lesson_id: string; answer_in: string }>('start_lesson', { topic: 'why gradient descent works', open_browser: false });
+    const started = await call<{ lesson_id: string; answer_in: string; tutor_running_this_lesson: string; app_tutor_setting?: string }>('start_lesson', { topic: 'why gradient descent works', open_browser: false });
     assert.ok(started.lesson_id, 'start_lesson must return a lesson id');
     assert.equal(started.answer_in, 'terminal');
+    // D-16: the result names the terminal tutor that is running and what the app's own tutor is set to, and never a key.
+    assert.match(started.tutor_running_this_lesson, /in this terminal, on its own model$/);
+    assert.ok(started.app_tutor_setting, 'the server is up, so the app tutor sentence must be present');
+    assert.match(started.app_tutor_setting, /^Derive's own tutor is set to \S+ · /);
     const lesson = started.lesson_id;
 
     const plan = await call<{ status: string }>('set_plan', {

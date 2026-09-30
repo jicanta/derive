@@ -225,6 +225,8 @@ const handlers: Record<string, (a: Record<string, unknown>) => Promise<unknown>>
     watchCodexSession(l.id);
     if (open_browser !== false && DRIVER !== 'app') openBrowser(l.url);
     const profile = await api<{ profile: string; learner?: { name: string } }>(`/api/profile?learner=${encodeURIComponent(l.learner_id)}`).catch(() => ({ profile: '', learner: undefined }));
+    // This process holds no settings: the server says what its own tutor is set to, and when it cannot be asked nothing is claimed.
+    const tutor = await api<{ provider: string; model: string | null }>('/api/settings/active').catch(() => null);
     let material: (Attached & { brief?: string }) | undefined;
     if (files?.length) {
       material = await attach(l.id, files);
@@ -240,6 +242,8 @@ const handlers: Record<string, (a: Record<string, unknown>) => Promise<unknown>>
           ? 'The learner answers in this terminal. Each of quiz, ask, set_plan and explain_back returns the card as text at once: show it verbatim, end your turn, and pass their reply to `answer`. They can also answer in the browser; `answer` returns that result too.'
           : 'The learner answers in the browser. quiz, ask, set_plan and explain_back block until they do and return the result. If they ask to answer here in the terminal instead, call `answer_in` with "terminal".',
       learner_profile: profile.profile,
+      tutor_running_this_lesson: DRIVER === 'codex' ? 'the Codex CLI in this terminal, on its own model' : 'Claude Code in this terminal, on its own model',
+      ...(tutor ? { app_tutor_setting: `Derive's own tutor is set to ${tutor.provider} · ${tutor.model ?? 'default model'}` } : {}),
       ...(l.review ? { review: l.review } : {}),
       ...(l.warmup ? { warmup: l.warmup } : {}),
       ...(material ? { course_material: material } : {}),
