@@ -31,23 +31,23 @@ No new package is installed for this phase. The combobox is the native `<input l
 
 ## Existing Patterns to Reuse
 
-Enumerated by `ls web/src/components web/src/pages` — 12 components, 5 pages — project-owned (no package) — 2026-09-30.
+Enumerated by `ls web/src/components web/src/pages` — 17 components (12 under `components/`, 5 under `pages/`) — derive@32e2f7c (project-owned, no package; the version is the repo commit from `git rev-parse --short HEAD` at enumeration time) — 2026-09-30.
 
-This is a project inventory, not a design-system package, so it is a non-exhaustive list of the patterns the executor copies. The three new components (`Settings.tsx`, `ProviderRow.tsx`, the `/you` model field) are built from these.
+This is a project inventory, not a design-system package, so it is a non-exhaustive list of the patterns the executor copies. The three new components (`Settings.tsx`, `ProviderRow.tsx`, the `/you` model field) are built from these. Re-run the command and compare the count before reusing this spec after component churn.
 
 | Pattern | File | Copy for |
 |---------|------|----------|
 | Page header: `ArrowLeft` back link, `font-serif text-[22px]` title with an `<em class="text-ink-400">· subtitle</em>`, `LearnerMenu` at right, `h-[60px] border-b hairline` | `web/src/pages/You.tsx:80-90` | `/settings` header |
-| Content column `mx-auto max-w-[760px] px-5 md:px-8 pt-9 pb-24`, intro paragraph `text-[15px] leading-relaxed text-ink-300 max-w-[62ch]` | `You.tsx:93-105` | `/settings` body |
+| Content column `mx-auto max-w-[760px] px-5 md:px-8 pt-9 pb-24`, intro paragraph `leading-relaxed text-ink-300 max-w-[62ch]` (existing size 15px; new copy renders at 14px, see Typography) | `You.tsx:93-105` | `/settings` body |
 | `field` class: `w-full rounded-xl border hairline bg-ink-900/70 px-3 text-[14px] leading-relaxed text-ink-100 outline-none focus:border-gold-500/60 placeholder:text-ink-500`, inputs `h-10` | `You.tsx:13` | every input on `/settings` and the `/you` model field |
 | `Section` grid `md:grid-cols-[200px_minmax(0,1fr)] gap-x-8 gap-y-3`, serif number + title, hint `text-[12.5px] text-ink-500` | `You.tsx:170-183` | the `/you` model field (Section 07) |
-| Save-as-you-go state machine `idle → saving → saved → idle` with an 1800 ms timer; saved line `font-mono text-[11px] text-gold-500` | `You.tsx:24-60, 148-151` | every per-field save on `/settings` |
+| Save-as-you-go state machine `idle → saving → saved → idle` with an 1800 ms timer; saved line `font-mono text-[11px] text-gold-500` (new code renders it at 10px) | `You.tsx:24-60, 148-151` | every per-field save on `/settings` |
 | Status pill: `inline-flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 border hairline rounded-full px-2.5 h-6` with a `h-1.5 w-1.5 rounded-full` dot | `web/src/pages/Lesson.tsx:114-128` | provider status pills, the header tutor pill |
 | Quiet row card `rounded-[18px] border border-ink-100/12 bg-ink-900/70 px-5 py-4 md:px-6 md:py-5`; highlighted variant `border-gold-500/30 bg-gold-500/[0.035]` | `web/src/components/ResourceCard.tsx:36` | provider rows (highlighted variant = the active row) |
 | Eyebrow `.eyebrow` (mono 10px, 0.2em tracking, uppercase, ink-400) | `index.css:66-72` | group labels between rows |
-| Filled primary button `h-9 rounded-lg bg-gold-500 text-ink-950 px-3.5 text-[13px] font-medium disabled:opacity-40` | `You.tsx:146` | "Use this" |
-| Text button `text-ink-400 hover:text-ink-50 transition-colors font-mono text-[11px]` | `Lesson.tsx:143-160` | Rescan, Fetch models, Test connection, Replace, Remove, Cancel |
-| Nav link `font-mono text-[11px] tracking-[0.06em] text-ink-400 hover:text-ink-50` | `web/src/pages/Home.tsx:102-105` | `settings` link in the Home nav |
+| Filled primary button `h-9 rounded-lg bg-gold-500 text-ink-950 px-3.5 font-medium disabled:opacity-40` (existing label 13px; new instance uses `text-[14px]`, see Typography) | `You.tsx:146` | `Use this provider` |
+| Text button `text-ink-400 hover:text-ink-50 transition-colors font-mono` (existing 11px; new instances use `text-[10px]`) | `Lesson.tsx:143-160` | rescan, fetch models, test connection, replace, remove, keep the current key |
+| Nav link `font-mono text-[11px] tracking-[0.06em] text-ink-400 hover:text-ink-50` — the class is set once on the parent `<nav>`; a new `<Link>` inherits it | `web/src/pages/Home.tsx:102-105` | `settings` link in the Home nav |
 | Menu link row with icon, label and a mono sub-line | `web/src/components/LearnerMenu.tsx:188-195` | `Settings` entry in the learner menu |
 | Inline error `text-rust-400`, sizes 12–14px | `You.tsx:152`, `LearnerMenu.tsx:186` | verbatim provider sentences |
 
@@ -77,16 +77,17 @@ Exceptions, all inherited from the codebase and kept for consistency:
 
 ## Typography
 
-Exactly four sizes and two weights for everything this phase adds. Existing pages use a wider range; new code does not.
+Exactly three sizes and two weights for everything this phase adds. Existing pages use a wider range; new code does not. Hints and secondary sentences are distinguished from primary text by colour (`ink-500` / `ink-300` against `ink-100`), never by a smaller size.
 
 | Role | Size | Family / Weight | Line Height | Where |
 |------|------|-----------------|-------------|-------|
-| Meta | 10px | JetBrains Mono 400, `tracking-[0.16em] uppercase` for pills and eyebrows; `tracking-normal` lowercase for saved ticks, result lines and key hints (rendered at 11px is NOT allowed; use 10px so pills and lines share one size) | 1.0 in pills (`h-6` box), 1.5 as a line | status pills, header tutor pill, group eyebrows, `saved · applies from the next turn`, `Connected · 12 models · 340 ms`, `•••• •••• a1b2`, nav links (existing nav links are 11px; the new `settings` link matches its siblings at 11px — that is the one place the existing size wins) |
-| Label | 13px | Instrument Sans 500 for provider names and button labels; Instrument Sans 400 for hints and sentences | 1.5 | provider label on the row head line, "Use this", hint sentences under fields, the unwired-provider sentence, the env-lock sentence, the fix hint under a failure |
-| Body | 14px | Instrument Sans 400; JetBrains Mono 400 inside the model combobox and base URL input (ids are code) | 1.5 (`leading-relaxed` on inputs, as the `field` class already sets) | intro paragraph (existing pages use 15px here; new copy uses 14px), input values, the /you model field |
+| Meta | 10px | JetBrains Mono 400, `tracking-[0.16em] uppercase` for pills and eyebrows; `tracking-normal` lowercase for text buttons, saved ticks, result lines and key hints (11px is NOT used in new code; pills, buttons and lines share one size) | 1.0 in pills (`h-6` box), 1.5 as a line | status pills, header tutor pill, group eyebrows, text buttons (`rescan`, `fetch models`, `test connection`, `replace`, `remove`, `keep the current key`), `saved · applies from the next turn`, `Connected · 12 models · 340 ms`, `•••• •••• a1b2`, `default as of {date}`, the learner-menu sub-line |
+| Body | 14px | Instrument Sans 500 for provider names and the filled button label; Instrument Sans 400 for the intro paragraph, hint sentences, env-lock sentences, fix hints and error sentences; JetBrains Mono 400 inside the model combobox and base URL input (ids are code) | 1.5 (`leading-relaxed`, as the `field` class already sets) | intro paragraph (existing pages use 15px here; new copy uses 14px), provider label on the row head line, `Use this provider`, input values, every sentence under a field or row head, the `/you` model field value |
 | Heading | 22px | Instrument Serif 400, `tracking-[-0.01em]` | 1.2 | page title `Settings` [CODEBASE You.tsx:85] |
 
-Weights: 400 and 500 only. No 600 in new code (the loaded 600 stays for `.prose strong`). Serif is always 400. The section numeral/title for the /you model field reuses `Section` (serif 1.4rem / 1.2rem) because it is an existing component, not new typography.
+Weights: 400 and 500 only. No 600 in new code (the loaded 600 stays for `.prose strong`). Serif is always 400.
+
+Two existing elements carry their own size and are not new typography: the `settings` nav link inherits `font-mono text-[11px]` from the parent `<nav>` in `Home.tsx:102` (adding a sibling `<Link>` sets no size of its own); the section numeral, title and 12.5px hint of the `/you` model field come from the existing `Section` component (`You.tsx:170-183`). Neither is declared above and neither may be copied into `/settings`.
 
 ---
 
@@ -98,16 +99,16 @@ Weights: 400 and 500 only. No 600 in new code (the loaded 600 stays for `.prose 
 | Secondary (30%) | `ink-900` #131110 at `/70` (row cards, inputs), `ink-850` #15130f (hover rows in menus), hairline borders `color-mix(ink-100 8%)`, text `ink-100` #efe9dc primary, `ink-300` #a89f92 secondary, `ink-400` #8d8477 pills and meta, `ink-500` #6a6257 hints and disabled | every surface, border and text on `/settings` |
 | Accent (10%) | `gold-500` #e8b04b | see the reserved list |
 | Success | `moss-400` #9fbc86 | the `logged in`, `key set` and `found on port N` pill dots; the `Connected · …` result line; the `Logged in · …` result line. D-14 says "green": moss is the codebase's green [CODEBASE Lesson.tsx:121, QuizCard.tsx verdictTone] |
-| Destructive / failure | `rust-400` #d98b6a | the verbatim provider failure sentence; the secrets-file read error; `Remove` on hover and its confirm button; the `not configured` dot is NOT rust — it is `ink-600` (absence is not an error) |
+| Destructive / failure | `rust-400` #d98b6a | the verbatim provider failure sentence; the secrets-file read error; `remove` on hover and its confirm button; the `not configured` dot is NOT rust — it is `ink-600` (absence is not an error) |
 
 Accent reserved for, and nothing else:
 1. The active provider row: `border-gold-500/30 bg-gold-500/[0.035]` card variant and a `bg-gold-500` dot before its `teaching now` pill text.
-2. The "Use this" filled button (`bg-gold-500 text-ink-950`) — the one primary action on the page.
+2. The `Use this provider` filled button (`bg-gold-500 text-ink-950`) — the one primary action on the page.
 3. The saved tick line after a field persists (`text-gold-500`, mono 10px).
 4. Input focus border `focus:border-gold-500/60` (inherited from the `field` class).
 5. Hover colour on the `open settings` link inside a sentence (`hover:text-gold-500`), matching `ResourceCard.tsx:75`.
 
-Not gold: the header tutor pill (muted `text-ink-400 hover:text-ink-50`, per D-15 "small muted"), status pills, Rescan, Fetch models, Test connection, Replace, Remove, nav links, the `checking` state.
+Not gold: the header tutor pill (muted `text-ink-400 hover:text-ink-50`, per D-15 "small muted"), status pills, rescan, fetch models, test connection, replace, remove, keep the current key, nav links, the `checking` state.
 
 `teal` is not used on this page; it belongs to teaching-state UI and stays there.
 
@@ -139,11 +140,11 @@ Not gold: the header tutor pill (muted `text-ink-400 hover:text-ink-50`, per D-1
 
 | Line | Content | Rules |
 |------|---------|-------|
-| Head | Provider label (Label 13px/500 ink-100) · status pill · `ml-auto` action | Action is the filled `Use this` button on a `teaches: true` row that is not active; the pill `teaching now` (gold dot) on the active row; nothing on a `teaches: false` row. `Use this` is disabled (`opacity-40`, `title="Nothing to use yet: log in or paste a key first"`) while the status is `not configured` or `checking` (Assumption A10), and disabled with the D-11 sentence when `DERIVE_BACKEND` locks the provider. |
-| Sentence | One optional 13px ink-500 sentence | Claude Code: `Runs the app's tutor on your Claude Code login. The plugin is the supported subscription route; an Anthropic API key takes over from the next release.` (Assumption A7). Codex: `Runs on your Codex login. Leave the model empty to use Codex's own default.` Unwired rows: `Teaching on {label} arrives with the next release. Keys, model lists and tests already work.` |
+| Head | Provider label (Body 14px/500 ink-100) · status pill · `ml-auto` action | Action is the filled `Use this provider` button on a `teaches: true` row that is not active; the pill `teaching now` (gold dot) on the active row; nothing on a `teaches: false` row. `Use this provider` is disabled (`opacity-40`, `title="Nothing to use yet: log in or paste a key first"`) while the status is `not configured` or `checking` (Assumption A10), and disabled with the D-11 sentence when `DERIVE_BACKEND` locks the provider. |
+| Sentence | One optional 14px ink-500 sentence | Claude Code: `Runs the app's tutor on your Claude Code login. The plugin is the supported subscription route; an Anthropic API key takes over from the next release.` (Assumption A7). Codex: `Runs on your Codex login. Leave the model empty to use Codex's own default.` Unwired rows: `Teaching on {label} arrives with the next release. Keys, model lists and tests already work.` |
 | Fields | `md:grid md:grid-cols-2 gap-4`; on mobile stacked with `gap-2` | Left: key field (rows with auth `key` or `key+url`; login and local rows omit it — LM Studio and llama.cpp show it as `optional key`). Right: model combobox. Rows with auth `key+url` and the three local rows add a full-width base URL input under the pair, placeholder = catalogue default (`http://127.0.0.1:11434`), empty means default (Assumption A4). |
 | Actions | Text buttons `fetch models` · `test connection`, then the result line `ml-auto` or on its own line when it wraps | Result line is mono 10px, one line, `truncate` with `title` carrying the full text; `role="status"`. |
-| Notes | Fix hint / env-lock sentence / remove note | 13px ink-300 for the fix hint; ink-500 for the others. |
+| Notes | Fix hint / env-lock sentence / remove note | 14px ink-300 for the fix hint; ink-500 for the others. |
 
 **Status pill vocabulary** (fixed) [CONTEXT Specifics]: `logged in` (moss dot), `key set` (moss dot), `set from environment` (ink-400 dot), `found on port 11434` (moss dot; the number is the probed port), `not configured` (ink-600 dot). While detection runs, login and local rows read `checking` with an `ink-500` dot and `animate-pulse` (no spinner) — this is the only loading indicator on the page [CONTEXT D-13, RESEARCH Pitfall 9].
 
@@ -155,26 +156,26 @@ Not gold: the header tutor pill (muted `text-ink-400 hover:text-ink-50`, per D-1
 | saving | input disabled, mono 10px ink-500 line under it | `saving` |
 | set | the input is replaced by `<span class="font-mono text-[10px] text-ink-300">•••• •••• a1b2</span>` then text buttons `replace` · `remove`, plus a gold tick line for 1800 ms | `saved · applies from the next turn` |
 | set, short key (hint empty) | `•••• ••••` with no suffix | — |
-| replacing | the password input again, prefilled empty, with a `cancel` text button; Escape cancels | placeholder `Paste the new key` |
+| replacing | the password input again, prefilled empty, with a `keep the current key` text button (ink-400) beside it; Escape does the same and returns to the `set` state with the stored key untouched | placeholder `Paste the new key` |
 | remove, step 1 → 2 | `remove` becomes an inline pair `remove the key · keep` (rust for remove, ink-400 for keep); Escape or `keep` returns to step 1; no modal, no `confirm()` (Assumption A3) | — |
 | removed | back to the unset input; one sentence under it for 5 s then gone | `Removed. It stays hidden from logs and events until Derive restarts.` |
 | set from environment | no input; pill `set from environment`; sentence | `Set by ANTHROPIC_API_KEY in your environment. Unset it to store a key here.` |
-| save failed | input keeps the typed value; rust 13px sentence with the server's `{ error }` verbatim | e.g. `the key is empty` / `the key is longer than any provider issues` |
-| secrets file unreadable | a rust 13px line at the top of the `keys` group, not per row | `secrets.json could not be read: {reason}. Fix or move the file; nothing here was overwritten.` [RESEARCH Pattern 3(b)] |
+| save failed | input keeps the typed value; rust 14px sentence with the server's `{ error }` verbatim | e.g. `the key is empty` / `the key is longer than any provider issues` |
+| secrets file unreadable | a rust 14px line at the top of the `keys` group, not per row | `secrets.json could not be read: {reason}. Fix or move the file; nothing here was overwritten.` [RESEARCH Pattern 3(b)] |
 
 The value is never shown after save. There is no reveal (eye) toggle. The API answers `{ set, hint }` only.
 
-**Model combobox** [CONTEXT D-06, D-08]: `<input list="models-{id}">` with the `field` class, `font-mono`, `h-10`, `aria-label="{label} model"`, plus `<datalist id="models-{id}">` filled from the last fetch. The value is prefilled with the catalogue default the first time a row is configured; the learner may clear or change it. Saves on blur or Enter with the gold tick. Under the field, one mono 10px line: `default as of 2026-09-30` when the value equals the default; `12 models fetched` after a successful fetch; the provider's failure sentence in rust 13px after a failed fetch — the input stays typeable and still saves. Codex with an empty value shows `Codex's own default applies` in place of the default line. Claude Code has no fetch button (no models endpoint); typing still works. A `DERIVE_MODEL` lock renders the value read-only with the `set from environment` pill inline and `Set by DERIVE_MODEL in your environment. Unset it to choose a model here.`
+**Model combobox** [CONTEXT D-06, D-08]: `<input list="models-{id}">` with the `field` class, `font-mono`, `h-10`, `aria-label="{label} model"`, plus `<datalist id="models-{id}">` filled from the last fetch. The value is prefilled with the catalogue default the first time a row is configured; the learner may clear or change it. Saves on blur or Enter with the gold tick. Under the field, one mono 10px line: `default as of 2026-09-30` when the value equals the default; `12 models fetched` after a successful fetch; the provider's failure sentence in rust 14px after a failed fetch — the input stays typeable and still saves. Codex with an empty value shows `Codex's own default applies` in place of the default line. Claude Code has no fetch button (no models endpoint); typing still works. A `DERIVE_MODEL` lock renders the value read-only with the `set from environment` pill inline and `Set by DERIVE_MODEL in your environment. Unset it to choose a model here.`
 
 **Fetch models**: text button → `fetching…` (disabled) → the datalist fills and the count line appears, or the failure sentence appears. No toast.
 
 **Test connection** [CONTEXT D-14]: text button → `testing…` (disabled, the previous result cleared) → one line, mono 10px:
 - success, key/gateway/local: `Connected · 12 models · 340 ms` in moss-400
 - success, login: `Logged in · 300 ms` in moss-400
-- failure: `401 invalid x-api-key` in rust-400 — status plus the provider's sentence verbatim, truncated at 300 characters server-side and `truncate`d with a `title` client-side — followed on the next line by the fix hint (13px ink-300) when the server sends one: `The key was refused. Paste a new key for Anthropic, or unset its environment variable if that is where it came from.`
+- failure: `401 invalid x-api-key` in rust-400 — status plus the provider's sentence verbatim, truncated at 300 characters server-side and `truncate`d with a `title` client-side — followed on the next line by the fix hint (14px ink-300) when the server sends one: `The key was refused. Paste a new key for Anthropic, or unset its environment variable if that is where it came from.`
 - nothing reachable: `nothing answered at 127.0.0.1:11434` in rust-400 (Derive's own sentence; local rows) or `could not reach api.openai.com: {message}` (remote)
 
-**Use this** [CONTEXT D-03, D-04]: on click the row becomes active immediately (gold variant, `teaching now` pill), the previous row loses it, the teaching-now line updates, and the gold tick reads `saved · applies from the next turn of every lesson`. Refusals (`teaching on OpenAI arrives with the next release`, `the provider is set by DERIVE_BACKEND in the environment`) show verbatim under the head line in rust 13px.
+**Use this provider** [CONTEXT D-03, D-04]: on click the row becomes active immediately (gold variant, `teaching now` pill), the previous row loses it, the teaching-now line updates, and the gold tick reads `saved · applies from the next turn of every lesson`. Refusals (`teaching on OpenAI arrives with the next release`, `the provider is set by DERIVE_BACKEND in the environment`) show verbatim under the head line in rust 14px. The label is the D-02 "Use this" action with its noun made explicit (Assumption A11).
 
 **Rescan**: re-runs the detection pass; pills go to `checking` and fill in as results arrive. Nothing polls.
 
@@ -191,7 +192,7 @@ Placed directly after the `<h1>` in `Lesson.tsx:113`, before the `PhaseBar` bloc
 | agent lesson, last turn known | `anthropic · claude-opus-5-5` | `Link` to `/settings`, `title="Which model is teaching. Change it in Settings; it applies from the next turn."` |
 | agent lesson, model null | `claude code · default model` | same |
 | agent lesson, no turn yet | pill absent (first paint before any turn) | — |
-| external lesson | the existing companion pill's text becomes `companion · claude code · terminal model` or `companion · codex cli · terminal model`; no second pill (Assumption A5) | stays a `<span>` — Settings cannot change the terminal's model, so it must not link there |
+| external lesson | the existing companion pill's text (`companion · {driver}` today, `Lesson.tsx:120`) becomes `companion · claude code · terminal model` or `companion · codex cli · terminal model`; no second pill. D-16's wording is `claude code · terminal model`; the `companion ·` prefix is the existing pill's own word, kept so the pill still names the mode (Assumption A5) | stays a `<span>` — Settings cannot change the terminal's model, so it must not link there |
 
 Provider labels come from the catalogue (`labelOf(provider)` lowercased: `claude code`, `codex`, `anthropic`, …). The pill updates on `turn_start` payload; first paint reads `lessonView.turn` [RESEARCH Pattern 8]. Nothing else on the lesson screen changes.
 
@@ -203,7 +204,7 @@ Two fields on the `start_lesson` result, plain sentences:
 
 ### 5. Home nav and learner menu
 
-- Home nav: `<Link to="/settings">settings</Link>` after `how you learn`, same classes as its siblings (`hidden md:inline hover:text-ink-50`).
+- Home nav: `<Link to="/settings">settings</Link>` after `how you learn`, same classes as its siblings (`hidden md:inline hover:text-ink-50`); the size comes from the parent `<nav>` (see Typography).
 - Learner menu: a row after the `How you learn` link — `Settings` icon 12px, label `Settings`, mono sub-line `which model teaches · for everyone on this install`.
 
 ### Responsive
@@ -222,11 +223,11 @@ Two fields on the `start_lesson` result, plain sentences:
 
 ## Copywriting Contract
 
-Lowercase, sentence-shaped, no exclamation marks, matching the codebase's error convention (lowercase plain sentences). Provider text is quoted verbatim and never rewritten [CONTEXT D-14].
+Lowercase, sentence-shaped, no exclamation marks, matching the codebase's error convention (lowercase plain sentences). Provider text is quoted verbatim and never rewritten [CONTEXT D-14]. Every button label is a verb plus the thing it acts on; the two escape hatches (`keep the current key`, `keep`) name what is kept rather than saying `cancel`.
 
 | Element | Copy |
 |---------|------|
-| Primary CTA | `Use this` (filled gold button, one per non-active teaching row) |
+| Primary CTA | `Use this provider` (filled gold button, one per non-active teaching row; Assumption A11) |
 | Active marker | `teaching now` (pill on the active row) |
 | Page title | `Settings` · em `which model teaches` |
 | Intro | `One provider teaches every lesson on this install. Pick it here, paste a key where one is needed, and test it. Changes apply from the next turn of every lesson; the one running now finishes on what it started with.` |
@@ -236,9 +237,9 @@ Lowercase, sentence-shaped, no exclamation marks, matching the codebase's error 
 | Empty state (page) | Not applicable: the catalogue always lists ten rows. The empty condition is every row `not configured`; the teaching-now line then reads `claude code · default model` with the `detected` pill, and the Claude Code row's sentence tells the learner what to do. No separate empty screen. |
 | Empty state (model list) | Before any fetch the datalist is empty and the field shows the default: line `default as of {date}`. After a failed fetch the provider sentence replaces it and the field stays typeable. |
 | Empty state (key) | placeholder `Paste a key · saved when you leave the field` |
-| Saved tick | `saved · applies from the next turn` (field) · `saved · applies from the next turn of every lesson` (Use this) |
+| Saved tick | `saved · applies from the next turn` (field) · `saved · applies from the next turn of every lesson` (Use this provider) |
 | Key set hint | `•••• •••• {last4}` (`•••• ••••` when the hint is empty) · actions `replace` · `remove` |
-| Replace | placeholder `Paste the new key` · `cancel` |
+| Replace | placeholder `Paste the new key` · `keep the current key` (returns to the masked hint; Escape does the same) |
 | Destructive confirmation | Remove key: `remove` → inline `remove the key · keep`; after: `Removed. It stays hidden from logs and events until Derive restarts.` (the only destructive action in this phase; no modal) |
 | Env lock (key) | `Set by {VAR} in your environment. Unset it to store a key here.` |
 | Env lock (model) | `Set by DERIVE_MODEL in your environment. Unset it to choose a model here.` |
@@ -274,7 +275,7 @@ Applicable state considerations resolved: 19 covered, 2 backstop, 1 unresolved.
 | loading | fetch models / test connection / rescan (interactive-control) | ✅ covered | Button text becomes `fetching…` / `testing…` / `scanning…` and the button is disabled; the previous result line is cleared. |
 | loading | key field save (form) | ✅ covered | Input disabled with a `saving` mono line, then the masked hint. |
 | loading | header tutor pill (nav) | ✅ covered | Absent until `lessonView.turn` or the first `turn_start` arrives; no placeholder pill. |
-| error | key field save (form) | ✅ covered | Server `{ error }` sentence in rust 13px under the field; typed value kept. |
+| error | key field save (form) | ✅ covered | Server `{ error }` sentence in rust 14px under the field; typed value kept. |
 | error | fetch models (interactive-control) | ✅ covered | Provider sentence verbatim under the combobox; input stays typeable and saves. |
 | error | test connection (interactive-control) | ✅ covered | `{status} {sentence}` in rust, optional fix hint line; unreachable hosts get Derive's own sentence. |
 | error | provider list load (list-collection) | ✅ covered | `GET /api/settings` failure renders the rust sentence where the teaching-now line would be, with the `rescan` button as the retry. |
@@ -288,7 +289,7 @@ Applicable state considerations resolved: 19 covered, 2 backstop, 1 unresolved.
 | zero-one-many | model datalist (form) | ✅ covered | `1 model fetched` / `{N} models fetched`; zero after a successful fetch reads `0 models fetched · type an id` in ink-500. |
 | long-text | model id in the combobox and pill (form, nav) | 🧪 backstop | Ollama/LM Studio ids like `qwen/qwen3-8b:latest` must not break the 40px input or the pill; verify with a 60-character id in the visual check (RESEARCH Pitfall 10). |
 | long-text | provider failure sentence with embedded newlines (static-content) | 🧪 backstop | Server collapses whitespace to one line before truncating; verify with a multi-line 4xx body from the loopback fake provider. |
-| long-text | env-lock and fix-hint sentences on mobile (static-content) | ⚠ unresolved | Sentences wrap naturally at 13px; whether a two-line fix hint under a two-line failure sentence still reads as one row on a 360px screen is left to the planner's visual check. |
+| long-text | env-lock and fix-hint sentences on mobile (static-content) | ⚠ unresolved | Sentences wrap naturally at 14px; whether a two-line fix hint under a two-line failure sentence still reads as one row on a 360px screen is left to the planner's visual check. |
 
 ---
 
@@ -313,12 +314,13 @@ Choices this contract had to make where CONTEXT.md, RESEARCH.md and the codebase
 | A2 | Rows sit in three eyebrow groups: `logins`, `keys`, `on this machine`. | Ten rows in one undifferentiated list are hard to scan; eyebrows are the codebase's existing grouping device and cost no controls. | One flat list in catalogue order. |
 | A3 | Remove key confirms inline (`remove the key · keep`), not with `confirm()`. | It is a text action inside a row; an inline second step matches the no-toast, no-modal tone of D-14. `LearnerMenu` uses native `confirm()` for deleting a learner, which is a larger loss. | Native `confirm()` for consistency with `LearnerMenu`. |
 | A4 | Local rows and the OpenAI-compatible row show a base URL input whose placeholder is the catalogue default; empty means default. | Same "empty means default" rule as the model field and D-09; no extra "change endpoint" affordance. | Hide the URL behind a `change endpoint` text button on local rows. |
-| A5 | On external lessons the existing companion pill grows to `companion · claude code · terminal model`; there is no second pill and it does not link to Settings. | One pill, one fact; linking a terminal-owned model to Settings would imply Settings can change it, which D-16 says it cannot. | Add the D-15 pill beside the companion pill on external lessons too. |
+| A5 | On external lessons the existing companion pill (`companion · {driver}` in `Lesson.tsx:120`) grows to `companion · claude code · terminal model`; there is no second pill and it does not link to Settings. This departs from D-16's literal `claude code · terminal model` only by keeping the pill's existing `companion ·` prefix. | One pill, one fact; the prefix already tells the learner the lesson is terminal-driven, and dropping it would change an existing element D-15 says stays untouched. Linking a terminal-owned model to Settings would imply Settings can change it, which D-16 says it cannot. | Render D-16's wording literally (`claude code · terminal model`) by replacing the companion pill's text, or add the D-15 pill beside the companion pill on external lessons too. |
 | A6 | The learner-menu `Settings` entry has a static sub-line, not the live `provider · model`. | Avoids a settings request every time the menu mounts on every page. | Fetch `GET /api/settings/active` in the menu and show the live value. |
 | A7 | The Claude Code row's sentence states the policy position plainly (RESEARCH Open Question 1). | Honest about what the row does today and what changes in Phase 3, in one sentence. | Shorter `use the plugin` only, per PROJECT.md wording. |
 | A8 | Native `<input list>` + `<datalist>` is the combobox. | Zero dependencies; the failure behaviour of D-08 falls out for free. Filtering and keyboard behaviour are the browser's. | A custom listbox component if the visual check finds the native popup unacceptable in the target browsers. |
-| A9 | New copy uses four sizes (10/13/14/22) and normalises `You.tsx`'s 12.5px hints and 11px meta to 13px and 10px in new code only. | The checker requires 3–4 sizes; existing pages are untouched. | Reuse the exact 12.5/11px values from `You.tsx` and declare five sizes. |
-| A10 | `Use this` is disabled while a teaching row is `not configured` or `checking`. | A provider that cannot answer should not become the tutor with one click; the disabled `title` says what to do. | Always enabled; the next turn's failure sentence explains. |
+| A9 | New copy uses three sizes (10/14/22): `You.tsx`'s 15px intro, 13px button label, 12.5px hints and 11px meta are normalised to 14px and 10px in new code only; hints differ from primary text by colour, not size. | The checker requires 3–4 sizes and flagged 13px and 14px as too close to read as two roles; one body size removes the pair. Existing pages are untouched. | Keep a 13px Label role beside 14px Body, or move Body to 15px to match the existing intro and let the `field` class's 14px stand as an inherited exception. |
+| A10 | `Use this provider` is disabled while a teaching row is `not configured` or `checking`. | A provider that cannot answer should not become the tutor with one click; the disabled `title` says what to do. | Always enabled; the next turn's failure sentence explains. |
+| A11 | The primary button reads `Use this provider`, not the `Use this` of D-02/D-03. | The checker requires verb + noun on every label; D-02 names the action descriptively, and the row already says which provider, so the noun costs one word and no width (`h-9 px-3.5` fits it). | Keep `Use this` verbatim from CONTEXT.md, or `Teach with this`. |
 
 ---
 
