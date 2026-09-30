@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Settings and Secrets
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-09-30T19:18:50.202Z"
+stopped_at: Completed 02-06-PLAN.md
+last_updated: "2026-09-30T19:34:43.251Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 02 execution started
-state_head: 2b33d864b453ef1a4cac65e7d76223016f019804
+state_head: 9845b8da2a1d4b28fb6ab62e9ad38c2a06eae0f9
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 28
-  completed_plans: 23
+  completed_plans: 24
   percent: 14
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-20)
 ## Current Position
 
 Phase: 02 (Settings and Secrets) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 02 execution started
 
@@ -77,6 +77,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 01 P21 | 9 min | 2 tasks | 2 files |
 | Phase 01 P22 | 14 min | 3 tasks | 6 files |
 | Phase 02 P01 | 11 min | 2 tasks | 9 files |
+| Phase 02 P06 | 10 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -137,6 +138,10 @@ Recent decisions affecting current work:
 - [Phase 01]: Per 01-22 the document middleware decides on a ?token= in the URL before the session cookie and the x-derive-token header: a match issues the session and 302s to the bare path even for an already-signed-in browser, a non-match is a 401, and both the cookie and the header pass straight through — The cookie short-circuit was what left the install token in a signed-in browser's address bar and what made four learner-facing sentences about renewing the cookie false; the header is a pass-through because there is nothing in a header to strip from a URL and redirecting it would let a header client loop
 - [Phase 01]: Per 01-22 credentials() requires a non-negative cache age as well as one below TOKEN_CACHE_MS, so a backwards wall-clock step no longer suspends revocation; TOKEN_CACHE_MS, the forward boundary and the docstring are unchanged — The docstring already said the window is a bound and not an approximation; the code arrived at the sentence rather than the sentence being qualified away
 - [Phase 01]: Per 01-22 no new security prose was written: .env.example, README.md and scripts/doctor.mjs are byte-identical, and every sentence touched was either deleted alongside its mechanism or was already true — A new claim is a new blocking condition for the next verification; delete-or-leave is the only safe move in a gap-closure round
+- [Phase 02]: Per 02-06 detection is a probe of a JSON shape, never an open port: each local server is asked the one endpoint only it answers (Ollama /api/tags, LM Studio /api/v0/models, llama.cpp /health) and is found only when the body has that shape; a foreign process on a default port (FreqUI on 8080) reads not configured — 8080 and 1234 are the most reused developer ports; an open-port check lies on real machines
+- [Phase 02]: Per 02-06 one awaited pass per POST /api/settings/detect (async claude auth status plus loopback probes in one Promise.all, 400 ms per probe) runs only when the page opens and on rescan; nothing polls, and the page paints stored config first with checking on unobserved rows — D-13 and the simplicity rule: first paint never waits on the CLI, and a background prober is a feature with no learning reason
+- [Phase 02]: Per 02-06 a learner-typed base URL is normalised once at the write (http/https only, no credentials, no query or fragment, origin plus path with no trailing slash) and refused with the exact sentence otherwise; fixed-endpoint rows refuse a base URL outright — Every later probe and request joins a path onto the stored base, and a key must never ride a redirect or a credentialed URL to a third host
+- [Phase 02]: Per 02-06 the settings page renders what GET /api/settings returns and hard-codes no provider fact; every field saves itself on the row (no page-level Save), and Use this provider is optimistic with a verbatim refusal and revert — One catalogue module is the source of truth (D-06); D-03 save-as-you-go
 
 ### Pending Todos
 
@@ -165,6 +170,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T19:18:50.119Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-09-30T19:34:43.157Z
+Stopped at: Completed 02-06-PLAN.md
 Resume file: None
