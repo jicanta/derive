@@ -1,10 +1,11 @@
 ---
 phase: "2"
 slug: "02-settings-and-secrets"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-09-30"
+reviewed_at: "2026-09-30"
 ---
 
 # Phase 2 — UI Design Contract
@@ -263,7 +264,7 @@ Lowercase, sentence-shaped, no exclamation marks, matching the codebase's error 
 
 ## UI Considerations
 
-Applicable state considerations resolved: 19 covered, 2 backstop, 1 unresolved.
+Probe run 2026-09-30 with `ui-consideration-probe.cjs` over 14 described surfaces (kinds confirmed by the user): 57 applicable considerations. Resolved: 38 covered (explicit), 3 backstop, 15 dismissed with reason, 1 unresolved. Empty- and error-state copy lives in the Copywriting Contract; rows below reference it rather than restate it.
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
@@ -290,6 +291,40 @@ Applicable state considerations resolved: 19 covered, 2 backstop, 1 unresolved.
 | long-text | model id in the combobox and pill (form, nav) | 🧪 backstop | Ollama/LM Studio ids like `qwen/qwen3-8b:latest` must not break the 40px input or the pill; verify with a 60-character id in the visual check (RESEARCH Pitfall 10). |
 | long-text | provider failure sentence with embedded newlines (static-content) | 🧪 backstop | Server collapses whitespace to one line before truncating; verify with a multi-line 4xx body from the loopback fake provider. |
 | long-text | env-lock and fix-hint sentences on mobile (static-content) | ⚠ unresolved | Sentences wrap naturally at 14px; whether a two-line fix hint under a two-line failure sentence still reads as one row on a 360px screen is left to the planner's visual check. |
+| overflow | provider list (list-collection) | ✅ covered | The page scrolls vertically inside the 760px column; no inner scroll region, no pagination — ten rows is the whole catalogue. |
+| zero-one-many | provider list (list-collection) | ➖ dismissed | The catalogue is fixed at ten rows; zero and one never occur, so no singular/plural copy is needed. |
+| loading | row head line / Use this provider (interactive-control) | ✅ covered | Click is optimistic: the row takes the gold variant and `teaching now` pill at once, the previous row loses it, and the gold tick reads `saved · applies from the next turn of every lesson`. The button is disabled (`opacity-40`) while the row is `not configured` or `checking`. |
+| error | row head line / Use this provider (interactive-control) | ✅ covered | Server refusals (`teaching on OpenAI arrives with the next release`, `the provider is set by DERIVE_BACKEND in the environment`) render verbatim in rust 14px under the head line; the row reverts to its previous state. |
+| overflow | row head line (static-content) | ✅ covered | `flex-wrap`; below `md` the action drops under the status pill (Responsive section). |
+| long-text | row head line provider label (static-content) | ➖ dismissed | Provider labels are fixed catalogue strings (longest: `OpenAI-compatible endpoint`); no user text reaches the head line. |
+| long-text | key field (form) | ✅ covered | The password input accepts any length and scrolls horizontally natively; the server rejects over-long values with `the key is longer than any provider issues`, shown as the save-failed sentence. |
+| loading | model combobox (form) | ✅ covered | `fetch models` reads `fetching…` and is disabled while the request runs; the input stays typeable and still saves. |
+| partial | model combobox (form) | ➖ dismissed | An id typed but absent from the datalist is a valid value, not a partial state; the datalist is a suggestion list only (D-08). |
+| overflow | model datalist (list-collection) | ➖ dismissed | The popup is the browser's native `<datalist>` rendering; overflow behaviour is browser-owned and not styled. |
+| empty | base URL input (form) | ✅ covered | Empty means the catalogue default; the placeholder shows that default URL (Assumption A4). |
+| loading | base URL input (form) | ✅ covered | Saves on blur or Enter with the same gold tick as the model combobox; no separate saving line. |
+| error | base URL input (form) | ✅ covered | Server `{ error }` sentence verbatim in rust 14px under the field (e.g. `the base URL must start with http:// or https://`); the typed value is kept. |
+| partial | base URL input (form) | ✅ covered | A base URL without a key is valid for local rows; a key without a base URL on the OpenAI-compatible row yields the API fix sentence `Add the endpoint's base URL first` when tested. |
+| long-text | base URL input (form) | ✅ covered | Full-width under the key/model pair; long URLs scroll horizontally inside the input, never truncated. |
+| long-text | fetch / test / rescan buttons (interactive-control) | ➖ dismissed | Labels are fixed two-word copy and their in-flight variants; no dynamic text. |
+| error | header tutor pill (nav) | ➖ dismissed | The pill reads the persisted turn (`lessonView.turn` / `turn_start` payload) and makes no request of its own; when the turn carries no model the pill reads `claude code · default model`, and before any turn it is absent. |
+| loading | /you model field (form) | ✅ covered | Inherits the You page's existing Save button, ⌘↵ and saving state unchanged; the placeholder falls back to `install default` while `GET /api/settings/active` is pending or failed. |
+| error | /you model field (form) | ✅ covered | Inherits the You page's existing save-error rendering; no field-specific error state. |
+| partial | /you model field (form) | ➖ dismissed | A single optional field; there is no partial state. |
+| long-text | /you model field (form) | 🧪 backstop | A 60-character local model id must not break the `h-10 max-w-[320px]` mono input; verify in the same visual check as the combobox (RESEARCH Pitfall 10). |
+| overflow | plugin start message (static-content) | ➖ dismissed | Plain sentences returned to the terminal; the terminal wraps them. |
+| long-text | plugin start message (static-content) | ➖ dismissed | Two fixed sentences with one `provider · model` value; no truncation in terminal text. |
+| loading | home nav link / learner-menu row (nav) | ➖ dismissed | Static router links; nothing loads. |
+| error | home nav link / learner-menu row (nav) | ➖ dismissed | Static router links; no request can fail. |
+| overflow | home nav link / learner-menu row (nav) | ➖ dismissed | Hidden below `md` exactly like the sibling links; the learner menu row has fixed width like its siblings. |
+| long-text | home nav link / learner-menu row (nav) | ➖ dismissed | Fixed labels `settings` / `Settings` and a fixed mono sub-line. |
+| loading | teaching-now line (static-content) | ✅ covered | The value paints from `GET /api/settings` immediately; when the source is detection the source pill reads `checking` with the pulsing dot until `POST /detect` answers. |
+| error | teaching-now line (static-content) | ✅ covered | On `GET /api/settings` failure the rust sentence renders where the line would be, with `rescan` as the retry (same row as the provider-list load error above). |
+| overflow | teaching-now line (static-content) | ✅ covered | `flex items-center gap-3 flex-wrap`; the source pill and `rescan` wrap under the value below `md`. |
+| overflow | secrets file notice (static-content) | ✅ covered | One rust 14px line at the top of the `keys` group; wraps naturally inside the 760px column. |
+| long-text | secrets file notice (static-content) | ✅ covered | The `{reason}` comes from the server, which truncates it at 300 characters like provider sentences; the line wraps, never `truncate`s. |
+| overflow | intro paragraph (static-content) | ➖ dismissed | Fixed copy in the 760px column; wraps naturally. |
+| long-text | intro paragraph (static-content) | ➖ dismissed | Fixed copy; no dynamic text. |
 
 ---
 
@@ -326,12 +361,12 @@ Choices this contract had to make where CONTEXT.md, RESEARCH.md and the codebase
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: FLAG (single-word text-button labels `replace` / `remove` / `rescan` / `keep` — non-blocking)
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Approval:** approved by gsd-ui-checker on 2026-09-30 (revision 1; 6 PASS, 1 FLAG)
