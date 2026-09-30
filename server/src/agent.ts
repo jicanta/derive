@@ -273,7 +273,7 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   // in two places at once: the row the busy check and the usage ledger read,
   // and the event the browser replays. The driver is chosen first only so the
   // row can say which one ran it.
-  const tutor = resolveTutor();
+  const tutor = resolveTutor(lesson.learner_id);
   const driver = driverOverride() ?? (backendOf(tutor.provider) === 'codex' ? codexDriver : claudeDriver);
   // D-04: a session id belongs to the provider that issued it. When the driver
   // changed since the last turn, the lesson starts a fresh provider

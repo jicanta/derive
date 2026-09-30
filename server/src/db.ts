@@ -57,6 +57,8 @@ export type LearnerPrefs = {
   how?: string;
   /** Domains to draw examples and analogies from. */
   examples?: string;
+  /** A model id for this learner alone, on the active provider. Not a teaching preference: never rendered into the prompt. */
+  model?: string;
 };
 export const PREF_STYLES = ['adaptive', 'socratic', 'narrated'] as const;
 export const PREF_PACES = ['brisk', 'standard', 'thorough'] as const;
@@ -270,6 +272,9 @@ export function cleanPrefs(input: unknown): LearnerPrefs {
     const v = str(k);
     if (v) out[k] = v;
   }
+  // The model id is bounded to the characters real ids use, as PUT /api/settings/:provider bounds the install-wide one; it is stored here and read by the resolver only, never by preferencesSection.
+  const model = str('model').slice(0, 200);
+  if (model && /^[A-Za-z0-9._:/-]+$/.test(model)) out.model = model;
   return out;
 }
 

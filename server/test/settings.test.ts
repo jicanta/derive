@@ -41,7 +41,7 @@ process.env.CODEX_HOME = codexHome;
 process.env.PATH = emptyBin;
 for (const name of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY', 'OLLAMA_HOST']) process.env[name] = '';
 
-const { createLesson, deleteSetting, endTurn, getLesson, lastTurn, listEvents, setSessionId, setSetting, startTurn } = await import('../src/db.js');
+const { createLearner, createLesson, deleteSetting, endTurn, getLearner, getLesson, lastTurn, learnerProfile, listEvents, preferencesSection, setSessionId, setSetting, startTurn, updateLearnerPrefs } = await import('../src/db.js');
 const { runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
 const { fakeDriver, setFakeScript } = await import('../src/drivers/fake.js');
@@ -159,6 +159,32 @@ describe('settings over HTTP', () => {
   it('never carries the identity claude auth status prints', async () => {
     const active = await api('/api/settings/active');
     assert.ok(!active.text.includes('email'), active.text);
+  });
+
+  it('resolves a learner-owned model for that learner alone, by query and by header, and leaves the default learner on the install setting', async () => {
+    const ana = await api<{ id: string; prefs: { model?: string } }>('/api/learners', { name: 'Ana' });
+    assert.equal(ana.status, 201, ana.text);
+    const patched = await api<{ prefs: { model?: string } }>(`/api/learners/${ana.json.id}`, { prefs: { model: 'my-own-model' } }, 'PATCH');
+    assert.equal(patched.status, 200, patched.text);
+    assert.equal(patched.json.prefs.model, 'my-own-model');
+    const byQuery = await api<Tutor>(`/api/settings/active?learner=${ana.json.id}`);
+    assert.deepEqual(byQuery.json, { provider: 'codex', model: 'my-own-model', source: 'settings', modelSource: 'learner' });
+    const byHeader = await fetch(`${base}/api/settings/active`, { headers: { 'x-derive-token': token, 'x-derive-learner': ana.json.id } });
+    assert.deepEqual(await byHeader.json(), { provider: 'codex', model: 'my-own-model', source: 'settings', modelSource: 'learner' });
+    const everyone = await api<Tutor>('/api/settings/active');
+    assert.deepEqual(everyone.json, { provider: 'codex', model: 'gpt-5.4', source: 'settings', modelSource: 'settings' });
+  });
+
+  it('bounds the learner model id like the install one, and clears it with an empty string', async () => {
+    const ana = await api<{ id: string }>('/api/learners', { name: 'Ana' });
+    const bad = await api<{ prefs: { model?: string } }>(`/api/learners/${ana.json.id}`, { prefs: { model: 'bad id!' } }, 'PATCH');
+    assert.equal(bad.status, 200, bad.text);
+    assert.equal(bad.json.prefs.model, undefined);
+    assert.ok(!('model' in bad.json.prefs), bad.text);
+    const cleared = await api<{ prefs: { model?: string } }>(`/api/learners/${ana.json.id}`, { prefs: { model: '' } }, 'PATCH');
+    assert.ok(!('model' in cleared.json.prefs), cleared.text);
+    const active = await api<Tutor>(`/api/settings/active?learner=${ana.json.id}`);
+    assert.equal(active.json.modelSource, 'settings');
   });
 
   it('paints every row from stored config, in catalogue order, with one active row', async () => {
@@ -728,6 +754,14 @@ describe('the environment locks its fields', () => {
     const r = await api<Tutor>('/api/settings/active');
     assert.deepEqual(r.json, { provider: 'claude-code', model: 'pinned-model', source: 'environment', modelSource: 'environment' });
   });
+
+  it('outranks a learner-owned model while DERIVE_MODEL is set', async () => {
+    const ana = await api<{ id: string }>('/api/learners', { name: 'Ana' });
+    const patched = await api<{ prefs: { model?: string } }>(`/api/learners/${ana.json.id}`, { prefs: { model: 'my-own-model' } }, 'PATCH');
+    assert.equal(patched.json.prefs.model, 'my-own-model');
+    const r = await api<Tutor>(`/api/settings/active?learner=${ana.json.id}`);
+    assert.deepEqual(r.json, { provider: 'claude-code', model: 'pinned-model', source: 'environment', modelSource: 'environment' });
+  });
 });
 
 describe('keys over HTTP', () => {
@@ -1009,6 +1043,33 @@ describe('the resolver, in process', () => {
     assert.equal(getLesson(id)!.session_id, 's1');
     await fakeTurn(id);
     assert.equal(getLesson(id)!.session_id, null);
+  });
+
+  it('runs a learner-owned model on that learner\'s next turn and keeps it out of the prompt', async () => {
+    setSetting(ACTIVE_PROVIDER, 'codex');
+    setSetting(modelKey('codex'), 'gpt-5.4');
+    const ana = createLearner(`Ana ${randomUUID().slice(0, 8)}`);
+    updateLearnerPrefs(ana.id, { model: 'my-own-model', examples: 'cooking' });
+    const id = randomUUID();
+    createLesson(id, 'Whose model teaches', { learnerId: ana.id });
+    await fakeTurn(id);
+    assert.equal(lastTurn(id)!.model, 'my-own-model');
+    const start = listEvents(id).find((e) => e.type === 'turn_start');
+    assert.deepEqual(start?.payload, { provider: 'codex', model: 'my-own-model' });
+    assert.deepEqual(resolveTutor(ana.id), { provider: 'codex', model: 'my-own-model', source: 'settings', modelSource: 'learner' });
+    assert.deepEqual(resolveTutor(), { provider: 'codex', model: 'gpt-5.4', source: 'settings', modelSource: 'settings' });
+    // The same text runTurn hands the driver: the teaching preference is there, the model id is not.
+    const profile = learnerProfile(ana.id, id);
+    assert.ok(profile.includes('cooking'), profile);
+    assert.ok(!profile.includes('my-own-model'), profile);
+    assert.ok(!preferencesSection(ana.id).includes('my-own-model'));
+    assert.equal(getLearner(ana.id)!.prefs.model, 'my-own-model');
+    // Another learner's lesson on the same install is untouched.
+    const other = randomUUID();
+    createLesson(other, 'Everyone else');
+    await fakeTurn(other);
+    assert.equal(lastTurn(other)!.model, 'gpt-5.4');
+    deleteSetting(modelKey('codex'));
   });
 
   it('keeps the session when only the model changes on the same driver', async () => {

@@ -3,7 +3,10 @@
  *
  * The contract is three tiers, in order: the environment (DERIVE_BACKEND and
  * DERIVE_MODEL), then the per-install `settings` table the settings page
- * writes, then detection of whichever login the machine has. Nothing here is
+ * writes, then detection of whichever login the machine has. The model has
+ * one more tier between the first two: a learner may keep their own model id
+ * in their preferences, and a turn of that learner's lesson runs on it while
+ * every other learner and the install are untouched. Nothing here is
  * decided once for the life of the process. `resolveTutor()` is computed on
  * every call, so a choice made on the settings page is what the very next
  * turn of every lesson runs on, with no restart; the boot-time memo that used
@@ -24,7 +27,7 @@
  */
 import { claudeLoggedIn, codexLoggedIn } from './backend.js';
 import { BACKEND_SETTING, ENV_KEYS, MODEL, OLLAMA_HOST, type Backend, type EnvKeyName } from './config.js';
-import { getSetting } from './db.js';
+import { getLearner, getSetting } from './db.js';
 import { keyOf } from './keys.js';
 import { providerOf, type ProviderId, type ProviderSpec } from './providers.js';
 import { registerSecret } from './secrets.js';
@@ -35,8 +38,8 @@ for (const value of Object.values(ENV_KEYS)) registerSecret(value);
 /** Where the provider came from: the environment, the settings table, or the logins the machine has. */
 export type TutorSource = 'environment' | 'settings' | 'detected';
 
-/** Where the model came from; null when the provider's own default applies and the catalogue names none. */
-export type ModelSource = 'environment' | 'settings' | 'default' | null;
+/** Where the model came from: the environment, the learner's own preference, the settings table, or the catalogue default; null when the provider's own default applies and the catalogue names none. */
+export type ModelSource = 'environment' | 'learner' | 'settings' | 'default' | null;
 
 /** What a turn runs on, and why. */
 export type TutorChoice = {
@@ -164,19 +167,21 @@ function chooseProvider(logins: () => Logins | null | undefined): { provider: Pr
   return { provider: detectedProvider(logins()), source: 'detected' };
 }
 
-/** The model for a provider: the environment, then the stored id, then the catalogue default. */
-function chooseModel(provider: ProviderId): { model: string | null; modelSource: ModelSource } {
+/** The model for a provider: the environment, then the learner's own id when a learner is named, then the stored id, then the catalogue default. */
+function chooseModel(provider: ProviderId, learnerId?: string): { model: string | null; modelSource: ModelSource } {
   if (MODEL) return { model: MODEL, modelSource: 'environment' };
+  const own = learnerId ? getLearner(learnerId)?.prefs.model : undefined;
+  if (own) return { model: own, modelSource: 'learner' };
   const stored = getSetting(modelKey(provider));
   if (stored) return { model: stored, modelSource: 'settings' };
   const fallback = providerOf(provider)?.defaultModel ?? null;
   return { model: fallback, modelSource: fallback ? 'default' : null };
 }
 
-/** What the next turn runs on. Computed on every call; re-runs the login detectors only when nothing else decides and the observation is older than DETECT_MS. */
-export function resolveTutor(): TutorChoice {
+/** What the next turn runs on, for the learner named when one is. Computed on every call; re-runs the login detectors only when nothing else decides and the observation is older than DETECT_MS. */
+export function resolveTutor(learnerId?: string): TutorChoice {
   const { provider, source } = chooseProvider(() => currentDetection()?.logins ?? observeLogins());
-  return { provider, source, ...chooseModel(provider) };
+  return { provider, source, ...chooseModel(provider, learnerId) };
 }
 
 /** What the tutor is set to, for read-only routes: the same tiers as resolveTutor, reporting the last detection pass and never spawning one. Claude when nothing has been observed yet. */

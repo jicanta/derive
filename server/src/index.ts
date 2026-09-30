@@ -438,7 +438,8 @@ const keyLockSentence = (spec: ProviderSpec, lock: string) => `the ${spec.label}
 app.get('/api/settings', (c) => c.json(settingsView()));
 
 /** What the next turn would run on. The plugin asks once per lesson start; it is per install, not per learner. */
-app.get('/api/settings/active', (c) => c.json(resolveTutor()));
+// The one learner-aware settings route: the plugin asks it with ?learner= so the start message names the model that learner would get. Every other settings route is per install.
+app.get('/api/settings/active', (c) => c.json(resolveTutor(learnerOf(c))));
 
 /** Make a provider the active tutor. Only a row whose driver exists can be chosen; the environment outranks the table. */
 app.post('/api/settings/active', async (c) => {
