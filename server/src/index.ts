@@ -59,7 +59,7 @@ import { addResource, deleteResource, editResource, getResource, isKind, library
 import { ACCEPTED, describe, ingestMaterial, ingestRepo, materialsSection, MAX_FILE_BYTES } from './materials.js';
 import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief } from './prompt.js';
-import { detect } from './probe.js';
+import { detect, listModels, testConnection } from './probe.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
 import { DEFAULTS_AS_OF, labelOf, PROVIDERS, providerOf, providerOfDriver, type ProviderSpec } from './providers.js';
 import { registerSecret, safeMessage } from './secrets.js';
@@ -518,6 +518,24 @@ app.post('/api/settings/detect', async (c) => {
   return c.json(settingsView());
 });
 
+/** A row's model ids, fetched now with the stored key and address. The provider's sentence, or Derive's, comes back verbatim as a 502; the browser shows it under the field and the field stays typeable. Per install, no learner. */
+app.post('/api/settings/:provider/models', async (c) => {
+  const spec = providerOf(c.req.param('provider'));
+  if (!spec) return c.json({ error: 'unknown provider' }, 404);
+  try {
+    return c.json({ models: await listModels(spec.id) });
+  } catch (e) {
+    return err(c, e, 502);
+  }
+});
+
+/** D-14's test, timed: always a 200 whose body says ok or carries the provider's sentence and Derive's hint. Runs on stored values and touches no turn. */
+app.post('/api/settings/:provider/test', async (c) => {
+  const spec = providerOf(c.req.param('provider'));
+  if (!spec) return c.json({ error: 'unknown provider' }, 404);
+  return c.json(await testConnection(spec.id));
+});
+
 // ---------- lessons ----------
 
 app.get('/api/lessons', (c) =>
@@ -760,7 +778,7 @@ app.delete('/api/materials/:id', (c) => {
 
 // ---------- the library ----------
 
-const err = (c: Context, e: unknown, status: 400 | 404 | 422 | 500 = 400) => c.json({ error: safeMessage(e) }, status);
+const err = (c: Context, e: unknown, status: 400 | 404 | 409 | 422 | 500 | 502 = 400) => c.json({ error: safeMessage(e) }, status);
 
 /** The learner's shelf, filtered by ?q= (title, tags, note, author), ?kind= and ?tag=. */
 app.get('/api/library', (c) => {

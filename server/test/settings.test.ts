@@ -47,7 +47,7 @@ const { setDriverOverride } = await import('../src/driver.js');
 const { fakeDriver, setFakeScript } = await import('../src/drivers/fake.js');
 const { ACTIVE_PROVIDER, DETECT_MS, backendOf, baseUrlKey, currentDetection, currentTutor, lastDetection, localBase, modelKey, normaliseBaseUrl, portOf, rememberDetection, resetDetection, resolveTutor } = await import('../src/settings.js');
 const { PROVIDERS, providerOf, providerOfDriver } = await import('../src/providers.js');
-const { isLlamaCpp, isLmStudio, isOllama, probeJson } = await import('../src/probe.js');
+const { hintFor, idsOf, isLlamaCpp, isLmStudio, isLocalUrl, isOllama, probeJson, providerSentence, requestFor } = await import('../src/probe.js');
 const { hintOf, keyOf, resetKeyCache, setKey } = await import('../src/keys.js');
 const { redact, secretCount } = await import('../src/secrets.js');
 
@@ -88,6 +88,7 @@ type Row = {
   active: boolean;
 };
 type SettingsView = { active: Tutor; defaults_as_of: string; provider_locked: string | null; model_locked: string | null; secrets_error: string | null; rows: Row[] };
+type TestResult = { ok: boolean; models?: number | null; ms: number; error?: string; hint?: string };
 
 /** A request against one spawned server, with its token. */
 const client = (base: string, token: string) => async <T = Record<string, unknown>>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<{ status: number; json: T; text: string }> => {
@@ -417,6 +418,280 @@ describe('detection over HTTP', () => {
     const active = await api<Tutor>('/api/settings/active');
     assert.equal(active.json.provider, 'claude-code');
     assert.equal(active.json.source, 'detected');
+  });
+});
+
+/**
+ * A loopback stand-in for an OpenAI-compatible provider. `/v1/models` lists
+ * three ids (one twice) for the good key and answers 401 with a two-line
+ * OpenAI-shaped body for any other; `/redirect/v1/models` points elsewhere
+ * with a 302; `/html/v1/models` is a 200 that is not JSON. Never a real host.
+ */
+function fakeProvider(goodKey: string, elsewhere: number): Promise<{ server: Server; port: number }> {
+  return new Promise((res) => {
+    const server = createServer((req, r) => {
+      const url = req.url ?? '/';
+      if (url === '/redirect/v1/models') {
+        r.statusCode = 302;
+        r.setHeader('location', `http://127.0.0.1:${elsewhere}/v1/models`);
+        r.end();
+        return;
+      }
+      if (url === '/html/v1/models') {
+        r.statusCode = 200;
+        r.setHeader('content-type', 'text/html');
+        r.end('<!doctype html><title>not a list</title>');
+        return;
+      }
+      r.setHeader('content-type', 'application/json');
+      if (url !== '/v1/models') {
+        r.statusCode = 404;
+        r.end('{"error":"not found"}');
+        return;
+      }
+      if (req.headers.authorization === `Bearer ${goodKey}`) {
+        r.statusCode = 200;
+        r.end(JSON.stringify({ object: 'list', data: [{ id: 'tiny-b' }, { id: 'tiny-a' }, { id: 'tiny-a' }] }));
+        return;
+      }
+      r.statusCode = 401;
+      r.end(JSON.stringify({ error: { message: 'Incorrect API key provided: good-***\nsecond line of the body', type: 'invalid_request_error' } }));
+    });
+    server.listen(0, '127.0.0.1', () => res({ server, port: (server.address() as AddressInfo).port }));
+  });
+}
+
+describe('model lists and connection tests over HTTP', () => {
+  let server: ChildProcess | undefined;
+  let dataDir = '';
+  let testHome = '';
+  let api: ReturnType<typeof client>;
+  const fakes: Server[] = [];
+  const port = { provider: 0, elsewhere: 0, ollama: 0, lmstudio: 0, llamacpp: 0, closed: 0 };
+  const GOOD = 'good-key-good-key-1234';
+  const WRONG = 'wrong-key-wrong-key-1234';
+  const SENTENCE = '401 Incorrect API key provided: good-*** second line of the body';
+  // Every body this suite reads, so the last case can prove neither key was ever echoed.
+  const texts: string[] = [];
+  const call = async <T = Record<string, unknown>>(path: string, body?: unknown, method?: string) => {
+    const r = await api<T>(path, body, method);
+    texts.push(r.text);
+    return r;
+  };
+  const compat = (fields: Record<string, string>) => call<Row>('/api/settings/openai-compatible', fields, 'PUT');
+  const test = (id: string) => call<TestResult>(`/api/settings/${id}/test`, {});
+
+  before(async () => {
+    // A private Codex home: the codex case writes an auth.json and nothing else in this file may see it.
+    testHome = mkdtempSync(join(tmpdir(), 'derive-settings-test-'));
+    port.elsewhere = await freePort();
+    port.closed = await freePort();
+    const provider = await fakeProvider(GOOD, port.elsewhere);
+    const ollama = await fakeServer(jsonAt('/api/tags', { models: [{ name: 'llama3.2:latest' }, { name: 'qwen/qwen3-8b:latest' }] }));
+    const lmstudio = await fakeServer(jsonAt('/api/v0/models', { object: 'list', data: [{ id: 'x', state: 'not-loaded' }, { id: 'y', state: 'loaded' }] }));
+    const llamacpp = await fakeServer(jsonAt('/v1/models', { object: 'list', data: [{ id: 'model.gguf', owned_by: 'llamacpp' }] }));
+    fakes.push(provider.server, ollama.server, lmstudio.server, llamacpp.server);
+    Object.assign(port, { provider: provider.port, ollama: ollama.port, lmstudio: lmstudio.port, llamacpp: llamacpp.port });
+    const started = await startDeriveServer(entry, { ...hermetic, CODEX_HOME: testHome });
+    server = started.child;
+    dataDir = started.dataDir;
+    api = client(started.base, readFileSync(join(dataDir, 'token'), 'utf8').trim());
+  });
+
+  after(() => {
+    server?.kill();
+    for (const f of fakes) f.close();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+    if (testHome) rmSync(testHome, { recursive: true, force: true });
+  });
+
+  it('fetches the models of an OpenAI-compatible endpoint with the stored key, de-duplicated and in the provider order', async () => {
+    const stored = await compat({ base_url: `http://127.0.0.1:${port.provider}`, key: GOOD });
+    assert.equal(stored.status, 200, stored.text);
+    assert.deepEqual(stored.json.key, { set: true, hint: '1234', locked: null });
+    const r = await call<{ models: string[] }>('/api/settings/openai-compatible/models', {});
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json, { models: ['tiny-b', 'tiny-a'] });
+  });
+
+  it('reports Connected with the model count and a latency', async () => {
+    const r = await test('openai-compatible');
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.json.ok, true);
+    assert.equal(r.json.models, 2);
+    assert.ok(typeof r.json.ms === 'number' && r.json.ms >= 0, r.text);
+    assert.equal(r.json.error, undefined);
+  });
+
+  it('quotes the provider 401 verbatim on one line, with the fix hint beside it, on the test and on the list', async () => {
+    const stored = await compat({ key: WRONG });
+    assert.equal(stored.status, 200, stored.text);
+    const r = await test('openai-compatible');
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.error, SENTENCE);
+    assert.match(String(r.json.hint), /refused/);
+    assert.match(String(r.json.hint), /OpenAI-compatible endpoint/);
+    const models = await call('/api/settings/openai-compatible/models', {});
+    assert.equal(models.status, 502, models.text);
+    assert.equal(models.json.error, SENTENCE);
+  });
+
+  it('refuses to follow a redirect that could carry the key', async () => {
+    await compat({ base_url: `http://127.0.0.1:${port.provider}/redirect` });
+    const r = await test('openai-compatible');
+    assert.equal(r.json.ok, false);
+    assert.ok(String(r.json.error).startsWith('302 '), r.text);
+    assert.match(String(r.json.error), /redirect/);
+    assert.equal(r.json.hint, undefined);
+  });
+
+  it('says when the answer was not JSON, with its status', async () => {
+    await compat({ base_url: `http://127.0.0.1:${port.provider}/html` });
+    const r = await test('openai-compatible');
+    assert.equal(r.json.ok, false);
+    assert.match(String(r.json.error), /^200 .*not JSON/);
+  });
+
+  it('names the address in its own sentence when nothing answered', async () => {
+    await compat({ base_url: `http://127.0.0.1:${port.closed}` });
+    const t0 = Date.now();
+    const r = await test('openai-compatible');
+    assert.ok(Date.now() - t0 < 4000, `the test took ${Date.now() - t0} ms`);
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.error, `nothing answered at 127.0.0.1:${port.closed}`);
+  });
+
+  it('asks for the base URL first when the OpenAI-compatible row has none', async () => {
+    const cleared = await compat({ base_url: '' });
+    assert.equal(cleared.status, 200, cleared.text);
+    const r = await test('openai-compatible');
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.error, "Add the endpoint's base URL first");
+    assert.equal(r.json.hint, undefined);
+    const models = await call('/api/settings/openai-compatible/models', {});
+    assert.equal(models.status, 502);
+    assert.equal(models.json.error, "Add the endpoint's base URL first");
+  });
+
+  it('lists Ollama tags verbatim, LM Studio loaded models first, and tests llama.cpp on its models route', async () => {
+    for (const id of ['ollama', 'lmstudio', 'llamacpp'] as const) {
+      const r = await call<Row>(`/api/settings/${id}`, { base_url: `http://127.0.0.1:${port[id]}` }, 'PUT');
+      assert.equal(r.status, 200, r.text);
+    }
+    const ollama = await call<{ models: string[] }>('/api/settings/ollama/models', {});
+    assert.deepEqual(ollama.json, { models: ['llama3.2:latest', 'qwen/qwen3-8b:latest'] });
+    const lmstudio = await call<{ models: string[] }>('/api/settings/lmstudio/models', {});
+    assert.deepEqual(lmstudio.json, { models: ['y', 'x'] });
+    const llamacpp = await test('llamacpp');
+    assert.equal(llamacpp.json.ok, true, llamacpp.text);
+    assert.equal(llamacpp.json.models, 1);
+  });
+
+  it('tests the Codex login by its auth file, Claude Code by its CLI, and refuses a list for either', async () => {
+    writeFileSync(join(testHome, 'auth.json'), '{}');
+    const codex = await test('codex');
+    assert.equal(codex.status, 200, codex.text);
+    assert.equal(codex.json.ok, true);
+    assert.equal(codex.json.models, null);
+    assert.ok(typeof codex.json.ms === 'number' && codex.json.ms >= 0);
+    rmSync(join(testHome, 'auth.json'));
+    const gone = await test('codex');
+    assert.equal(gone.json.ok, false);
+    assert.match(String(gone.json.error), /no Codex login/);
+    // PATH is empty for this spawn, so the CLI is not there to answer.
+    const claude = await test('claude-code');
+    assert.equal(claude.json.ok, false);
+    assert.match(String(claude.json.error), /no Claude Code login/);
+    const list = await call('/api/settings/claude-code/models', {});
+    assert.equal(list.status, 502);
+    assert.match(String(list.json.error), /has no model list/);
+    const unknown = await call('/api/settings/nope/models', {});
+    assert.equal(unknown.status, 404);
+    assert.equal(unknown.json.error, 'unknown provider');
+    const unknownTest = await call('/api/settings/nope/test', {});
+    assert.equal(unknownTest.status, 404);
+  });
+
+  it('never echoes the good key or the wrong one in any response', () => {
+    assert.ok(texts.length >= 20, `only ${texts.length} bodies were read`);
+    for (const t of texts) {
+      assert.ok(!t.includes(GOOD), t);
+      assert.ok(!t.includes(WRONG), t);
+    }
+  });
+});
+
+describe('request building and normalisation, in process', () => {
+  const key = 'k1234567890123456';
+
+  it('sends the key in the header each provider reads, and never in the URL', () => {
+    const gemini = requestFor(providerOf('gemini')!, key, undefined);
+    assert.ok(!gemini.url.includes('key='), gemini.url);
+    assert.equal(gemini.headers['x-goog-api-key'], key);
+    const anthropic = requestFor(providerOf('anthropic')!, key, undefined);
+    assert.equal(anthropic.headers['anthropic-version'], '2023-06-01');
+    assert.equal(anthropic.headers['x-api-key'], key);
+    assert.ok(anthropic.url.endsWith('/v1/models?limit=1000'), anthropic.url);
+    const openai = requestFor(providerOf('openai')!, key, undefined);
+    assert.ok(openai.headers.authorization.startsWith('Bearer '), openai.headers.authorization);
+    const openrouter = requestFor(providerOf('openrouter')!, key, undefined);
+    assert.equal(openrouter.headers.authorization, `Bearer ${key}`);
+    assert.ok(openrouter.url.endsWith('/api/v1/models'), openrouter.url);
+  });
+
+  it('joins /v1/models onto a base that already ends in /v1, and sends no authorization without a key', () => {
+    const compat = requestFor(providerOf('openai-compatible')!, undefined, 'http://127.0.0.1:1/v1');
+    assert.equal(compat.url, 'http://127.0.0.1:1/v1/models');
+    assert.equal(compat.headers.authorization, undefined);
+    assert.equal(requestFor(providerOf('openai-compatible')!, key, 'http://127.0.0.1:1').url, 'http://127.0.0.1:1/v1/models');
+    assert.deepEqual(requestFor(providerOf('ollama')!, key, undefined), { url: 'http://127.0.0.1:11434/api/tags', headers: {} });
+    assert.deepEqual(requestFor(providerOf('lmstudio')!, key, 'http://127.0.0.1:9'), { url: 'http://127.0.0.1:9/api/v0/models', headers: { authorization: `Bearer ${key}` } });
+    assert.deepEqual(requestFor(providerOf('llamacpp')!, undefined, undefined), { url: 'http://127.0.0.1:8080/v1/models', headers: {} });
+  });
+
+  it('refuses a list for a login row and for the OpenAI-compatible row without a base URL', () => {
+    assert.throws(() => requestFor(providerOf('claude-code')!, undefined, undefined), { message: 'Claude Code has no model list' });
+    assert.throws(() => requestFor(providerOf('codex')!, undefined, undefined), { message: 'Codex has no model list' });
+    assert.throws(() => requestFor(providerOf('openai-compatible')!, key, undefined), { message: "Add the endpoint's base URL first" });
+  });
+
+  it('normalises each provider list to ids in its order, de-duplicated, and reads a strange body as empty', () => {
+    const gemini = providerOf('gemini')!;
+    assert.deepEqual(
+      idsOf(gemini, { models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/embedding-001', supportedGenerationMethods: ['embedContent'] }, { name: 'models/unsaid' }] }),
+      ['gemini-3.8-flash', 'unsaid'],
+    );
+    assert.deepEqual(idsOf(providerOf('openai')!, { data: [{ id: 'b' }, { id: 'a' }, { id: 'b' }] }), ['b', 'a']);
+    assert.deepEqual(idsOf(providerOf('ollama')!, { models: [{ name: 'llama3.2:latest' }, { name: 'llama3.2:latest' }] }), ['llama3.2:latest']);
+    assert.deepEqual(idsOf(providerOf('lmstudio')!, { object: 'list', data: [{ id: 'x', state: 'not-loaded' }, { id: 'y', state: 'loaded' }, { id: 'z' }] }), ['y', 'x', 'z']);
+    assert.deepEqual(idsOf(providerOf('anthropic')!, { models: [] }), []);
+    assert.deepEqual(idsOf(providerOf('openai')!, '<html>'), []);
+    assert.deepEqual(idsOf(providerOf('openai')!, { data: [{ id: 3 }, { id: '' }] }), []);
+  });
+
+  it('unwraps every error envelope into status plus the sentence, on one line, cut at 300', () => {
+    assert.equal(providerSentence(401, '{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}'), '401 invalid x-api-key');
+    assert.equal(providerSentence(500, '{"error":"model not found"}'), '500 model not found');
+    assert.equal(providerSentence(404, '{"message":"no such route"}'), '404 no such route');
+    assert.equal(providerSentence(401, '{"error":{"message":"line one\\n  line two"}}'), '401 line one line two');
+    assert.equal(providerSentence(503, 'plain\ttext'), '503 plain text');
+    assert.equal(providerSentence(502, ''), '502 no message');
+    assert.equal(providerSentence(502, 'x'.repeat(400)).length, 300);
+  });
+
+  it('adds a hint only for the cases it recognises', () => {
+    assert.match(String(hintFor('Anthropic', 401, '401 invalid x-api-key')), /Paste a new key for Anthropic/);
+    assert.match(String(hintFor('OpenAI', 400, '400 Incorrect API key provided')), /refused/);
+    assert.match(String(hintFor('OpenAI', 402, '402 insufficient funds')), /credit/);
+    assert.match(String(hintFor('OpenRouter', 429, '429 slow down')), /Rate limited/);
+    assert.equal(hintFor('OpenAI', 200, '200 ok'), undefined);
+    assert.equal(hintFor('OpenAI', 0, 'nothing answered at 127.0.0.1:1'), undefined);
+  });
+
+  it('tells a local address from a remote one by the literal host alone', () => {
+    for (const url of ['http://127.0.0.1:1', 'http://localhost:1234', 'http://10.0.0.5', 'http://192.168.1.20:11434', 'http://172.16.0.1', 'http://[::1]:8080', 'http://box.local']) assert.equal(isLocalUrl(url), true, url);
+    for (const url of ['https://example.com/v1', 'http://8.8.8.8', 'http://172.32.0.1', 'not a url']) assert.equal(isLocalUrl(url), false, url);
   });
 });
 
