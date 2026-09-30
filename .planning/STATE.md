@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Settings and Secrets
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-09-30T22:25:51.402Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-09-30T22:42:24.455Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 02 execution started
-state_head: f702fa1527065334cf19abe6eec03b547973e6f3
+state_head: dd52ec9b56d82d8666f16fe7b258c0abfe0c322b
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 28
-  completed_plans: 25
+  completed_plans: 26
   percent: 14
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-20)
 ## Current Position
 
 Phase: 02 (Settings and Secrets) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 02 execution started
 
@@ -79,6 +79,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 02 P01 | 11 min | 2 tasks | 9 files |
 | Phase 02 P06 | 10 min | 2 tasks | 9 files |
 | Phase 02 P02 | 3 min | 2 tasks | 9 files |
+| Phase 02 P03 | 11 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -146,6 +147,11 @@ Recent decisions affecting current work:
 - [Phase 02]: Per 02-02 keys live in one plaintext 0600 secrets.json beside derive.db, written to a sibling temp file and renamed into place, read live behind a one-second cache, every loaded value registered for redaction; an absent file is the fresh install, an unreadable one is reported through secrets_error and never overwritten
 - [Phase 02]: Per 02-02 the key API is write-only: rows answer { set, hint, locked } with hint the last four of a key at least eight long; an environment key (ENV_KEYS, Google before Gemini) locks its row with hint null and a 409 naming the variable on PUT and DELETE, and OLLAMA_HOST locks the Ollama address
 - [Phase 02]: Per 02-02 remove is an inline two-step (remove the key · keep) with no dialog, the removed sentence says the process still redacts the value until restart, and the keep-the-current-key button swallows mousedown so blur-save cannot fire on the way to it
+- [Phase 02]: Per 02-03 every provider call goes through one adapter table in probe.ts: requestFor puts the key in the header each provider reads (x-api-key + anthropic-version, x-goog-api-key, Bearer) and never in a URL, only to that row's catalogue host or the learner's stored base URL; getJson uses redirect: 'manual' and reports any 3xx as a failure sentence
+- [Phase 02]: Per 02-03 a provider failure is `${status} ${sentence}` verbatim, collapsed to one line and cut at 300, and Derive's fix hint (401/402/429 and the refused-key shapes) is a separate field beside it; a host that never answered gets Derive's own sentence (`nothing answered at host:port` locally, `could not reach host: reason` remotely) and is never quoted as the provider's
+- [Phase 02]: Per 02-03 local versus remote is judged on the literal host of the request URL with no lookup (isLocalUrl): it picks the 4 s / 8 s bound and the unreachable sentence, and decides nothing about whether the request is allowed
+- [Phase 02]: Per 02-03 the model field is one native <input list> + <datalist> combobox whose list is empty until a fetch, so a failed fetch shows the provider's sentence under a field that still saves and no second control ever appears (D-08); the test result is one mono line with role=status, truncated with the full text in title, the hint on its own line
+- [Phase 02]: Per 02-03 the suite never calls a real host: a loopback fakeProvider (good-key list with a duplicate, two-line 401, a 302, an HTML 200) covers the shared getJson path through the OpenAI-compatible row, the remote rows are asserted as pure request data, and every response body is checked for both keys
 
 ### Pending Todos
 
@@ -174,6 +180,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T22:25:51.324Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-09-30T22:41:53.106Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None

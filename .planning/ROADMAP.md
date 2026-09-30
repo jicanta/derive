@@ -154,7 +154,7 @@ Plans:
   4. Learner fetches a provider's model list, or types a model id when the fetch fails, with a curated default preselected
   5. "Test connection" reports success or the provider's actual failure sentence; the active provider and model are shown in the lesson header and in the plugin start message
 
-**Plans:** 3/6 plans executed, in 6 serial waves (each plan ends on the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files — the same reason Phase 1's waves were serialised)
+**Plans:** 4/6 plans executed, in 6 serial waves (each plan ends on the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files — the same reason Phase 1's waves were serialised)
 
 Plans:
 **Wave 1**
@@ -171,7 +171,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 02-03-PLAN.md — Model lists and test connection for every row through one adapter table: verbatim provider sentence plus a separate fix hint, keys only in headers to their own host, no redirects; the datalist combobox and one-line result (wave 4)
+- [x] 02-03-PLAN.md — Model lists and test connection for every row through one adapter table: verbatim provider sentence plus a separate fix hint, keys only in headers to their own host, no redirects; the datalist combobox and one-line result (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -282,7 +282,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 22/22 | Complete    | 2026-09-20 |
-| 2. Settings and Secrets | 3/6 | In Progress|  |
+| 2. Settings and Secrets | 4/6 | In Progress|  |
 | 3. Owned Loop: API Keys and Gateways | 0/TBD | Not started | - |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |
 | 5. Learning Experience | 0/TBD | Not started | - |
