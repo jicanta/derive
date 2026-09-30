@@ -1,4 +1,4 @@
-import type { Atlas, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, Library, Material, NodeRow, ProviderView, Resource, Settings, Stats, StoredEvent, TutorChoice } from './types';
+import type { Atlas, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, Library, Material, NodeRow, ProviderView, Resource, Settings, Stats, StoredEvent, TestResult, TutorChoice } from './types';
 
 /**
  * The selected learner profile, kept in this browser. Sent on every request
@@ -115,4 +115,8 @@ export const api = {
   removeKey: (id: string) => del(`/api/settings/${id}/key`).then((r) => j<{ ok: true; note: string }>(r)),
   /** Make a provider the active tutor from the next turn of every lesson. */
   useProvider: (id: string) => post('/api/settings/active', { provider: id }).then((r) => j<TutorChoice>(r)),
+  /** A provider's model ids, fetched now with the stored key and address. A failure throws the provider's sentence verbatim, which the row shows under the field. */
+  providerModels: (id: string) => post(`/api/settings/${id}/models`).then((r) => j<{ models: string[] }>(r)),
+  /** The cheapest real request for a provider, timed: the model count and latency, or the provider's sentence and Derive's hint. Never throws for a provider failure; the result says. */
+  testProvider: (id: string) => post(`/api/settings/${id}/test`).then((r) => j<TestResult>(r)),
 };

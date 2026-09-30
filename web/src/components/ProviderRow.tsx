@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { api } from '../lib/api';
-import type { ProviderStatus, ProviderView } from '../lib/types';
+import type { ProviderStatus, ProviderView, TestResult } from '../lib/types';
 
 const field = 'w-full rounded-xl border hairline bg-ink-900/70 px-3 text-[14px] leading-relaxed text-ink-100 outline-none focus:border-gold-500/60 placeholder:text-ink-500 disabled:opacity-60';
 const pill = 'inline-flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 border hairline rounded-full px-2.5 h-6';
@@ -21,6 +21,12 @@ const dotOf = (status: ProviderStatus): string =>
 
 const PROVIDER_LOCK = 'DERIVE_BACKEND is set in your environment, so the provider cannot be changed here. Unset it to choose one.';
 const REMOVED = 'Removed. It stays hidden from logs and events until Derive restarts.';
+
+/** The one line a test answers with: the count and latency in green, or the provider's sentence as it came. A login has no list, so it reads logged in. */
+const resultText = (r: TestResult): string => (r.ok ? (r.models === null ? `Logged in · ${r.ms} ms` : `Connected · ${r.models} models · ${r.ms} ms`) : r.error);
+
+/** How many ids the last fetch brought back, as the line under the combobox says it. */
+const fetchedText = (n: number): string => (n === 0 ? '0 models fetched · type an id' : n === 1 ? '1 model fetched' : `${n} models fetched`);
 
 /** Blur the input on Enter so the one save path (onBlur) runs; the form has no submit. */
 const blurOnEnter = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -272,10 +278,19 @@ function BaseUrlField({ row, onChange }: { row: ProviderView; onChange: (row: Pr
 
 /**
  * One provider on the settings page: its status pill, its key field, its
- * model field saving on blur or Enter with a saved tick, the base URL where
- * one applies, and the one action that makes it the tutor. Every fact it
- * shows comes from the row the API painted; the row is a quiet card, gold
- * while it is the one teaching.
+ * model combobox saving on blur or Enter with a saved tick, the base URL
+ * where one applies, the fetch and test actions with their one-line result,
+ * and the one action that makes it the tutor. Every fact it shows comes from
+ * the row the API painted; the row is a quiet card, gold while it is the one
+ * teaching.
+ *
+ * The model field is one control (D-08): a native input with a datalist of
+ * whatever the last fetch brought back. Before a fetch the list is empty and
+ * the field is exactly a text input; after a failed fetch the provider's
+ * sentence shows under it and the field still takes a typed id and saves it.
+ * No second control ever appears. The test result renders on one mono line
+ * with the full text in its title, the provider's sentence verbatim in rust
+ * and Derive's fix hint on its own line beneath (D-14). No toast.
  */
 export function ProviderRow({
   row,
@@ -300,6 +315,12 @@ export function ProviderRow({
   const [useErr, setUseErr] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
   const useTimer = useRef<number | null>(null);
+  const [models, setModels] = useState<string[]>([]);
+  const [fetched, setFetched] = useState<number | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [fetchErr, setFetchErr] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<TestResult | null>(null);
 
   useEffect(() => setModel(effective), [effective]);
   useEffect(
@@ -339,6 +360,36 @@ export function ProviderRow({
     } catch (e) {
       setUseErr((e as Error).message);
       setUsing('idle');
+    }
+  };
+
+  const fetchModels = async () => {
+    setFetching(true);
+    setFetchErr(null);
+    try {
+      const { models: ids } = await api.providerModels(row.id);
+      setModels(ids);
+      setFetched(ids.length);
+    } catch (e) {
+      // The provider's sentence, verbatim; the list empties and the field stays typeable (D-08).
+      setModels([]);
+      setFetched(null);
+      setFetchErr((e as Error).message);
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  const test = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      setResult(await api.testProvider(row.id));
+    } catch (e) {
+      // The route itself failed to answer; that sentence is Derive's, shown where the provider's would be.
+      setResult({ ok: false, error: (e as Error).message, ms: 0 });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -382,6 +433,7 @@ export function ProviderRow({
         <div className="min-w-0 md:col-start-2">
           <div className="flex items-center gap-2">
             <input
+              list={`models-${row.id}`}
               value={model}
               onChange={(e) => setModel(e.target.value)}
               onBlur={() => void save()}
@@ -393,6 +445,11 @@ export function ProviderRow({
               autoComplete="off"
               className={`${field} font-mono h-10`}
             />
+            <datalist id={`models-${row.id}`}>
+              {models.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
             {row.model_locked && (
               <span className={`${pill} shrink-0`}>
                 <span className="h-1.5 w-1.5 rounded-full bg-ink-400" />
@@ -408,6 +465,10 @@ export function ProviderRow({
             <p className={tickLine}>saved · applies from the next turn</p>
           ) : state === 'saving' ? (
             <p className="mt-2 font-mono text-[10px] text-ink-500">saving</p>
+          ) : fetchErr ? (
+            <p className={errLine}>{fetchErr}</p>
+          ) : fetched !== null ? (
+            <p className="mt-2 font-mono text-[10px] text-ink-500">{fetchedText(fetched)}</p>
           ) : row.default_model && model.trim() === row.default_model ? (
             <p className="mt-2 font-mono text-[10px] text-ink-500">default as of {defaultsAsOf}</p>
           ) : row.id === 'codex' && model.trim() === '' ? (
@@ -416,6 +477,26 @@ export function ProviderRow({
         </div>
         {takesBaseUrl && <BaseUrlField row={row} onChange={onChange} />}
       </div>
+
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
+        {row.has_models_endpoint && (
+          <>
+            <button type="button" onClick={() => void fetchModels()} disabled={fetching} className={textButton}>
+              {fetching ? 'fetching…' : 'fetch models'}
+            </button>
+            <span className="font-mono text-[10px] text-ink-600">·</span>
+          </>
+        )}
+        <button type="button" onClick={() => void test()} disabled={testing} className={textButton}>
+          {testing ? 'testing…' : 'test connection'}
+        </button>
+        {result && (
+          <span role="status" title={resultText(result)} className={`ml-auto min-w-0 max-w-full truncate font-mono text-[10px] ${result.ok ? 'text-moss-400' : 'text-rust-400'}`}>
+            {resultText(result)}
+          </span>
+        )}
+      </div>
+      {result && !result.ok && result.hint && <p className="mt-2 text-[14px] leading-relaxed text-ink-300">{result.hint}</p>}
     </div>
   );
 }

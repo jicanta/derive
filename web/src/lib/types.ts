@@ -71,6 +71,9 @@ export type TutorChoice = {
   modelSource: 'environment' | 'settings' | 'default' | null;
 };
 
+/** What a connection test answers: the model count and latency, or the provider's own sentence with Derive's fix hint beside it. `models` is null on a login, which has no list to count. */
+export type TestResult = { ok: true; models: number | null; ms: number } | { ok: false; error: string; hint?: string; ms: number };
+
 /** The settings page in one read: the active choice, the locks, and every row in catalogue order. */
 export type Settings = {
   active: TutorChoice;
