@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Settings and Secrets
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-09-30T22:42:24.455Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-09-30T22:51:55.960Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 02 execution started
-state_head: dd52ec9b56d82d8666f16fe7b258c0abfe0c322b
+state_head: 00b272b661ce13693fee8d6dd1fb5db01f737be4
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 28
-  completed_plans: 26
+  completed_plans: 27
   percent: 14
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-20)
 ## Current Position
 
 Phase: 02 (Settings and Secrets) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 02 execution started
 
@@ -80,6 +80,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 02 P06 | 10 min | 2 tasks | 9 files |
 | Phase 02 P02 | 3 min | 2 tasks | 9 files |
 | Phase 02 P03 | 11 min | 2 tasks | 6 files |
+| Phase 02 P04 | 5 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,10 @@ Recent decisions affecting current work:
 - [Phase 02]: Per 02-03 local versus remote is judged on the literal host of the request URL with no lookup (isLocalUrl): it picks the 4 s / 8 s bound and the unreachable sentence, and decides nothing about whether the request is allowed
 - [Phase 02]: Per 02-03 the model field is one native <input list> + <datalist> combobox whose list is empty until a fetch, so a failed fetch shows the provider's sentence under a field that still saves and no second control ever appears (D-08); the test result is one mono line with role=status, truncated with the full text in title, the hint on its own line
 - [Phase 02]: Per 02-03 the suite never calls a real host: a loopback fakeProvider (good-key list with a duplicate, two-line 401, a 302, an HTML 200) covers the shared getJson path through the OpenAI-compatible row, the remote rows are asserted as pure request data, and every response body is checked for both keys
+- [Phase 02]: Per 02-04 the header pill is a record of the turn, never the current setting: LessonState.tutor is seeded from lessonView.tutor after the event replay and replaced only by a turn_start payload carrying a provider string, so a change made in Settings shows on the next turn and never before (D-15, D-04)
+- [Phase 02]: Per 02-04 external lessons get no second pill and no link: the existing companion pill grows to companion · {driver} · terminal model and stays a span, with the driver label codex cli for Codex (D-16, UI-SPEC A5)
+- [Phase 02]: Per 02-04 the browser renders the provider as the catalogue id with dashes read as spaces while the plugin sentence keeps the raw id; neither side carries a provider table
+- [Phase 02]: Per 02-04 the doctor's Secrets file line treats absence as ok, skips the mode on win32 and never opens the file, so no key or fragment of one can reach the terminal; .env.example states only what config.ts and settings.ts do
 
 ### Pending Todos
 
@@ -180,6 +185,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T22:41:53.106Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-09-30T22:51:55.889Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None

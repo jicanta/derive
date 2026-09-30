@@ -36,11 +36,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Settings
 
 - [ ] **SET-01**: Learner can choose provider and model on a settings page in the app; the choice persists across restarts
-- [ ] **SET-02**: Learner can paste one masked key per provider; keys are stored in a 0600 secrets file outside the database and are never echoed back by the API
-- [ ] **SET-03**: Settings detect what is available: logged-in CLIs, keys in the environment, local servers on their default ports; environment values show as "set from environment"
+- [x] **SET-02**: Learner can paste one masked key per provider; keys are stored in a 0600 secrets file outside the database and are never echoed back by the API
+- [x] **SET-03**: Settings detect what is available: logged-in CLIs, keys in the environment, local servers on their default ports; environment values show as "set from environment"
 - [x] **SET-04**: Learner can fetch the model list for a provider, with a manual model id fallback and a curated default
 - [x] **SET-05**: Learner can test a connection and see the actual failure sentence when it fails
-- [ ] **SET-06**: The active provider and model are visible in the lesson header and in the plugin start message
+- [x] **SET-06**: The active provider and model are visible in the lesson header and in the plugin start message
 
 ### Cost
 
@@ -159,11 +159,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROV-11 | Phase 4 | Pending |
 | PROV-13 | Phase 4 | Pending |
 | SET-01 | Phase 2 | Pending |
-| SET-02 | Phase 2 | Pending |
-| SET-03 | Phase 2 | Pending |
+| SET-02 | Phase 2 | Complete |
+| SET-03 | Phase 2 | Complete |
 | SET-04 | Phase 2 | Complete |
 | SET-05 | Phase 2 | Complete |
-| SET-06 | Phase 2 | Pending |
+| SET-06 | Phase 2 | Complete |
 | COST-01 | Phase 1 | Complete |
 | COST-02 | Phase 3 | Pending |
 | COST-03 | Phase 4 | Pending |
