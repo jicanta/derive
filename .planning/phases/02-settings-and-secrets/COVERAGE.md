@@ -24,7 +24,7 @@ The phase talks to each provider's cheapest authenticated read (its models list,
 
 | capability | decision | reason |
 |---|---|---|
-| models.list (`GET /v1beta/models?pageSize=1000`, `x-goog-api-key` header; `nextPageToken` followed only if present) | INTEGRATE | plan 03; filtered to `generateContent`-capable models |
+| models.list (`GET /v1beta/models?pageSize=1000`, `x-goog-api-key` header; one page — `nextPageToken` is not followed, the catalogue is a few dozen models and `pageSize=1000` covers it) | INTEGRATE | plan 03; filtered to `generateContent`-capable models |
 | generateContent / streamGenerateContent | OPT-OUT | Phase 3 (PROV-03) |
 | `?key=` query authentication | OPT-OUT | header only — a key in a URL lands in logs and proxies (RESEARCH Pitfall 4) |
 | Gemini CLI OAuth | OPT-OUT | forbidden for third-party tools by Google's service update; Gemini is API-key only (D-05) |

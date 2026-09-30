@@ -778,24 +778,26 @@ const fake = createServer((req, res) => {
 | A9 | A 30 s bounded memo on the detection tier satisfies "no process-lifetime memo" | Pattern 2 | If the user wants zero caching, drop the memo and accept a 0.3 s spawn per turn when nothing is stored |
 | A10 | Default model ids as of 2026-09-30: `claude-opus-5-5`, `gpt-6-astra`, `gemini-3.8-flash` | Matrix | They are cited from vendor docs today, but they move; that is what `DEFAULTS_AS_OF` records. The planner sets the date to implementation day and re-checks |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Does the Claude Code login row stay `teaches: true` in Phase 2 given the verbatim policy?**
+All four questions were dispositioned during planning; each entry names the plan and task that decided it.
+
+1. **Does the Claude Code login row stay `teaches: true` in Phase 2 given the verbatim policy?** — RESOLVED: 02-01 Task 1 (catalogue) keeps `teaches: true` on `claude-code` and `codex` per CONTEXT D-05; the row's sentence is the UI-SPEC Copywriting Contract text chosen under UI-SPEC Assumption A7 ("Runs the app's tutor on your Claude Code login. The plugin is the supported subscription route; an Anthropic API key takes over from the next release."); COVERAGE.md opts out of Claude.ai OAuth for in-app use.
    - What we know: CONTEXT D-05 says only the two login rows teach now, and the existing `claudeDriver` runs on the Claude Code login through the Agent SDK. Anthropic's legal page (fetched today) says developers "including those using the Agent SDK, should use API key authentication" and may not "route requests through Free, Pro, or Max plan credentials on behalf of their users", while an end user signing in to the unmodified Claude Code binary is allowed.
    - What's unclear: whether Derive-as-a-local-app-run-by-the-same-person is "on behalf of their users". The roadmap already resolved the product direction (plugin = subscription route; in-app Claude = API key in Phase 3).
-   - Recommendation: keep the row as CONTEXT decided (it is the pre-existing path, removing it is Phase 3's flip), but make the row's sentence honest: "runs the app's tutor on your Claude Code login today; Anthropic asks third-party apps to use an API key — the plugin is the supported subscription route, and the Anthropic row takes a key from the next release". Surface this to the user at discuss/plan time as a confirmation checkpoint.
+   - Recommendation (adopted): keep the row as CONTEXT decided (it is the pre-existing path, removing it is Phase 3's flip), but make the row's sentence honest. The user confirmed the sentence in the UI-SPEC (A7).
 
-2. **Where does `base_url` for local servers live when `OLLAMA_HOST` is set?**
+2. **Where does `base_url` for local servers live when `OLLAMA_HOST` is set?** — RESOLVED: 02-02 Task 1 adds `OLLAMA_HOST` to `config.ts`, `lockedBy('base_url:ollama')` names it, `localBase(spec)` in `settings.ts` probes that host ahead of the stored value and the catalogue default, the row reads `set from environment`, and `PUT base_url` on the Ollama row answers 409 while it is set. Without the variable, the learner stores `base_url:ollama` through `PUT /api/settings/ollama` (02-06 Task 1).
    - What we know: `OLLAMA_HOST` changes the bind address [CITED]; the catalogue has a default port.
-   - Recommendation: env var → informational lock on the Ollama row's base URL (`set from environment`), probe that host; otherwise the learner may store `base_url:ollama` for a non-default port.
+   - Recommendation (adopted): env var → informational lock on the Ollama row's base URL (`set from environment`), probe that host; otherwise the learner may store `base_url:ollama` for a non-default port.
 
-3. **Does `GET /api/settings/active` need learner scoping for the plugin?**
+3. **Does `GET /api/settings/active` need learner scoping for the plugin?** — RESOLVED: 02-05 Task 1 makes `GET /api/settings/active` call `resolveTutor(learnerOf(c))` (the one learner-aware settings route; every other settings route stays per install), and 02-05 Task 2 makes `mcp.ts` `start_lesson` read `/api/settings/active?learner=<id>` so `app_tutor_setting` names the model that learner would get. Until 02-05, 02-04 Task 2 reads the install-wide value.
    - What we know: `mcp.ts` calls with `learner` by name in other routes; the per-learner override changes the model only.
-   - Recommendation: accept `?learner=` via `learnerOf(c)` so the plugin sentence names the model that learner would get.
+   - Recommendation (adopted): accept `?learner=` via `learnerOf(c)` so the plugin sentence names the model that learner would get.
 
-4. **Should `/api/health` keep the field names `backend`/`backend_source`?**
+4. **Should `/api/health` keep the field names `backend`/`backend_source`?** — RESOLVED: 02-01 Task 2 changes `/api/health` to `{ ok, version, backend: <catalogue id>, model, source }` from one `currentTutor()` call (a non-spawning read; Pitfall 9); `backend_source` is dropped because nothing reads it (`doctor.mjs` and `spawn.ts` read only `ok`/`version`), and 02-04 Task 3 teaches the doctor to print `backend`, `model` and `source` on its Server line.
    - What we know: `doctor.mjs` reads only `ok` and `version`; `spawn.ts` reads only `ok`.
-   - Recommendation: keep `backend` (now the catalogue id) and add `model` and `source`; rename `backend_source` → `source` only if nothing else reads it (nothing does today).
+   - Recommendation (adopted): keep `backend` (now the catalogue id) and add `model` and `source`; rename `backend_source` → `source` since nothing else reads it.
 
 ## Environment Availability
 
