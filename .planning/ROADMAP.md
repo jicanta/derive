@@ -154,7 +154,7 @@ Plans:
   4. Learner fetches a provider's model list, or types a model id when the fetch fails, with a curated default preselected
   5. "Test connection" reports success or the provider's actual failure sentence; the active provider and model are shown in the lesson header and in the plugin start message
 
-**Plans:** 5/6 plans executed, in 6 serial waves (each plan ends on the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files — the same reason Phase 1's waves were serialised)
+**Plans:** 6/6 plans executed, in 6 serial waves (each plan ends on the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files — the same reason Phase 1's waves were serialised)
 
 Plans:
 **Wave 1**
@@ -179,7 +179,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 02-05-PLAN.md — The per-learner model override on `/you`: the learner tier of the resolver, kept out of the prompt, read by the plugin for that learner (wave 6)
+- [x] 02-05-PLAN.md — The per-learner model override on `/you`: the learner tier of the resolver, kept out of the prompt, read by the plugin for that learner (wave 6)
 
 **UI hint**: yes
 **Research**: `--research-phase` recommended — re-read Anthropic's consumer-OAuth policy and Gemini CLI's third-party terms at implementation time (both MEDIUM; wording may have changed). Bake in: in-app Claude asks for an API key and the Claude Code login is offered as "use the plugin"; Gemini defaults to an API key. Settings resolve `env > file > detection` per turn, replacing the boot-time backend memo; provider config per install, optional per-learner model override, never a per-learner key.
@@ -282,7 +282,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 22/22 | Complete    | 2026-09-20 |
-| 2. Settings and Secrets | 5/6 | In Progress|  |
+| 2. Settings and Secrets | 6/6 | In Progress|  |
 | 3. Owned Loop: API Keys and Gateways | 0/TBD | Not started | - |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |
 | 5. Learning Experience | 0/TBD | Not started | - |

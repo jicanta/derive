@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Settings and Secrets
 status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-09-30T22:51:55.960Z"
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-09-30T22:59:47.698Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 02 execution started
-state_head: 00b272b661ce13693fee8d6dd1fb5db01f737be4
+state_head: e79edd7b884ffef72a4db7b59aa308f6f669dc15
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 28
-  completed_plans: 27
+  completed_plans: 28
   percent: 14
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-20)
 ## Current Position
 
 Phase: 02 (Settings and Secrets) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 02 execution started
 
@@ -81,6 +81,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 02 P02 | 3 min | 2 tasks | 9 files |
 | Phase 02 P03 | 11 min | 2 tasks | 6 files |
 | Phase 02 P04 | 5 min | 3 tasks | 9 files |
+| Phase 02 P05 | 3 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,9 @@ Recent decisions affecting current work:
 - [Phase 02]: Per 02-04 external lessons get no second pill and no link: the existing companion pill grows to companion · {driver} · terminal model and stays a span, with the driver label codex cli for Codex (D-16, UI-SPEC A5)
 - [Phase 02]: Per 02-04 the browser renders the provider as the catalogue id with dashes read as spaces while the plugin sentence keeps the raw id; neither side carries a provider table
 - [Phase 02]: Per 02-04 the doctor's Secrets file line treats absence as ok, skips the mode on win32 and never opens the file, so no key or fragment of one can reach the terminal; .env.example states only what config.ts and settings.ts do
+- [Phase 02]: Per 02-05 the learner model tier sits inside chooseModel(provider, learnerId?) so DERIVE_MODEL stays first in one place: env > learner > settings > catalogue default, reported as modelSource 'learner'; currentTutor() and every read-only route are unchanged
+- [Phase 02]: Per 02-05 GET /api/settings/active is the only learner-aware settings route (learnerOf(c)); an unnamed request resolves for the default learner so one learner's override never reaches another's answer, and start_lesson asks it with ?learner= for its own learner
+- [Phase 02]: Per 02-05 the learner model id is a preference the tutor must not read: LearnerPrefs.model and cleanPrefs (200 chars, [A-Za-z0-9._:/-]) carry it through the unchanged PATCH path, preferencesSection and describePrefs render no line for it, and the suite asserts learnerProfile text lacks the id
 
 ### Pending Todos
 
@@ -185,6 +189,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T22:51:55.889Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-09-30T22:59:47.631Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
