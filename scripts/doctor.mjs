@@ -82,6 +82,17 @@ else {
   else fail('Install token', `${tokenFile} is mode 0${mode}, not 0600`, `Run \`chmod 600 ${tokenFile}\`. That file is how the MCP server, the plugin hook, the dev proxy and your browser's first request all authenticate; anyone who can read it can drive your lessons and read anything Derive can read.`);
 }
 
+// Provider keys pasted in Settings live here, one per provider, beside the token and outside the 0644 database.
+// This line reports presence and mode only: the file is never opened, so nothing in it can reach the terminal.
+const secretsFile = join(dataDir, 'secrets.json');
+if (!existsSync(secretsFile)) ok('Secrets file', 'none yet; add keys in Settings');
+else if (process.platform === 'win32') ok('Secrets file', secretsFile);
+else {
+  const mode = (statSync(secretsFile).mode & 0o777).toString(8).padStart(3, '0');
+  if (mode === '600') ok('Secrets file', `${secretsFile} (0600)`);
+  else fail('Secrets file', `${secretsFile} is mode 0${mode}, not 0600`, `Run \`chmod 600 ${secretsFile}\`. That file holds the provider keys pasted in Settings; anyone who can read it can spend on those accounts.`);
+}
+
 if (process.env.DERIVE_VAULT_DIR) {
   const v = resolve(process.env.DERIVE_VAULT_DIR);
   if (existsSync(v)) ok('Obsidian vault', v);
@@ -92,7 +103,7 @@ if (process.env.DERIVE_VAULT_DIR) {
 const health = await fetch(`http://localhost:${PORT}/api/health`, { signal: AbortSignal.timeout(1500) })
   .then((r) => (r.ok ? r.json() : null))
   .catch(() => null);
-if (health?.ok) ok('Server', `running on http://localhost:${PORT} (v${health.version})`);
+if (health?.ok) ok('Server', `running on http://localhost:${PORT} (v${health.version})${health.backend ? ` · tutor: ${health.backend}${health.model ? ` · ${health.model}` : ''} (${health.source})` : ''}`);
 else {
   const free = await new Promise((res) => {
     const s = createServer();
