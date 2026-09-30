@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Settings and Secrets
 status: executing
-stopped_at: Completed 02-06-PLAN.md
-last_updated: "2026-09-30T19:34:43.251Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-09-30T22:25:51.402Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 02 execution started
-state_head: 9845b8da2a1d4b28fb6ab62e9ad38c2a06eae0f9
+state_head: f702fa1527065334cf19abe6eec03b547973e6f3
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 28
-  completed_plans: 24
+  completed_plans: 25
   percent: 14
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-20)
 ## Current Position
 
 Phase: 02 (Settings and Secrets) — EXECUTING
-Plan: 3 of 6
+Plan: 2 of 6
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 02 execution started
 
@@ -78,6 +78,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 01 P22 | 14 min | 3 tasks | 6 files |
 | Phase 02 P01 | 11 min | 2 tasks | 9 files |
 | Phase 02 P06 | 10 min | 2 tasks | 9 files |
+| Phase 02 P02 | 3 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,9 @@ Recent decisions affecting current work:
 - [Phase 02]: Per 02-06 one awaited pass per POST /api/settings/detect (async claude auth status plus loopback probes in one Promise.all, 400 ms per probe) runs only when the page opens and on rescan; nothing polls, and the page paints stored config first with checking on unobserved rows — D-13 and the simplicity rule: first paint never waits on the CLI, and a background prober is a feature with no learning reason
 - [Phase 02]: Per 02-06 a learner-typed base URL is normalised once at the write (http/https only, no credentials, no query or fragment, origin plus path with no trailing slash) and refused with the exact sentence otherwise; fixed-endpoint rows refuse a base URL outright — Every later probe and request joins a path onto the stored base, and a key must never ride a redirect or a credentialed URL to a third host
 - [Phase 02]: Per 02-06 the settings page renders what GET /api/settings returns and hard-codes no provider fact; every field saves itself on the row (no page-level Save), and Use this provider is optimistic with a verbatim refusal and revert — One catalogue module is the source of truth (D-06); D-03 save-as-you-go
+- [Phase 02]: Per 02-02 keys live in one plaintext 0600 secrets.json beside derive.db, written to a sibling temp file and renamed into place, read live behind a one-second cache, every loaded value registered for redaction; an absent file is the fresh install, an unreadable one is reported through secrets_error and never overwritten
+- [Phase 02]: Per 02-02 the key API is write-only: rows answer { set, hint, locked } with hint the last four of a key at least eight long; an environment key (ENV_KEYS, Google before Gemini) locks its row with hint null and a 409 naming the variable on PUT and DELETE, and OLLAMA_HOST locks the Ollama address
+- [Phase 02]: Per 02-02 remove is an inline two-step (remove the key · keep) with no dialog, the removed sentence says the process still redacts the value until restart, and the keep-the-current-key button swallows mousedown so blur-save cannot fire on the way to it
 
 ### Pending Todos
 
@@ -170,6 +174,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T19:34:43.157Z
-Stopped at: Completed 02-06-PLAN.md
+Last session: 2026-09-30T22:25:51.324Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
