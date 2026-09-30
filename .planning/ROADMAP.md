@@ -154,7 +154,16 @@ Plans:
   4. Learner fetches a provider's model list, or types a model id when the fetch fails, with a curated default preselected
   5. "Test connection" reports success or the provider's actual failure sentence; the active provider and model are shown in the lesson header and in the plugin start message
 
-**Plans**: TBD
+**Plans:** 5 plans, in 5 serial waves (each plan ends on the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files — the same reason Phase 1's waves were serialised)
+
+Plans:
+
+- [ ] 02-01-PLAN.md — Tracer: the catalogue, migration 5 and the per-turn resolver replacing the boot memo; pick a provider and a model, restart, the next turn runs on it; login and local-server detection; the `/settings` page with rows, pills and Use this provider (wave 1)
+- [ ] 02-02-PLAN.md — Keys: `~/.derive/secrets.json` at 0600, atomic and read live, answered as `{ set, hint }`; environment keys outrank the file and read `set from environment`; the key field states, the base URL input, doctor and `.env.example` (wave 2)
+- [ ] 02-03-PLAN.md — Model lists and test connection for every row through one adapter table: verbatim provider sentence plus a separate fix hint, keys only in headers to their own host, no redirects; the datalist combobox and one-line result (wave 3)
+- [ ] 02-04-PLAN.md — The header pill `provider · model` reading the last turn, the companion pill's `terminal model`, the plugin start message naming both tutors, the Home and learner-menu links (wave 4)
+- [ ] 02-05-PLAN.md — The per-learner model override on `/you`: the learner tier of the resolver, kept out of the prompt, read by the plugin for that learner (wave 5)
+
 **UI hint**: yes
 **Research**: `--research-phase` recommended — re-read Anthropic's consumer-OAuth policy and Gemini CLI's third-party terms at implementation time (both MEDIUM; wording may have changed). Bake in: in-app Claude asks for an API key and the Claude Code login is offered as "use the plugin"; Gemini defaults to an API key. Settings resolve `env > file > detection` per turn, replacing the boot-time backend memo; provider config per install, optional per-learner model override, never a per-learner key.
 
