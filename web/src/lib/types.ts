@@ -25,6 +25,57 @@ export type LearnerPrefs = {
 };
 export type Learner = { id: string; name: string; created_at: number; prefs: LearnerPrefs; lessons?: number };
 
+/** The status pill of a provider row. `checking` is transient: what a login or local row reads until the detection pass has looked at it. */
+export type ProviderStatus = 'logged in' | 'key set' | 'set from environment' | `found on port ${number}` | 'not configured' | 'checking';
+
+/** One provider row as GET /api/settings paints it: the catalogue facts, what is stored, what the environment locks, and the last detection pass. The page renders this and hard-codes none of it. */
+export type ProviderView = {
+  id: string;
+  label: string;
+  /** Which eyebrow group the row sits under. */
+  group: 'logins' | 'keys' | 'local';
+  /** How the provider is reached: a CLI login, a key, a key plus a base URL, or nothing for a local server. */
+  auth: 'login' | 'key' | 'key+url' | 'none';
+  /** True only where a driver exists today; a row that does not teach cannot be made active. */
+  teaches: boolean;
+  /** The one sentence the row shows under its head line. */
+  note: string;
+  /** The curated default model id, or null when the provider's own default applies. */
+  default_model: string | null;
+  has_models_endpoint: boolean;
+  /** The default port a local server listens on. */
+  port: number | null;
+  /** The stored model id, or null when none is stored. */
+  model: string | null;
+  /** The environment variable that locks the model, or null when the field is the learner's to set. */
+  model_locked: string | null;
+  /** The stored base URL for a local or OpenAI-compatible row, or null for the catalogue default. */
+  base_url: string | null;
+  base_url_default: string | null;
+  status: ProviderStatus;
+  active: boolean;
+};
+
+/** What the next turn runs on, and why. */
+export type TutorChoice = {
+  provider: string;
+  /** The model asked for, or null to take the provider's own default. */
+  model: string | null;
+  source: 'environment' | 'settings' | 'detected';
+  modelSource: 'environment' | 'settings' | 'default' | null;
+};
+
+/** The settings page in one read: the active choice, the locks, and every row in catalogue order. */
+export type Settings = {
+  active: TutorChoice;
+  /** The day the catalogue's default model ids were last checked. */
+  defaults_as_of: string;
+  /** The environment variable that locks the provider, or null. */
+  provider_locked: string | null;
+  model_locked: string | null;
+  rows: ProviderView[];
+};
+
 export type LessonSummary = Lesson & { nodes: number; locked: number; shaky: number; busy: boolean };
 
 export type NodeKind = 'truth' | 'derived' | 'goal';

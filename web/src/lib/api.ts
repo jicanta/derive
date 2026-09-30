@@ -1,4 +1,4 @@
-import type { Atlas, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, Library, Material, NodeRow, Resource, Stats, StoredEvent } from './types';
+import type { Atlas, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, Library, Material, NodeRow, ProviderView, Resource, Settings, Stats, StoredEvent, TutorChoice } from './types';
 
 /**
  * The selected learner profile, kept in this browser. Sent on every request
@@ -103,4 +103,14 @@ export const api = {
     post(`/api/library/${id}`, body, 'PATCH').then((r) => j<Resource>(r)),
   refetchResource: (id: string) => post(`/api/library/${id}/refetch`).then((r) => j<Resource>(r)),
   deleteResource: (id: string) => del(`/api/library/${id}`).then((r) => j<{ ok: true }>(r)),
+  /** Which provider and model teach, per install: every row with its stored config and what the last detection pass saw. Never spawns anything. */
+  settings: () => get('/api/settings').then((r) => j<Settings>(r)),
+  /** Run one detection pass — both logins and the local servers — and answer the settings view again. */
+  detectProviders: () => post('/api/settings/detect').then((r) => j<Settings>(r)),
+  /** What the next turn would run on. */
+  activeTutor: () => get('/api/settings/active').then((r) => j<TutorChoice>(r)),
+  /** Store one provider's fields; an empty string clears one. Answers the row as the page paints it. */
+  setProvider: (id: string, body: { model?: string; base_url?: string }) => post(`/api/settings/${id}`, body, 'PUT').then((r) => j<ProviderView>(r)),
+  /** Make a provider the active tutor from the next turn of every lesson. */
+  useProvider: (id: string) => post('/api/settings/active', { provider: id }).then((r) => j<TutorChoice>(r)),
 };
