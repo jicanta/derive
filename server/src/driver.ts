@@ -122,7 +122,7 @@ export function sinkFor(lessonId: string, turnId: string): EventSink {
  * A driver installed in place of the one the backend would pick. It exists for
  * tests and for `server/src/drivers/fake.ts`: no route, header, environment
  * variable or config file can set it, and the production dispatch still reads
- * `backend()`. It is also what keeps the import graph acyclic — this module
+ * `resolveTutor()`. It is also what keeps the import graph acyclic — this module
  * imports no driver; every driver imports it.
  */
 let override: Driver | null = null;

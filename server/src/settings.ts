@@ -125,6 +125,12 @@ export function resolveTutor(): TutorChoice {
   return { provider, source, ...chooseModel(provider) };
 }
 
+/** What the tutor is set to, for read-only routes: the same tiers as resolveTutor, reporting the last detection pass and never spawning one. Claude when nothing has been observed yet. */
+export function currentTutor(): TutorChoice {
+  const { provider, source } = chooseProvider(() => lastDetection()?.logins);
+  return { provider, source, ...chooseModel(provider) };
+}
+
 /** The dialect the two login drivers and systemPrompt() speak. Only teaching rows reach a turn in this release. */
 export const backendOf = (provider: string): Backend => (provider === 'codex' ? 'codex' : 'claude');
 

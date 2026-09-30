@@ -11,7 +11,6 @@ import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import * as actions from './actions.js';
 import { interrupt, isBusy, runTurn } from './agent.js';
-import { backend, backendSource } from './backend.js';
 import { ensureToken, matchesSession, matchesToken, sessionValue } from './credentials.js';
 import { ALLOWED_ORIGINS, DERIVE_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, TOKEN_PATH, VAULT_DIR, VERSION } from './config.js';
 import {
@@ -60,9 +59,9 @@ import { ACCEPTED, describe, ingestMaterial, ingestRepo, materialsSection, MAX_F
 import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief } from './prompt.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
-import { providerOf } from './providers.js';
+import { DEFAULTS_AS_OF, labelOf, PROVIDERS, providerOf, providerOfDriver, type ProviderSpec } from './providers.js';
 import { registerSecret, safeMessage } from './secrets.js';
-import { ACTIVE_PROVIDER, lockedBy, modelKey, resolveTutor } from './settings.js';
+import { ACTIVE_PROVIDER, baseUrlKey, currentTutor, lastDetection, lockedBy, modelKey, resolveTutor, type Detection, type Local } from './settings.js';
 import { shapeFor, toolsFor } from './tools.js';
 
 /**
@@ -275,15 +274,22 @@ const busy = (id: string) => {
 const lessonView = (id: string) => {
   const lesson = getLesson(id);
   if (!lesson) return null;
-  return { lesson, nodes: listNodes(id), materials: listMaterials(id), busy: busy(id), pending: hasPending(id) };
+  // What the last turn ran on, read off its turns row: the header pill needs
+  // it on first paint, and this view is hot, so it never asks a resolver.
+  const last = lastTurn(id);
+  return { lesson, nodes: listNodes(id), materials: listMaterials(id), busy: busy(id), pending: hasPending(id), tutor: last ? { provider: providerOfDriver(last.driver), model: last.model } : null };
 };
 
 sweepOrphanMaterials();
 
-app.get('/api/health', (c) => c.json({ ok: true, version: VERSION, backend: backend(), backend_source: backendSource() }));
+/** The doctor probes this with a short timeout, so it reads the last detection pass and never runs one. */
+app.get('/api/health', (c) => {
+  const t = currentTutor();
+  return c.json({ ok: true, version: VERSION, backend: t.provider, model: t.model, source: t.source });
+});
 app.get('/api/stats', (c) => {
   const learner = learnerOf(c);
-  return c.json({ ...stats(learner), due: dueNodes(learner).length, vault: !!VAULT_DIR, library: listResources(learner).length, learner: getLearner(learner), backend: backend() });
+  return c.json({ ...stats(learner), due: dueNodes(learner).length, vault: !!VAULT_DIR, library: listResources(learner).length, learner: getLearner(learner) });
 });
 
 // ---------- learners ----------
@@ -348,6 +354,49 @@ const SettingsWrite = z
   })
   .strict();
 
+/**
+ * The status pill of one row, from one detection observation. Login and local
+ * rows read `checking` until a pass has looked at them; key rows read `not
+ * configured` until keys arrive. Absence is a fact, never a sentence.
+ */
+const statusOf = (spec: ProviderSpec, seen: Detection | null): string => {
+  if (spec.auth === 'login') return seen ? (seen.logins[spec.id as 'claude-code' | 'codex'] ? 'logged in' : 'not configured') : 'checking';
+  if (spec.group === 'local') {
+    if (!seen?.local) return 'checking';
+    const port = seen.local[spec.id as keyof Local];
+    return port ? `found on port ${port}` : 'not configured';
+  }
+  return 'not configured';
+};
+
+/** One provider row as the settings page paints it: the catalogue facts, what is stored, what the environment locks, and the last pass. */
+const rowView = (spec: ProviderSpec, activeId: string, seen: Detection | null = lastDetection()) => ({
+  id: spec.id,
+  label: spec.label,
+  group: spec.group,
+  auth: spec.auth,
+  teaches: spec.teaches,
+  note: spec.note,
+  default_model: spec.defaultModel,
+  has_models_endpoint: !!spec.modelsPath,
+  port: spec.port,
+  model: getSetting(modelKey(spec.id)) ?? null,
+  model_locked: lockedBy('model'),
+  base_url: getSetting(baseUrlKey(spec.id)) ?? null,
+  base_url_default: spec.group === 'local' || spec.auth === 'key+url' ? spec.endpoint : null,
+  status: statusOf(spec, seen),
+  active: activeId === spec.id,
+});
+
+/** The whole page in one read: stored config at once, the active row computed once, and no child process behind any of it. */
+const settingsView = () => {
+  const active = currentTutor();
+  const seen = lastDetection();
+  return { active, defaults_as_of: DEFAULTS_AS_OF, provider_locked: lockedBy('provider'), model_locked: lockedBy('model'), rows: PROVIDERS.map((s) => rowView(s, active.provider, seen)) };
+};
+
+app.get('/api/settings', (c) => c.json(settingsView()));
+
 /** What the next turn would run on. The plugin asks once per lesson start; it is per install, not per learner. */
 app.get('/api/settings/active', (c) => c.json(resolveTutor()));
 
@@ -379,7 +428,7 @@ app.put('/api/settings/:provider', async (c) => {
       if (model) setSetting(modelKey(spec.id), model);
       else deleteSetting(modelKey(spec.id));
     }
-    return c.json({ id: spec.id, model: getSetting(modelKey(spec.id)) ?? null });
+    return c.json(rowView(spec, currentTutor().provider));
   } catch (e) {
     return c.json({ error: safeMessage(e) }, 400);
   }
@@ -1215,7 +1264,11 @@ serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
       ? `derive server on http://localhost:${info.port}/?token=${BOOT_TOKEN} — open that link once; the token drops out of the URL and a cookie keeps that browser signed in for 30 days. To sign in again, or in another browser, open the same link: it is printed every time the server starts, and the token in it is the one in ${TOKEN_PATH}`
       : `derive server on http://localhost:${info.port} (API only; run the web dev server too)`,
   );
-  console.log(`tutor runs on ${backend() === 'codex' ? 'Codex (your ChatGPT login)' : 'Claude (your Claude Code login)'}${backendSource() === 'auto' ? ', picked automatically; set DERIVE_BACKEND to choose' : ''}`);
+  // Boot is the one place a synchronous detector run is acceptable: it primes
+  // the observation the read-only routes report, exactly as the old memo ran
+  // here. Nothing else detects until a turn needs to or the page asks.
+  const tutor = resolveTutor();
+  console.log(`tutor runs on ${labelOf(tutor.provider).toLowerCase()} · ${tutor.model ?? 'default model'} (${tutor.source})${tutor.source === 'detected' ? '; choose one in Settings' : ''}`);
   // D-12: binding wider than loopback is a deliberate choice, and it says exactly what it opened and what still holds.
   if (!HOST_IS_LOOPBACK) {
     console.warn(

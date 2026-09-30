@@ -1,17 +1,26 @@
 /**
- * Which tutor backend to run, and where its pieces are.
+ * The login detectors, and where the pieces of the two subscription backends
+ * are.
  *
- * Derive runs on a subscription, not an API key: the Claude Agent SDK on a
- * Claude Code login, or the Codex SDK on a ChatGPT login. DERIVE_BACKEND
- * picks one; without it the server takes whichever is logged in, Claude
- * first, and says so at startup.
+ * Derive's two login backends are the Claude Agent SDK on a Claude Code login
+ * and the Codex SDK on a ChatGPT login. This file only says whether each login
+ * is present, and where the codex binary and Derive's own MCP server live.
+ * Which backend a turn actually runs on is decided per turn in
+ * `server/src/settings.ts` — the environment, then the settings table, then
+ * these detectors — so the process-lifetime memo that used to live here is
+ * gone, and a choice made on the settings page needs no restart.
+ *
+ * `claudeLoggedIn` returns only a boolean on purpose. The CLI's JSON carries
+ * the learner's email and organisation, and a settings response is read by
+ * the browser and echoed into plugin transcripts; nothing but the boolean
+ * leaves this module.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BACKEND_SETTING, CODEX_BIN, CODEX_HOME, type Backend } from './config.js';
+import { CODEX_BIN, CODEX_HOME } from './config.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -54,22 +63,6 @@ export function codexBinary(): string | undefined {
     /* not installed */
   }
   return undefined;
-}
-
-let resolved: Backend | undefined;
-/** The backend this server runs lessons on. Decided once, at the first call. */
-export function backend(): Backend {
-  if (resolved) return resolved;
-  if (BACKEND_SETTING) resolved = BACKEND_SETTING;
-  else if (claudeLoggedIn()) resolved = 'claude';
-  else if (codexLoggedIn()) resolved = 'codex';
-  else resolved = 'claude';
-  return resolved;
-}
-
-/** How the backend was chosen, for the startup line and /api/health. */
-export function backendSource(): 'DERIVE_BACKEND' | 'auto' {
-  return BACKEND_SETTING ? 'DERIVE_BACKEND' : 'auto';
 }
 
 /**
