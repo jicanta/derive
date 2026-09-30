@@ -225,8 +225,8 @@ const handlers: Record<string, (a: Record<string, unknown>) => Promise<unknown>>
     watchCodexSession(l.id);
     if (open_browser !== false && DRIVER !== 'app') openBrowser(l.url);
     const profile = await api<{ profile: string; learner?: { name: string } }>(`/api/profile?learner=${encodeURIComponent(l.learner_id)}`).catch(() => ({ profile: '', learner: undefined }));
-    // This process holds no settings: the server says what its own tutor is set to, and when it cannot be asked nothing is claimed.
-    const tutor = await api<{ provider: string; model: string | null }>('/api/settings/active').catch(() => null);
+    // This process holds no settings: the server says what its own tutor is set to for this learner (their own model id when they keep one), and when it cannot be asked nothing is claimed.
+    const tutor = await api<{ provider: string; model: string | null }>(`/api/settings/active?learner=${encodeURIComponent(l.learner_id)}`).catch(() => null);
     let material: (Attached & { brief?: string }) | undefined;
     if (files?.length) {
       material = await attach(l.id, files);

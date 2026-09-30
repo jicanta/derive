@@ -22,8 +22,10 @@ export type LearnerPrefs = {
   background?: string;
   how?: string;
   examples?: string;
+  /** A model id for you alone, on the active provider; empty means the install setting. */
+  model?: string;
 };
-export type Learner = { id: string; name: string; created_at: number; prefs: LearnerPrefs; lessons?: number };
+export type Learner ={ id: string; name: string; created_at: number; prefs: LearnerPrefs; lessons?: number };
 
 /** The status pill of a provider row. `checking` is transient: what a login or local row reads until the detection pass has looked at it. */
 export type ProviderStatus = 'logged in' | 'key set' | 'set from environment' | `found on port ${number}` | 'not configured' | 'checking';

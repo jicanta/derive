@@ -7,7 +7,7 @@ import { PACES, STYLES } from '../lib/prefs';
 import type { Learner, LearnerPrefs } from '../lib/types';
 
 type Draft = Required<Record<keyof LearnerPrefs, string>>;
-const empty: Draft = { language: '', style: 'adaptive', pace: 'standard', background: '', how: '', examples: '' };
+const empty: Draft = { language: '', style: 'adaptive', pace: 'standard', background: '', how: '', examples: '', model: '' };
 const toDraft = (p: LearnerPrefs): Draft => ({ ...empty, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v)) });
 
 const field = 'w-full rounded-xl border hairline bg-ink-900/70 px-3 text-[14px] leading-relaxed text-ink-100 outline-none focus:border-gold-500/60 placeholder:text-ink-500';
@@ -23,6 +23,8 @@ export function YouPage() {
   const [notes, setNotes] = useState<string[]>([]);
   const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [err, setErr] = useState<string | null>(null);
+  // The install-wide model, named in the model field's placeholder; null while the request is pending or failed, so the placeholder falls back to the bare words.
+  const [installModel, setInstallModel] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
 
   const load = () =>
@@ -39,6 +41,8 @@ export function YouPage() {
       .catch((e) => setErr((e as Error).message));
   useEffect(() => {
     void load();
+    // Provider and model only: no key reaches this page.
+    api.activeTutor().then((t) => setInstallModel(t.model ?? 'provider default')).catch(() => undefined);
   }, []);
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
@@ -126,6 +130,16 @@ export function YouPage() {
 
           <Section n="06" title="Examples from" hint="Domains you know well, for examples and analogies when they fit.">
             <input value={draft.examples} onChange={(e) => set('examples')(e.target.value)} placeholder="cooking, distributed systems, football tactics" className={`${field} h-10`} />
+          </Section>
+
+          <Section n="07" title="Model" hint="Optional. A model id for you alone, on the active provider. Leave it empty to use the install setting.">
+            <input
+              value={draft.model}
+              onChange={(e) => set('model')(e.target.value)}
+              aria-label="Your model"
+              placeholder={installModel ? `install default: ${installModel}` : 'install default'}
+              className={`${field} font-mono h-10 max-w-[320px]`}
+            />
           </Section>
 
           <div className="mt-10 flex items-center gap-4">
