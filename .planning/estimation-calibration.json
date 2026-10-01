@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "samples": [
+    {
+      "estimateTokens": 78000,
+      "actualTokens": 31700
+    },
+    {
+      "estimateTokens": 72000,
+      "actualTokens": 23144
+    },
+    {
+      "estimateTokens": 95000,
+      "actualTokens": 48505
+    },
+    {
+      "estimateTokens": 82000,
+      "actualTokens": 8100
+    },
+    {
+      "estimateTokens": 76000,
+      "actualTokens": 18700
+    },
+    {
+      "estimateTokens": 88000,
+      "actualTokens": 12500
+    },
+    {
+      "estimateTokens": 92000,
+      "actualTokens": 47800
+    },
+    {
+      "estimateTokens": 90000,
+      "actualTokens": 44458
+    },
+    {
+      "estimateTokens": 92000,
+      "actualTokens": 8487
+    },
+    {
+      "estimateTokens": 52000,
+      "actualTokens": 2807
+    },
+    {
+      "estimateTokens": 42000,
+      "actualTokens": 3414
+    },
+    {
+      "estimateTokens": 38000,
+      "actualTokens": 4200
+    },
+    {
+      "estimateTokens": 58000,
+      "actualTokens": 11221
+    },
+    {
+      "estimateTokens": 98000,
+      "actualTokens": 8468
+    },
+    {
+      "estimateTokens": 50000,
+      "actualTokens": 26933
+    },
+    {
+      "estimateTokens": 55000,
+      "actualTokens": 16330
+    },
+    {
+      "estimateTokens": 70000,
+      "actualTokens": 15900
+    },
+    {
+      "estimateTokens": 75000,
+      "actualTokens": 5046
+    },
+    {
+      "estimateTokens": 80000,
+      "actualTokens": 39781
+    },
+    {
+      "estimateTokens": 95000,
+      "actualTokens": 10957
+    },
+    {
+      "estimateTokens": 35000,
+      "actualTokens": 2624
+    },
+    {
+      "estimateTokens": 60000,
+      "actualTokens": 13820
+    },
+    {
+      "estimateTokens": 55000,
+      "actualTokens": 14746
+    },
+    {
+      "estimateTokens": 65000,
+      "actualTokens": 11158
+    },
+    {
+      "estimateTokens": 55000,
+      "actualTokens": 4011
+    },
+    {
+      "estimateTokens": 40000,
+      "actualTokens": 2442
+    },
+    {
+      "estimateTokens": 70000,
+      "actualTokens": 11840
+    },
+    {
+      "estimateTokens": 20000,
+      "actualTokens": 1311
+    }
+  ]
+}
