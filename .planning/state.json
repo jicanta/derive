@@ -11,7 +11,7 @@
     {
       "number": "2",
       "name": "Settings and Secrets",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "3",
@@ -41,8 +41,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 02 of 7 · 14% · executing"
+    "label": "Advance to the next step (plan phase 3)",
+    "reason": "Phase 3 of 7 — needs a plan"
   },
-  "updated_at": "2026-10-01T10:54:26.980Z"
+  "updated_at": "2026-10-01T11:48:35.823Z"
 }
