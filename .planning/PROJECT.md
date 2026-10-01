@@ -35,6 +35,7 @@ Inferred from the codebase map (`.planning/codebase/`, mapped at commit 7d7db1f)
 - ✓ Schema changes run through a numbered, transactional migration runner; existing databases migrate forward and are snapshotted first — Phase 1
 - ✓ A per-turn token/cost ledger (`turns`, `usage`) written by the sink on every driver, never estimated — Phase 1
 - ✓ The local server binds loopback, checks Host and Origin, requires a per-install token, and redacts secrets from every error, log, event and export before any key is stored — Phase 1
+- ✓ Learner picks provider and model on a settings page in the app: ten rows in three groups, logins and local servers detected on open and on rescan, one masked key per provider in a 0600 file the API never echoes, model list fetched with a manual fallback, connection tested with the provider's real failure sentence, and the active provider visible in the lesson header and the plugin start message — Phase 2 (SET-01..06)
 
 ### Active
 
@@ -44,9 +45,9 @@ Provider layer
 - [ ] Learner can run the tutor through OpenRouter or any OpenAI-compatible endpoint (one base URL + key)
 - [ ] Learner can run the tutor on a local model (Ollama, LM Studio, llama.cpp) with no cost and offline
 - [ ] Learner can run the tutor on additional CLI subscriptions they already pay for (Gemini CLI, GitHub Copilot, other agent CLIs)
-- [ ] Learner picks provider and model on a settings page in the app: paste a key or detect a login, choose a model; persisted
 - [ ] Full parity across providers: the same tutor tools, the same method, web search via a pluggable search provider, on every path (Derive runs its own agent loop where the provider gives none)
 - [ ] Learner sees per-lesson token counts and estimated cost, plus a running total on a usage page, on pay-per-use providers; nothing more elaborate than that
+- [ ] A learner's own model override names the provider it belongs to, not just a bare model id — surfaced by Phase 2 verification (02-REVIEW WR-01): the override is stored as a plain string and resolved against whichever provider is active, so switching providers can hand a learner's id to a provider that has never heard of it
 
 Learning experience
 
@@ -100,7 +101,7 @@ Adoption
 |----------|-----------|---------|
 | Providers first, then learning UX, then style, then adoption | More providers unlocks more users immediately; the rest lands on a stable layer | — Pending |
 | Full parity across providers (Derive owns its agent loop) | The method is the product; degrading it per provider would fork the experience | — Pending |
-| Settings page in the app for provider/model choice | Env-only is fine for the author, not for adoption; per-lesson choice is premature | — Pending |
+| Settings page in the app for provider/model choice | Env-only is fine for the author, not for adoption; per-lesson choice is premature | ✓ Shipped Phase 2 — one page, ten rows, install-wide with a per-learner model override on /you |
 | Per-lesson cost plus running total on pay-per-use | Learners paying per token must see what a lesson costs | — Pending |
 | Consolidate the tool contract and method text as part of the provider work | Every new driver would otherwise add a fourth copy | — Pending |
 | Clone-and-run install, no desktop app, no hosted version | Author's call: what they can clone is fine for now | — Pending |
@@ -108,6 +109,7 @@ Adoption
 | In-app Claude runs on an API key; the plugin is the subscription route | Anthropic's terms forbid Pro/Max login tokens in third-party tools including the Agent SDK | — Pending |
 | Copilot and Gemini CLI drivers deferred to v2 | Riskiest drivers; the owned loop plus OpenAI-compatible covers most of their value | — Pending |
 | Simplicity rule: one screen, one next step; eight "just because" requirements moved to v2 | Owner's call on 2026-09-17: Derive must stay simple to use and understand | — Pending |
+| A long model id scrolls inside its field rather than widening the page | Owner's call on 2026-10-01 closing Phase 2 UAT: /settings already behaved this way and was accepted there, so /you matches it instead of re-rhythming the form | ✓ Applied Phase 2 |
 
 ## Evolution
 
@@ -127,4 +129,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-20 after Phase 1*
+*Last updated: 2026-10-01 after Phase 2*
