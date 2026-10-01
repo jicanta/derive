@@ -1009,29 +1009,38 @@ Directives the planner must honour; every one of these is a hard constraint on t
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Where does the native-search per-call charge go in the ledger?**
+> All five were settled during phase planning on 2026-10-01 and each resolution is landed in
+> executable plan content. The resolution marker on each question names the plan that carries it;
+> nothing below is still open.
+
+1. **Where does the native-search per-call charge go in the ledger?** — **(RESOLVED: 03-02)**
    - What we know: the charge is real ($0.01/call on Anthropic and OpenAI, $0.014 on Gemini per OpenRouter's table), the count is reachable from the stream, and the `usage` table has no column for it.
    - What's unclear: whether the planner prefers folding it into `cost_usd` (no migration, lesson total stays correct, `cost_source: 'table'` for that component) or recording it as a separate all-nulls usage row (auditable, costs a migration and a `cost_source` semantics discussion).
    - Recommendation: fold it into `cost_usd` and say so in the cost module's doc comment. Raise it in the plan so it is a decision, not an omission — D-20 explicitly asks for it.
+   - **Resolution (03-02, Task 3):** the recommendation was taken. `costOf` reads an optional `searches` field on the usage row, prices it at the model's `web_search` rate and folds the result into `cost_usd`; that component carries `cost_source: 'table'`, and the module header records the decision and the rejected all-nulls-row alternative in one sentence. No migration and no new `cost_source` meaning. Plan 03-06 supplies the count.
 
-2. **Does the strict dialect ship as the OpenAI default, or as a CI-validated projection that is off by default?**
+2. **Does the strict dialect ship as the OpenAI default, or as a CI-validated projection that is off by default?** — **(RESOLVED: 03-07)**
    - What we know: strict mode is opt-in per tool; enabling it costs `minItems`/`maxItems`/`minimum`/`maximum`, which `set_plan` and `quiz` rely on and which `wire-surface.test.ts` currently asserts.
    - What's unclear: whether reliable tool inputs or preserved bounds matter more to the tutor's behaviour.
    - Recommendation: build and CI-validate the projection (PROV-10 and D-29 require it), default the adapter row to `strict: false`, and write the reasoning beside it. Phase 4's conformance harness can flip it and measure.
+   - **Resolution (03-07, Tasks 2 and 4):** the recommendation was taken. The `openai-strict` dialect is built and CI-validated two ways (fixture diff plus an outright rules assertion), but the OpenAI adapter row's `dialect` is `'full'`, with a one-sentence comment beside it naming the four bounds strict mode would cost `set_plan` and `quiz`. Phase 4's harness can switch it on.
 
-3. **What are the step-cap number and the headroom fraction?**
+3. **What are the step-cap number and the headroom fraction?** — **(RESOLVED: 03-01 and 03-02)**
    - Left to the planner by the discretion note. The only hard facts: `stopWhen` has no useful default (1), and there is no SDK source for context windows.
    - Recommendation: `isStepCount(400)` to mirror today, and a headroom fraction high enough that the conservative estimator never under-refuses — write both numbers with their reasoning, as the note asks.
+   - **Resolution:** step cap is `isStepCount(400)`, passed explicitly in `drivers/api.ts` (03-01, Task 3) with its reasoning as a one-sentence comment — it mirrors today's `maxTurns: 400`, the unit is model calls rather than agent turns, and it is a runaway guard that ends the turn continuably. Headroom is **0.8**: `headroomCheck` refuses above `window × 0.8` (03-02, Task 4), biased high because the `chars / 3` estimator is deliberately conservative and a model whose window is absent from the table abstains rather than refusing on a guess.
 
-4. **How does the stub `LanguageModel` reach the real loop?**
+4. **How does the stub `LanguageModel` reach the real loop?** — **(RESOLVED: 03-01 and 03-09)**
    - What we know: `setDriverOverride` installs a *driver*, which would bypass the loop; the criterion is better served by injecting a `LanguageModel`.
    - Recommendation: a module-level `setModelOverride(factory)` in `drivers/api.ts` with the same posture as `setDriverOverride` ("no route, header, environment variable or config file can set it"), so `api.test.ts` drives the genuine `streamText` path with `MockLanguageModelV4`.
+   - **Resolution:** the recommendation was taken. `drivers/api.ts` exports `setModelOverride` and `modelOverride` (03-01, Task 3), and 03-09 runs the whole HTTP suite through the real `streamText` loop with a stub `LanguageModel` and no network and no key — Success Criterion 1 is met by exercising the loop, not by replacing it.
 
-5. **Does `jsonSchemaOf` switch from `io: 'output'` to `io: 'input'`?**
+5. **Does `jsonSchemaOf` switch from `io: 'output'` to `io: 'input'`?** — **(RESOLVED: 03-07, Task 2)**
    - Semantically `'input'` is right for a tool input schema, but it may move the frozen snapshot.
    - Recommendation: check whether it changes any of the 22 tools' projections; if it does not, switch it and note why; if it does, leave it and note why.
+   - **Resolution:** both branches are written out in the plan rather than guessed. 03-07's Task 2 instructs: check whether `io: 'input'` moves any of the 22 tools' `'full'` projections; if it does not, switch and record in a one-sentence comment that the switch moved nothing; if it does, leave the default and record why, because moving the frozen fixture for a semantic preference is not a change this phase needs. The executor cannot land this one silently either way.
 
 ---
 
