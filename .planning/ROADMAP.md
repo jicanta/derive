@@ -201,7 +201,43 @@ Plans:
   4. The tutor can search the web and fetch a page on every provider: natively where the provider has a search tool, otherwise through the configured search provider (Tavily, SearXNG) with a fetch that reuses the library fetcher
   5. The lesson header and the Home row show "about $X.XX" labelled billed, estimated or not billed, priced from a versioned pricing table with a "prices as of" date the learner can override locally; CI validates each provider's projected tool schema (OpenAI strict, Gemini, compact) and incoming calls are validated server-side against the full schema
 
-**Plans**: TBD
+**Plans**: 9 plans in 8 waves, led by a tracer that proves the owned loop end to end on one Anthropic key before anything expands sideways. Only wave 1 runs in parallel (the tracer beside the pure cost modules, which share no file); waves 2-8 are serialised because `server/src/drivers/api.ts` is the file every later slice extends and each plan runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files.
+
+Plans:
+
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — Tracer: the six pinned SDK packages, the one `streamText` loop, the adapter table and the shared tool dispatch; a lesson turn runs on an Anthropic key end to end, proven by a stub model with no network (wave 1)
+- [ ] 03-02-PLAN.md — The versioned price and context-window table, the `~/.derive/prices.json` override, the pure cost calculator with its one money formatter, and the conservative context estimator (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-03-PLAN.md — The other four providers: OpenAI, Gemini with its model-dependent search condition, OpenRouter with usage accounting on, and any OpenAI-compatible endpoint; the catalogue rows flip and the gateway slug is corrected (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-04-PLAN.md — Resume after a Stop: `turn_messages` and the executed-call record, orphan `tool_result` synthesis on abort, replay by call id, and the per-provider learner model that closes WR-01 (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 03-05-PLAN.md — Provider busy: the patient two-minute retry with its visible countdown and working Stop, the continuable step cap, and the pre-request context refusal with `Home` as its one link (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 03-06-PLAN.md — Web search and fetch on every provider: Tavily and SearXNG behind one service, the guarded `fetch_page` tool on a new `api` tool surface, and the third `{{WEB_TOOLS}}` rendering with its no-search variant (wave 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 03-07-PLAN.md — Tool schemas projected per dialect (OpenAI strict, Gemini, compact) from one untouched registry, frozen in the wire-surface fixture and asserted by rule, with incoming calls validated against the full schema (wave 6)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 03-08-PLAN.md — The lesson's cost where the lesson is: the stable-prefix cache split, the server-computed lesson total on both views and every turn ending, and the two strings in the header pill and the Home row (wave 7)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 03-09-PLAN.md — The Settings web-search card and the prices sentence, the `.env.example` and doctor lines, and the API suite running through the owned loop on a stub model (wave 8)
+
 **UI hint**: yes
 **Research**: `--research-phase` recommended — AI SDK 7 API details are MEDIUM and not yet exercised in this repo; exact `providerMetadata` path for OpenRouter's per-response `cost` (fall back to `cost_source: 'table'` if absent); per-provider JSON Schema dialect rules; `prepareStep`/`pruneMessages` compaction for long lessons (first version refuses with a clear error and "start a review lesson"); search-provider free tiers are LOW. Persist native provider messages per lesson in `turn_messages`; synthesize error `tool_result`s for orphans on abort; stable-prefix prompt split with cache control on Anthropic.
 
