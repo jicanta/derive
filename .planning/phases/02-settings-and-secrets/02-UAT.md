@@ -3,17 +3,19 @@ status: partial
 phase: 02-settings-and-secrets
 source: [02-VERIFICATION.md]
 started: 2026-09-30T23:14:01Z
-updated: 2026-10-01T00:40:57Z
-updated_was: 2026-09-30T23:14:01Z
+updated: 2026-10-01T08:35:00Z
+updated_was: 2026-10-01T00:40:57Z
+reverified: 2026-10-01T08:35:00Z
+reverified_against: 02-07-PLAN.md
 ---
 
 ## Current Test
 
 number: 5
-name: (all five items driven end to end in headless Chrome over CDP against scratch servers on 2026-09-30; see Gaps)
+name: (all five items driven 2026-09-30; the gaps re-driven 2026-10-01 after plan 02-07 — see Re-verification)
 expected: |
   n/a
-awaiting: owner decision on the three minor findings
+awaiting: owner decision on the one expectation plan 02-07 could not meet (test 5 "fits")
 
 ## Tests
 
@@ -40,6 +42,7 @@ reported: "An app lesson's first turn ran on Claude Code; the lesson header show
 ### 5. On /you, Section 07 Model: read the placeholder, type a model id, press Save; open the learner menu; start a plugin lesson as that learner (harvested from 02-05 Task 2 human-check)
 expected: The placeholder reads `install default: …` naming the install-wide model; Save shows `saved · applies from the next message`; the learner menu's sub-line does not mention the model; a 60-character id fits the input; the plugin start message's `Derive's own tutor is set to` names that id.
 result: issue
+reverified: 2026-10-01 — the cap is gone but the id still does not fit; see Re-verification
 reported: "Section 07 Model: placeholder `install default: claude-opus-5-5` (the active provider's install model), Save enabled when dirty, `saved · applies from the next message`; GET /api/settings/active for this learner answered `my-own-model-id` with modelSource `learner` while the install-wide read stayed on the install model; the learner menu's own sub-line still read `tell the tutor, once, in your words` (the model is not described); the plugin start message read `Derive's own tutor is set to claude-code · qwen/qwen3-8b-instruct-q4_k_m:latest-long-tag-for-the-check` for this learner and `Claude Code in this terminal, on its own model`. NOT MET: the 59-char id does not fit the input — it scrolls (scrollWidth 520 px in a 318 px box at max-w-[320px], JetBrains Mono 14 px). Screenshots: t5-*.png"
 severity: minor
 
@@ -52,8 +55,56 @@ pending: 0
 skipped: 0
 blocked: 0
 
+## Re-verification (2026-10-01, after plan 02-07)
+
+Plan 02-07 applied seven one-line fixes for the findings below. All six were then re-driven in
+headless Chrome over CDP against a scratch server on 4399 (`DERIVE_DATA_DIR` under `.derive/uat/`,
+a fake Ollama on 11434, `web/dist` built 07:50 — newer than every touched source). **27 of 29
+checks passed.** Screenshots: `.planning/ui-reviews/02-reverify-20261001/`.
+
+Closed and measured in the browser:
+
+- **Settings `<h1>` at 375px** — one line (33px tall against a 33px line box), header still exactly
+  60px, `text-overflow: ellipsis` + `white-space: nowrap` + `min-width: 0` all computed, the title
+  genuinely clipped so the ellipsis shows, and no horizontal page scroll. (UI-REVIEW fix 1)
+- **`/you` `<h1>` at 375px** — same five measurements pass on the longer title
+  `How you learn · read by the tutor before every lesson`. (UI-REVIEW fix 1, second site)
+- **Row text buttons** — `fetch models`, `test connection`, `replace`, `remove`, `remove the key`
+  and `keep` each measure exactly **32px** tall with `display: flex`; at 375px no row breaks and the
+  header stays 60px. (UI-REVIEW fix 2)
+- **Lesson header pill** — the contracted 29-char label `claude code · claude-opus-5-5` needs 221px
+  in the pill's own type (10px mono, 0.16em tracking, uppercase) and `max-w-[40ch]` gives 241px, so
+  it renders uncut; `max-w-[28ch]` is gone from the file. (UAT test 4 gap 2)
+- **`/you` language input** — still capped at 320px, as intended; it was never a gap.
+
+Closed in source, not confirmable in this harness:
+
+- **`remove the key` hover (UI-REVIEW fix 3)** — the dead `hover:text-rust-300` is gone (zero
+  `rust-300` anywhere in the bundle) and the served CSS carries
+  `.hover\:text-rust-500:hover{color:var(--color-rust-500)}`, with `--color-rust-500` resolving
+  in-browser to `#c9785a` while `--color-rust-300` is **undefined** — which is exactly what made the
+  old token dead. The live colour change cannot be observed here: Tailwind v4 gates every `hover:`
+  utility behind `@media (hover:hover)`, and headless Chrome 148 reports `(hover: hover) === false`
+  in both `--headless=new` and `--headless=old`; `Emulation.setEmulatedMedia` cannot override it and
+  no Xvfb is available for a headful run. This blocks **every** hover in the app, not this button, so
+  it is a harness limit rather than a finding. A human on a desktop browser can confirm it in a
+  second by pointing at `remove the key`.
+
+Still open — one expectation plan 02-07 could not meet:
+
+- **(test 5) The 59-char model id still does not fit `/you` Section 07.** The `max-w-[320px]` cap is
+  gone and the input now fills its column, but the column is **464px** and the id needs **520px** —
+  short by 58px. The `/you` form is `max-w-[760px] px-8` with
+  `md:grid-cols-[200px_minmax(0,1fr)]` and `gap-x-8`, so 200 + 32 + 464 = 696px is the whole content
+  width; the field column cannot reach 520px without widening the form or shrinking the 200px label
+  column, which changes the rhythm of all seven sections on the page. The input height stays 40px, so
+  the id **scrolls inside the field without breaking the row** — which is precisely the behaviour
+  `/settings` has and which UAT test 3 accepted as correct for a 59-char id. The gap text below
+  offered both routes; the first is done, and whether to take the second (drop the "fits"
+  expectation) is the owner's call.
+
 ## Gaps
 
-- (test 5, minor) The `/you` Section 07 input is `max-w-[320px]`; a 59-character mono id needs ~520 px, so it scrolls inside the field instead of fitting. Smallest fix: let the input take the column width (as the row model inputs on /settings do), or accept scrolling and drop the "fits" expectation from the spec.
-- (test 4, minor, advisory) The header pill's `max-w-[28ch]` is applied to 10 px mono text with 0.16 em tracking, so about 24 characters fit: `claude code · claude-opus-5-5` renders as `CLAUDE CODE · CLAUDE-…` and the model id — the information the pill exists to show — is cut. The full value is in the title as specified. Smallest fix: widen to ~40ch or truncate the provider half first.
-- (test 4, advisory, pre-existing) Picking Codex with its model left empty — the row's own advice — makes every turn fail on this ChatGPT login: `The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account`, and Derive's hint still says `Set DERIVE_MODEL in .env … or change model in ~/.codex/config.toml`, the pre-Settings mechanism. The turn_start, pill and error rendering all behaved; the failure is Codex's default. Smallest fix: point the hint at the Codex row in Settings; consider a curated Codex default id in the catalogue.
+- (test 5, minor) ~~The `/you` Section 07 input is `max-w-[320px]`~~ — **partly closed by 02-07.** The cap is gone and the input takes the column width (the first of the two routes below). It still scrolls, because the column is 464px and the id needs 520px. Remaining choice: widen the `/you` form past 760px (or shrink its 200px label column) so 520px fits, **or** accept scrolling and drop the "fits" expectation, matching /settings where test 3 accepted exactly that.
+- (test 4, minor, advisory) **CLOSED by 02-07** (`max-w-[40ch]`, re-measured: label needs 221px, cap gives 241px). ~~The header pill's `max-w-[28ch]`~~ is applied to 10 px mono text with 0.16 em tracking, so about 24 characters fit: `claude code · claude-opus-5-5` renders as `CLAUDE CODE · CLAUDE-…` and the model id — the information the pill exists to show — is cut. The full value is in the title as specified. Smallest fix: widen to ~40ch or truncate the provider half first.
+- (test 4, advisory, pre-existing) **hint repointed by 02-07** — `friendly()` now names the Codex row in Settings instead of `DERIVE_MODEL`/`config.toml`. Codex's own refusal of its default `gpt-5.4` on a ChatGPT login is unchanged and is not Derive's to fix. ~~Picking Codex with its model left empty~~ — the row's own advice — makes every turn fail on this ChatGPT login: `The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account`, and Derive's hint still says `Set DERIVE_MODEL in .env … or change model in ~/.codex/config.toml`, the pre-Settings mechanism. The turn_start, pill and error rendering all behaved; the failure is Codex's default. Smallest fix: point the hint at the Codex row in Settings; consider a curated Codex default id in the catalogue.
