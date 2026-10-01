@@ -1,7 +1,9 @@
 ---
 phase: "3"
 slug: "owned-loop-api-keys-and-gateways"
-status: draft
+status: approved
+reviewed_at: "2026-10-01"
+reviewed_by: gsd-ui-checker
 shadcn_initialized: false
 preset: none
 created: "2026-10-01"
