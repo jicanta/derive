@@ -97,11 +97,13 @@ Four roles, two weights. All sizes are already in use on these three pages; this
 | Role | Size | Weight | Line Height | Where |
 |------|------|--------|-------------|-------|
 | Micro label | 10px `font-mono`, `tracking-[0.16em]`, `uppercase` | 400 | 1.5 (via `h-6` pill) | The provider pill (A1) including its new cost segment; the A3 `eyebrow`; the saved-tick and note lines |
-| Meta | 11px `font-mono` (`10.5px` where the existing span says so) | 400 | 1.5 | Home's row meta and its right-hand numbers (A2); the A5 status line is 14px, see below |
+| Meta | 11px `font-mono` | 400 | 1.5 | Home's row meta and its right-hand numbers (A2) |
 | Body | 14px `text-[14px] leading-relaxed` (≈1.625) | 400 | 1.625 | Settings prose, the A3 card's note and error lines, the A4 prices sentence |
 | Emphasis / heading | 14px `font-medium` for a card title; 22px `font-serif` for a page title | 500 (400 for serif) | 1.2 (serif `tracking-[-0.01em]`) | The A3 card's `Web search` title matches `ProviderRow`'s `text-[14px] font-medium text-ink-100`; page titles are untouched |
 
 **Declared weights: exactly two — 400 (regular) and 500 (`font-medium`).** `font-semibold` (600) exists in `.prose strong` only and is out of scope here. Do not introduce 600 on any A1..A6 element.
+
+**Exception (pre-existing; this phase introduces none):** Home's meta span *inside* the row `<Link>` is `text-[10.5px]`, half a pixel under the Meta row declared above. It stays as it is. A2's cost string sits in the **right-hand group outside** that link, which is already `text-[11px]`, so nothing this phase writes renders at 10.5px — and re-rhythming one existing span to satisfy a scale would be a visual change with no learning reason behind it. The rule for A1..A6 is the same as in `## Spacing Scale`: use the surrounding file's existing value, never a new one.
 
 The A5 status line is the existing `text-sm text-ink-400` (14px) renderer at `Lesson.tsx:321-328` — it is reused unchanged, so `Provider busy, retrying in 12s` inherits Body size and the gold pulse dot beside it.
 
@@ -219,7 +221,8 @@ Final markup shape, extending `Lesson.tsx:111-123` in place. The pill stays one 
 
 - **The model id absorbs every pixel lost; the cost never truncates.** `min-w-0 max-w-[40ch] truncate` on the provider+model span, `shrink-0 whitespace-nowrap` on the cost span. This is D-13 read literally.
 - **Accepted consequence, recorded deliberately:** the pill is `hidden md:inline-flex` today and stays so. **Below 768px the lesson header carries no cost figure at all, and Home (A2) is the only place a phone learner sees it.** This is accepted rather than worked around — adding a second, narrower pill would put two elements on the screen where D-13 asked for one.
-- **The figure recomputes at `turn_end` and never ticks** (D-17). It is seeded from the lesson view on load (beside the existing `tutor` field, which `useLesson.ts` already threads through `init`) and replaced by `turn_end`'s payload. A turn in flight shows the previous total. This is the same honesty rule the pill already follows for provider and model under Phase 2 D-15: the pill records the turn, never the current setting.
+- **The figure recomputes at `turn_end` and never ticks** (D-17). It is seeded from the lesson view on load (beside the existing `tutor` field, which `useLesson.ts` already threads through `init`) and replaced at `turn_end`. A turn in flight shows the previous total. This is the same honesty rule the pill already follows for provider and model under Phase 2 D-15: the pill records the turn, never the current setting.
+- **⚠ The figure is the LESSON TOTAL, and `turn_end`'s existing `cost_usd` is not it.** `turn_end.payload.cost_usd` is **one turn's** figure — it is already assigned into `LessonState.lastCost` at `useLesson.ts:92` and rendered nowhere. **Do not wire `state.lastCost` into the pill.** It would read `about $0.03 estimated` on a lesson that has cost $0.40, which is a false number in a contract that argues for truthfulness everywhere else. `turn_end` must carry a **separate lesson-total field alongside** `cost_usd` — the sum over that lesson's `usage` rows with its resolved label, computed server-side by the pure cost module, exactly the same value and the same `SUM` that A2 renders per row (D-18: "summed from that lesson's usage rows"). A1 and A2 show the same number for the same lesson at all times. This is a server-side emission requirement, not a browser detail: the field has to exist in the payload before either call site can be correct.
 - `title` on the pill keeps its existing sentence. The cost segment needs no separate tooltip; `about` and the label word already say how firm the number is.
 
 ### A2 — the Home row (D-18)
@@ -259,26 +262,81 @@ Last element on the page, `text-ink-500`, `max-w-[62ch]`, no control beside it. 
 
 ## UI Considerations
 
-Applicable state considerations resolved: 9 covered, 3 backstop, 0 unresolved.
+> Shape-rooted UI **state** coverage over the six surfaces A1..A6. Empty-state and error-state
+> COPY lives in `## Copywriting Contract` above; these rows reference it rather than restating it.
+> Status is exactly one of `resolved (explicit)`, `resolved (backstop)`, `dismissed`, `unresolved`,
+> so plan-phase can lift this section by the same rule it uses for a SPEC's `## Edge Coverage`.
 
-| Category | Element(s) | Status | Resolution / Reason |
-|----------|------------|--------|---------------------|
-| empty | A1 pill cost segment | ✅ covered | A lesson with no usage rows renders no third segment: the pill reads `anthropic · claude-opus-5-5`, byte-identical to today. No placeholder, no `· not reported` before the first turn ends. |
-| empty | A2 Home row cost slot | ✅ covered | A lesson with no usage rows renders nothing in the right-hand group's cost slot; `gap-4` collapses with one fewer child. |
-| empty | A3 web search, nothing configured | ✅ covered | Renders the `the provider's own` option selected with the no-search sentence from `## Copywriting Contract`. Never a blank card. |
-| loading | A3 test search | ✅ covered | `testing…` on the `textButton`, disabled, exactly `ProviderRow`'s `test connection` behaviour. |
-| loading | A1/A2 cost during a turn in flight | ✅ covered | Shows the previous settled total; no spinner, no skeleton, no live tick (D-17). A brand-new lesson's first turn shows no segment until `turn_end`. |
-| error | A6 context-window refusal | ✅ covered | Existing `turn_end ok:false` → `kind: 'error'` card, rust border, copy and single `Home` link per `## Copywriting Contract`. |
-| error | A5 retries exhausted | ✅ covered | The provider's verbatim sentence through the existing `turn_end` error path, with Derive's fix hint on its own line (Phase 2 D-14's shape). Never a Derive paraphrase of the provider's words. |
-| error | A3 unreadable `prices.json` / `secrets.json` | ✅ covered | A4's sentence is replaced by the server's loud sentence in `text-rust-400`; nothing is overwritten while the error stands (the `secrets_error` precedent, `Settings.tsx:148`). |
-| zero-one-many | the four cost labels across providers | ✅ covered | All four `cost_source` values have a declared word and a declared zero/sub-cent/normal rendering. An upgraded install's backfilled turns and every plugin/Codex lesson read `not reported`; a Claude Code subscription lesson reads `not billed`. |
-| overflow / long-text | A1 pill at a long model id | 🧪 backstop | `min-w-0 max-w-[40ch] truncate` on the model span with `shrink-0 whitespace-nowrap` on the cost. Needs a visual check at a 1024px and a 1280px viewport with a 60-character model id (e.g. `openai-compatible` + a long slug) to confirm the cost is fully visible and the model id is the thing that ellipsises. Headless-verifiable (no hover involved). |
-| overflow | A1 below 768px | 🧪 backstop | The pill is `hidden md:inline-flex`, so **no cost figure appears in the lesson header on a narrow viewport** — accepted, not a defect. The check is that nothing overflows or wraps the 60px header at 375px, and that Home still shows the figure. |
-| long-text | A3 SearXNG base URL and Tavily key hint | 🧪 backstop | Both sit in `field`-class inputs (`w-full`, which scroll internally) — the Phase 2 UAT decision that a long model id scrolls inside its field rather than widening the page applies here verbatim and must not be re-rhythmed. |
+Applicable state considerations resolved: **37 applicable — 30 resolved (explicit), 3 resolved (backstop), 4 dismissed, 0 unresolved.**
 
-**Hover-state verification limit (environment fact, recorded so no unsatisfiable criterion is written):** Tailwind v4 gates `hover:` behind `@media (hover:hover)` and **no headless-Chrome mode satisfies that query**. Every hover-only state on these surfaces — the pill's `hover:text-ink-50`, `ProviderRow`'s `textButton` `hover:text-ink-50` and `hover:text-rust-400`, Home's `group-hover:text-gold-400` and the `opacity-0 group-hover:opacity-100` delete button — is therefore **human-verify or static-CSS-assertion only**. Do not write an acceptance criterion that requires a headless run to observe a hover state; assert the emitted CSS instead (a Phase 2 finding: `hover:text-rust-300` compiled to nothing with no build error, because `@theme` never declared the token). Every state in the table above is observable without hover.
+### A1 — lesson header pill cost segment
 
----
+| Category | Element | Status | Resolution / Reason |
+|----------|---------|--------|---------------------|
+| empty | A1 pill cost segment | resolved (explicit) | A lesson with no usage rows renders no third segment: the pill reads `anthropic · claude-opus-5-5`, byte-identical to today. No placeholder, and never `· not reported` before the first turn has ended — a learner opening a brand-new lesson is not told what it did not cost. |
+| loading | A1 during a turn in flight | resolved (explicit) | Shows the previous settled total. No spinner, no skeleton, no live tick (D-17). A brand-new lesson's first turn shows no segment at all until `turn_end`. |
+| error | A1 after a failed turn | resolved (explicit) | The previous total stands unchanged; the pill has no error state. The failure is carried by the error card instead (copy in `## Copywriting Contract` → A6 and A5 rows). |
+| populated | A1 fully rendered | resolved (explicit) | `anthropic · claude-opus-5-5 · about $0.14 estimated` in one `<Link to="/settings">`, segments separated by a `text-ink-600` `·`. The cost inherits the pill's `text-ink-400` and is never accent (`## Hard Prohibitions` item 7). |
+| partial | A1 with mixed `cost_source` in one lesson | resolved (explicit) | **The weakest source wins.** The lesson total takes the least-firm label present: any `table` row makes the whole total read `estimated`; any `unknown` row makes it `not reported`; `billed` survives only when every row is `provider`; `not billed` survives only when every row is `subscription`. A subscription lesson that later ran one metered turn reads `about $0.09 estimated`, not `not billed`. The reason, recorded so it is not re-litigated: this is the same instinct as `under $0.01` over `$0.00` and as D-14's refusal to fold `unknown` into another word — **the figure must never claim more firmness than its weakest input.** It stays inside D-14's four words; no fifth word is introduced. |
+| overflow | A1 at a long model id, and below 768px | resolved (backstop) | `min-w-0 max-w-[40ch] truncate` on the provider+model span with `shrink-0 whitespace-nowrap` on the cost, so the model id absorbs every pixel lost. Visual check: at 1024px and 1280px with a ~60-character model id (`openai-compatible` plus a long slug), the cost must be fully visible and the model id must be the thing that ellipsises; at 375px nothing wraps or overflows the `h-[60px]` header, because the pill is `hidden md:inline-flex` and **no cost figure appears in the lesson header on a narrow viewport at all** — accepted, not a defect. Headless-verifiable; no hover involved. |
+| zero-one-many | A1 across providers and turn counts | resolved (explicit) | All four `cost_source` values have a declared word and a declared zero / sub-cent / normal rendering (`## Copywriting Contract`). An upgraded install's backfilled turns and every plugin or Codex lesson read `not reported`; a Claude Code subscription lesson reads `not billed`. One turn and forty turns render the same single string — the segment is one lesson total, never a list. |
+
+### A2 — Home lesson row cost string
+
+| Category | Element | Status | Resolution / Reason |
+|----------|---------|--------|---------------------|
+| empty | A2 cost slot | resolved (explicit) | A lesson with no usage rows renders nothing in the slot; the right-hand group simply has one fewer child and `gap-4` collapses cleanly. |
+| loading | A2 while Home loads, and for a busy lesson | resolved (explicit) | Home paints rows once from `api.lessons()` and has no SSE stream; there is no per-row refresh and no skeleton. A lesson that is busy shows its last settled total beside the existing `· live` marker. |
+| error | A2 when the lessons request fails | resolved (explicit) | The page already surfaces its own error; a row that renders at all shows its figure or nothing. No per-row error state is introduced. |
+| populated | A2 fully rendered | resolved (explicit) | In the right-hand group **outside** the `<Link>` (the one already holding `{locked}/{nodes}`), before the locked count, as `font-mono text-[11px] text-ink-400 whitespace-nowrap`. One short string per row, from the same formatter as A1 — not a component (D-18: Phase 5 inherits the string). |
+| partial | A2 with mixed `cost_source` in one lesson | resolved (explicit) | Identical weakest-source-wins rule and identical formatter as A1's `partial` row. A1 and A2 must show the same number and the same label for the same lesson at all times. |
+| overflow | A2 row at narrow and wide viewports | resolved (backstop) | The row is `grid-cols-[34px_minmax(0,1fr)_auto]`; the topic `<Link>` is the flexible column and must absorb the loss, never the numbers. Visual check at 640px and 1280px with a long topic plus the cost string plus the locked count: the numbers stay on one line and the topic truncates. Headless-verifiable. |
+| zero-one-many | A2 across 0, 1 and many lessons | resolved (explicit) | Zero lessons renders the existing `lessons.length === 0` three-panel section, untouched and with no cost anywhere. One lesson is one row with one string. Many lessons each carry their own string and **no aggregate total appears anywhere on Home** — a running total is Phase 4's usage page (COST-03), explicitly out of scope here. |
+
+### A3 — Settings `web search` card
+
+| Category | Element | Status | Resolution / Reason |
+|----------|---------|--------|---------------------|
+| empty | A3 with nothing configured | resolved (explicit) | Renders with `the provider's own` selected and the no-search sentence from `## Copywriting Contract`. Never a blank card, never a bare control with no explanation. |
+| loading | A3 saving and testing | resolved (explicit) | `testing…` on a disabled `textButton`; `saving` as a mono line under a field; the 1800ms `saved · applies from the next turn` tick. All verbatim `ProviderRow` behaviour via the lifted `useTick` — no new loading idiom. |
+| error | A3 on a rejected value or a failed test | resolved (explicit) | The server's sentence in `text-rust-400` with the typed value left in the field so it can be fixed (copy in `## Copywriting Contract`). The SearXNG "JSON format not enabled" case gets its own server sentence rather than collapsing into a generic reach error — it is the single most likely SearXNG failure. |
+| populated | A3 with a search provider configured | resolved (explicit) | Only the selected option's field renders: `the provider's own` shows a sentence and nothing else, `Tavily` shows the masked key field, `SearXNG` shows the base URL field. One block, one next step. |
+| partial | A3 with a provider selected but its key or base URL missing | resolved (explicit) | **It behaves exactly as no search at all.** `{{WEB_TOOLS}}` renders D-23's no-search instruction, so the tutor says when it is unsure rather than guessing. The card shows a muted `text-ink-500` line under the unfilled field naming what is missing: `Add a key to turn search on. Until then the tutor has no way to check a fact.` The rejected alternative, recorded: silently falling back to the provider's own search, which would leave the learner's selection not meaning what it says. |
+| overflow | A3 card layout | resolved (explicit) | One column on mobile, `md:grid-cols-2` above, matching `ProviderRow`'s own grid; the three-way choice and the action row use `flex-wrap` like `ProviderRow`'s action bar. No new breakpoint. |
+| long-text | A3 base URL and key hint | resolved (backstop) | Both sit in `field`-class inputs (`w-full`), which scroll internally. The Phase 2 UAT decision — *a long model id scrolls inside its field rather than widening the page* — applies here verbatim and must not be re-rhythmed. Visual check that a 120-character base URL neither widens the card nor pushes the page into horizontal scroll. |
+| zero-one-many | A3 options and cards | resolved (explicit) | Exactly three options, always; exactly one card, always. Nothing here is a growing list, so there is no one-vs-many form to design. |
+
+### A4 — Settings prices sentence
+
+| Category | Element | Status | Resolution / Reason |
+|----------|---------|--------|---------------------|
+| loading | A4 before settings arrive | resolved (explicit) | The sentence renders from the `GET /api/settings` response the page already awaits before painting any section. No separate request, no skeleton, no flash. |
+| error | A4 when `prices.json` is unreadable | resolved (explicit) | The sentence is replaced by the server's own loud sentence in `text-rust-400`, following the `secrets_error` precedent at `Settings.tsx:148`; nothing is overwritten while the error stands. An **absent** file is silent — the normal sentence still names the file as the place to put one. |
+| overflow | A4 placement | resolved (explicit) | `max-w-[62ch]` and it wraps; `mt-8` clears the last card and the page container's existing `pb-24` gives it room as the final element. |
+| long-text | A4 variable content | resolved (explicit) | The only variable is `{PRICES_AS_OF}`, a fixed-width date. An override-error sentence is the server's and is already bounded to one line cut at 300 characters by `probe.ts`'s collapse rule, so no truncation rule is needed here. |
+
+### A5 — ephemeral mid-turn status lines
+
+| Category | Element | Status | Resolution / Reason |
+|----------|---------|--------|---------------------|
+| loading | A5 — this *is* the loading state of a turn | resolved (explicit) | `Thinking` → the tool's `TOOL_LABELS` entry → `Provider busy, retrying in 12s` counting down by whole seconds (`Math.ceil`, re-emitted once per second) → `Provider busy, retrying now` while an attempt is in flight. Rendered by the existing `Lesson.tsx:321-328` block with its gold pulse dot, cleared by `block_start`, by a card, or by `turn_end`. No attempt counter. **Stop stays mounted throughout and that is a contract**, not an accident: `Composer` shows it on `busy && !text.trim()` and a backoff is still `busy`, so any change to how `busy` is computed must keep it `true` for the whole backoff or the only escape from a two-minute stall disappears. |
+| error | A5 when retries are exhausted | resolved (explicit) | The ephemeral line vanishes (it is never persisted) and the provider's verbatim sentence plus Derive's separate fix hint arrive through the existing `turn_end` error path — never a Derive paraphrase of the provider's words. Copy rule in `## Copywriting Contract`. |
+| overflow | A5 line length | resolved (explicit) | The longest string the vocabulary can produce is `Provider busy, retrying in 120s` (31 characters) and a tool label is bounded by `TOOL_LABELS`; both fit the 680px column at `text-sm` without wrapping. |
+| long-text | A5 variable content | resolved (explicit) | **No learner text and no model text can ever enter a status line.** D-09 forbids reasoning text outright, and the vocabulary is a closed set of fixed strings plus one integer. That is precisely why no truncation rule exists here — there is nothing unbounded to truncate. |
+
+### A6 — context-window refusal card
+
+| Category | Element | Status | Resolution / Reason |
+|----------|---------|--------|---------------------|
+| error | A6 — the card *is* the error state | resolved (explicit) | Arrives as the existing `turn_end` with `ok: false`, becomes `{ kind: 'error' }` at `useLesson.ts:95`, renders in the existing rust box at `Lesson.tsx:313-318`. Copy and the single `Home` link are in `## Copywriting Contract`. No new component, no new event type, no new card family. |
+| empty | A6 | dismissed | There is no collection for the card to be empty of. A lesson that never outgrows its window simply never shows it; absence is the normal case and needs no rendering. |
+| loading | A6 | dismissed | The refusal is detected **before the request** (D-25), so it replaces the turn rather than interrupting one in flight. There is no in-flight variant of a refusal to design. |
+| populated | A6 | dismissed | Collapses to "shown or not shown": the card carries one fixed sentence with no variable content, so there is no populated form distinct from the error row above. |
+| partial | A6 | dismissed | The detection is a single pre-request threshold check against the model's known window. It refuses or it does not; there is no partial refusal. (The adjacent cases are deliberately *different* events: a Stop ends the turn `interrupted` and stays resumable per D-12, and D-05's step-cap exhaustion ends it with a continuable status — neither is this card.) |
+| overflow | A6 card at any width | resolved (explicit) | The existing `rounded-xl border border-rust-400/40 bg-rust-400/5 px-4 py-3 text-sm` box inside the 680px column, with a fixed-length sentence that wraps. The one change the renderer needs is that `Home` becomes a `<Link to="/">`, so the error item renders one optional link rather than plain text only. |
+| zero-one-many | A6 repeated across attempts | resolved (explicit) | At most one refusal per turn, and the turn then ends. A learner who retries accumulates one card per attempt, each as its own timeline item in sequence — exactly how repeated failed turns already render today. No deduplication and no counter. |
+
+**Hover-state verification limit (environment fact, recorded so no unsatisfiable criterion is written):** Tailwind v4 gates `hover:` behind `@media (hover:hover)` and **no headless-Chrome mode satisfies that query**. Every hover-only state on these surfaces — the pill's `hover:text-ink-50`, `ProviderRow`'s `textButton` `hover:text-ink-50` and `hover:text-rust-400`, Home's `group-hover:text-gold-400` and the `opacity-0 group-hover:opacity-100` delete button — is therefore **human-verify or static-CSS-assertion only**. Do not write an acceptance criterion that requires a headless run to observe a hover state; assert the emitted CSS instead (a Phase 2 finding: `hover:text-rust-300` compiled to nothing with no build error, because `@theme` never declared the token). **Every one of the 37 states above is observable without hover.**
 
 ## Registry Safety
 
