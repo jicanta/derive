@@ -119,7 +119,7 @@ export function LessonPage() {
             className="hidden md:inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 hover:text-ink-50 border hairline rounded-full px-2.5 h-6 transition-colors"
             title="Which model is teaching. Change it in Settings; it applies from the next turn."
           >
-            <span className="max-w-[28ch] truncate" title={tutorLabel}>
+            <span className="max-w-[40ch] truncate" title={tutorLabel}>
               {tutorLabel}
             </span>
           </Link>

@@ -99,7 +99,7 @@ export function SettingsPage() {
         <Link to="/" className="text-ink-400 hover:text-ink-50 transition-colors" title="All lessons">
           <ArrowLeft size={18} strokeWidth={1.8} />
         </Link>
-        <h1 className="font-serif text-[22px] tracking-[-0.01em] text-ink-50">
+        <h1 className="font-serif text-[22px] tracking-[-0.01em] truncate min-w-0 text-ink-50">
           Settings <em className="text-ink-400">· which model teaches</em>
         </h1>
         <div className="ml-auto flex items-center gap-6">

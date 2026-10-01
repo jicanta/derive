@@ -4,7 +4,7 @@ import type { ProviderStatus, ProviderView, TestResult } from '../lib/types';
 
 const field = 'w-full rounded-xl border hairline bg-ink-900/70 px-3 text-[14px] leading-relaxed text-ink-100 outline-none focus:border-gold-500/60 placeholder:text-ink-500 disabled:opacity-60';
 const pill = 'inline-flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 border hairline rounded-full px-2.5 h-6';
-const textButton = 'font-mono text-[10px] text-ink-400 hover:text-ink-50 transition-colors focus-visible:text-ink-50 focus-visible:underline disabled:opacity-40';
+const textButton = 'inline-flex items-center h-8 font-mono text-[10px] text-ink-400 hover:text-ink-50 transition-colors focus-visible:text-ink-50 focus-visible:underline disabled:opacity-40';
 const tickLine = 'mt-2 font-mono text-[10px] text-gold-500';
 const errLine = 'mt-2 text-[14px] leading-relaxed text-rust-400';
 const noteLine = 'mt-2 text-[14px] leading-relaxed text-ink-500';
@@ -153,7 +153,7 @@ function KeyField({ row, onChange }: { row: ProviderView; onChange: (row: Provid
           <span className="font-mono text-[10px] text-ink-300">{key.hint ? `•••• •••• ${key.hint}` : '•••• ••••'}</span>
           {confirming ? (
             <span className="flex items-center gap-2 font-mono text-[10px] text-ink-600">
-              <button type="button" onClick={() => void remove()} className="font-mono text-[10px] text-rust-400 hover:text-rust-300 transition-colors focus-visible:underline">
+              <button type="button" onClick={() => void remove()} className={`${textButton} text-rust-400 hover:text-rust-500`}>
                 remove the key
               </button>
               ·

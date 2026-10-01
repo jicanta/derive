@@ -163,7 +163,7 @@ function friendly(message: string): string {
     /* plain text */
   }
   if (/not supported when using Codex with a ChatGPT account|model.*not found/i.test(message)) {
-    message += ' Set DERIVE_MODEL in .env (for example gpt-5.5), or change `model` in ~/.codex/config.toml.';
+    message += ' Set the model on the Codex row in Settings (which model teaches), or leave it empty to use the Codex default.';
   }
   if (/login|unauthori[sz]ed|401|auth/i.test(message) && !/model/i.test(message)) {
     message += ' Run `pnpm exec codex login` in the derive folder and try again.';

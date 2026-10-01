@@ -81,7 +81,7 @@ export function YouPage() {
         <Link to="/" className="text-ink-400 hover:text-ink-50 transition-colors">
           <ArrowLeft size={18} strokeWidth={1.8} />
         </Link>
-        <h1 className="font-serif text-[22px] text-ink-50">
+        <h1 className="font-serif text-[22px] truncate min-w-0 text-ink-50">
           How {name} learn{name === 'you' ? '' : 's'} <em className="text-ink-400">· read by the tutor before every lesson</em>
         </h1>
         <div className="ml-auto flex items-center gap-6">
@@ -138,7 +138,7 @@ export function YouPage() {
               onChange={(e) => set('model')(e.target.value)}
               aria-label="Your model"
               placeholder={installModel ? `install default: ${installModel}` : 'install default'}
-              className={`${field} font-mono h-10 max-w-[320px]`}
+              className={`${field} font-mono h-10`}
             />
           </Section>
 
