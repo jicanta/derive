@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 12
+open_count: 13
 waived_count: 0
 fixed_count: 0
-total_count: 12
-last_updated: 2026-09-20T18:26:11.288Z
+total_count: 13
+last_updated: 2026-10-01T10:54:49.674Z
 ---
 
 # Broken Windows Ledger
@@ -27,6 +27,7 @@ last_updated: 2026-09-20T18:26:11.288Z
 | 10 | 01 | unrun-verify | .planning/phases/01-foundation/01-20-PLAN.md |  | HC-1's expected result changed with this plan: step 5 now expects 401 after deleting ~/.derive/token with the server left RUNNING, no restart. The corrected six-step sequence is in 01-20-PLAN.md Task 3; still not performed by a human | open |  | 2026-09-20T17:19:15.256Z |  |
 | 11 | 01 | unrun-verify | server/test/guards.test.ts |  | The five clone-argv pins 01-21 added (ssh command, credential helper, fsmonitor, hooks path, pager) are asserted at the source, not driven: fromGitClone refuses anything that is not https:// before git is spawned and there is no DNS or outbound network here. Fold one repo import by GitHub URL into HC-2's run and confirm it still imports normally. | open |  | 2026-09-20T17:35:28.787Z |  |
 | 12 | 01 | deviation | server/test/security.test.ts |  | Deleting the ticket describe block also deleted its source-assertion that server/src/mcp.ts contains no exec( shell spawn and no searchParams.set('token'); nothing now goes red if a future change puts the install token back into the browser-opener URL | open |  | 2026-09-20T18:26:11.288Z |  |
+| 13 | 02 | unrun-verify | .planning/phases/02-settings-and-secrets/02-UAT.md |  | Phase 2 UAT is status: partial — the four visual findings 02-07 closed in source (375px header truncation, 32px text-button hit area, /you Section 07 id fit, tutor pill 40ch) were verified against the emitted CSS, not re-driven in headless Chrome; UAT tests 4 and 5 need a re-run to close | open |  | 2026-10-01T10:54:49.674Z |  |
 
 ````json
 [
@@ -183,6 +184,19 @@ last_updated: 2026-09-20T18:26:11.288Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-20T18:26:11.288Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 13,
+    "kind": "unrun-verify",
+    "phase": "02",
+    "file": ".planning/phases/02-settings-and-secrets/02-UAT.md",
+    "line": null,
+    "description": "Phase 2 UAT is status: partial — the four visual findings 02-07 closed in source (375px header truncation, 32px text-button hit area, /you Section 07 id fit, tutor pill 40ch) were verified against the emitted CSS, not re-driven in headless Chrome; UAT tests 4 and 5 need a re-run to close",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-01T10:54:49.674Z",
     "resolved_at": null,
     "milestone": null
   }
