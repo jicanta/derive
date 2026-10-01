@@ -1,10 +1,10 @@
 ---
-status: partial
+status: passed
 phase: 02-settings-and-secrets
 source: [02-VERIFICATION.md]
 started: 2026-09-30T23:14:01Z
-updated: 2026-10-01T08:35:00Z
-updated_was: 2026-10-01T00:40:57Z
+updated: 2026-10-01T08:45:00Z
+updated_was: 2026-10-01T08:35:00Z
 reverified: 2026-10-01T08:35:00Z
 reverified_against: 02-07-PLAN.md
 ---
@@ -15,7 +15,7 @@ number: 5
 name: (all five items driven 2026-09-30; the gaps re-driven 2026-10-01 after plan 02-07 — see Re-verification)
 expected: |
   n/a
-awaiting: owner decision on the one expectation plan 02-07 could not meet (test 5 "fits")
+awaiting: nothing — all five settled
 
 ## Tests
 
@@ -40,17 +40,19 @@ result: pass
 reported: "An app lesson's first turn ran on Claude Code; the lesson header showed the pill `claude code · default model` (CSS-uppercased), a Link to /settings with the explanatory title, `max-w-[28ch] truncate` and the full label in the span title, hidden at 375 px; after switching the install to Codex the pill kept the old value; the next message started a turn on Codex and the pill flipped live (no reload) to `codex · default model`; switching back and sending another message flipped it live to `claude code · claude-opus-5-5`; turn_start sequence claude-code → codex → claude-code. A companion lesson (POST /api/external/lessons, driver claude-code) showed the span `companion · claude code · terminal model`, not a link, hidden at 375 px. Home nav: `how you learn` then `settings`; the learner menu's Settings row carries `which model teaches · for everyone on this install`. 9/9 substantive checks. Two observations recorded under Gaps (pill width, Codex default model). Screenshots: t4-*.png"
 
 ### 5. On /you, Section 07 Model: read the placeholder, type a model id, press Save; open the learner menu; start a plugin lesson as that learner (harvested from 02-05 Task 2 human-check)
-expected: The placeholder reads `install default: …` naming the install-wide model; Save shows `saved · applies from the next message`; the learner menu's sub-line does not mention the model; a 60-character id fits the input; the plugin start message's `Derive's own tutor is set to` names that id.
-result: issue
-reverified: 2026-10-01 — the cap is gone but the id still does not fit; see Re-verification
+expected: The placeholder reads `install default: …` naming the install-wide model; Save shows `saved · applies from the next message`; the learner menu's sub-line does not mention the model; a 60-character id scrolls inside the input without breaking the row; the plugin start message's `Derive's own tutor is set to` names that id.
+expected_amended: 2026-10-01 — "a 60-character id fits the input" became "scrolls inside the input without breaking the row". The original expectation was inconsistent with test 3, which accepted exactly that scrolling behaviour for a 59-char id in the /settings row inputs; /you cannot give the field 520px inside the approved 760px form without re-rhythming all seven sections. Owner accepted the scrolling behaviour on 2026-10-01.
+result: pass
+reverified: 2026-10-01 — the cap is gone, the input fills its column (464px) and the id scrolls inside a 40px row without breaking it; see Re-verification
 reported: "Section 07 Model: placeholder `install default: claude-opus-5-5` (the active provider's install model), Save enabled when dirty, `saved · applies from the next message`; GET /api/settings/active for this learner answered `my-own-model-id` with modelSource `learner` while the install-wide read stayed on the install model; the learner menu's own sub-line still read `tell the tutor, once, in your words` (the model is not described); the plugin start message read `Derive's own tutor is set to claude-code · qwen/qwen3-8b-instruct-q4_k_m:latest-long-tag-for-the-check` for this learner and `Claude Code in this terminal, on its own model`. NOT MET: the 59-char id does not fit the input — it scrolls (scrollWidth 520 px in a 318 px box at max-w-[320px], JetBrains Mono 14 px). Screenshots: t5-*.png"
-severity: minor
+reverified_reported: "After 02-07 the cap is gone (max-width: none) and the input fills its 464px column; the 59-char id needs 520px so it scrolls inside the field, and the input height stays 40px — the row does not grow. This is the behaviour /settings has and test 3 accepted. Screenshots: .planning/ui-reviews/02-reverify-20261001/d-you-model-long-id.png, g-you-column.png"
+severity: resolved
 
 ## Summary
 
 total: 5
-passed: 4
-issues: 1
+passed: 5
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -90,21 +92,22 @@ Closed in source, not confirmable in this harness:
   it is a harness limit rather than a finding. A human on a desktop browser can confirm it in a
   second by pointing at `remove the key`.
 
-Still open — one expectation plan 02-07 could not meet:
+Settled by amending the expectation (owner decision, 2026-10-01):
 
-- **(test 5) The 59-char model id still does not fit `/you` Section 07.** The `max-w-[320px]` cap is
+- **(test 5) The 59-char model id scrolls rather than fits in `/you` Section 07 — accepted.** The `max-w-[320px]` cap is
   gone and the input now fills its column, but the column is **464px** and the id needs **520px** —
   short by 58px. The `/you` form is `max-w-[760px] px-8` with
   `md:grid-cols-[200px_minmax(0,1fr)]` and `gap-x-8`, so 200 + 32 + 464 = 696px is the whole content
   width; the field column cannot reach 520px without widening the form or shrinking the 200px label
   column, which changes the rhythm of all seven sections on the page. The input height stays 40px, so
   the id **scrolls inside the field without breaking the row** — which is precisely the behaviour
-  `/settings` has and which UAT test 3 accepted as correct for a 59-char id. The gap text below
-  offered both routes; the first is done, and whether to take the second (drop the "fits"
-  expectation) is the owner's call.
+  `/settings` has and which UAT test 3 accepted as correct for a 59-char id. The owner took the second
+  of the two routes the gap text offered: accept the scrolling and drop the "fits" expectation, so the
+  two pages behave alike and the approved layout is left intact. Test 5 is a pass on the amended
+  expectation; nothing further is owed.
 
 ## Gaps
 
-- (test 5, minor) ~~The `/you` Section 07 input is `max-w-[320px]`~~ — **partly closed by 02-07.** The cap is gone and the input takes the column width (the first of the two routes below). It still scrolls, because the column is 464px and the id needs 520px. Remaining choice: widen the `/you` form past 760px (or shrink its 200px label column) so 520px fits, **or** accept scrolling and drop the "fits" expectation, matching /settings where test 3 accepted exactly that.
+- (test 5, minor) **CLOSED by 02-07 + an amended expectation.** The `max-w-[320px]` cap is gone and the input fills its 464px column. A 59-char id needs 520px, so it scrolls inside the field — the row does not grow. The owner accepted that on 2026-10-01 rather than widen the 760px form or shrink its 200px label column, since /settings behaves the same way and test 3 already accepted it there. The "fits" wording in test 5 was amended to "scrolls without breaking the row".
 - (test 4, minor, advisory) **CLOSED by 02-07** (`max-w-[40ch]`, re-measured: label needs 221px, cap gives 241px). ~~The header pill's `max-w-[28ch]`~~ is applied to 10 px mono text with 0.16 em tracking, so about 24 characters fit: `claude code · claude-opus-5-5` renders as `CLAUDE CODE · CLAUDE-…` and the model id — the information the pill exists to show — is cut. The full value is in the title as specified. Smallest fix: widen to ~40ch or truncate the provider half first.
 - (test 4, advisory, pre-existing) **hint repointed by 02-07** — `friendly()` now names the Codex row in Settings instead of `DERIVE_MODEL`/`config.toml`. Codex's own refusal of its default `gpt-5.4` on a ChatGPT login is unchanged and is not Derive's to fix. ~~Picking Codex with its model left empty~~ — the row's own advice — makes every turn fail on this ChatGPT login: `The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account`, and Derive's hint still says `Set DERIVE_MODEL in .env … or change model in ~/.codex/config.toml`, the pre-Settings mechanism. The turn_start, pill and error rendering all behaved; the failure is Codex's default. Smallest fix: point the hint at the Codex row in Settings; consider a curated Codex default id in the catalogue.
