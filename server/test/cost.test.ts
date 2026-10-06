@@ -96,6 +96,16 @@ describe('the price table', () => {
     assert.equal(windowOf('anthropic', 'claude-opus-5-5'), 1_000_000);
     assert.equal(windowOf('openai-compatible', 'anything'), undefined, "the model behind a learner's own endpoint is not knowable from a table");
   });
+
+  it('ships no row that would price a lesson at nothing', () => {
+    for (const [provider, models] of Object.entries(PRICES)) {
+      for (const [model, price] of Object.entries(models)) {
+        assert.ok(price.input > 0, `${provider} ${model} has a zero input rate, which renders as a free lesson on a metered key`);
+        assert.ok(price.output > 0, `${provider} ${model} has a zero output rate`);
+        assert.ok(price.context === null || price.context > 0, `${provider} ${model} has a zero context window, which would refuse every turn`);
+      }
+    }
+  });
 });
 
 describe('the override file', () => {
@@ -129,6 +139,33 @@ describe('the override file', () => {
     const error = pricesFileError() ?? '';
     assert.ok(error.includes('claude-opus-5-5'), `the sentence must name the model; got ${error}`);
     assert.ok(error.includes('input'), `the sentence must name the field; got ${error}`);
+  });
+
+  it('merges nothing when a rate is a string, infinite or absent on a model the table does not carry', () => {
+    write(JSON.stringify({ anthropic: { 'claude-opus-5-5': { input: '0.000004' } } }));
+    assert.deepEqual(priceTable(), PRICES, 'a quoted number is not a number');
+    assert.ok((pricesFileError() ?? '').includes('input'), 'the sentence names the field');
+
+    // JSON has no Infinity literal; 1e999 is how one arrives, and it must fail the same way a negative does.
+    write('{"anthropic":{"claude-opus-5-5":{"input":1e999}}}');
+    assert.deepEqual(priceTable(), PRICES, 'an infinite rate is not a rate');
+    assert.ok((pricesFileError() ?? '').includes('claude-opus-5-5'), 'the sentence names the model');
+
+    write(JSON.stringify({ anthropic: { 'claude-opus-9': { output: 0.00002 } } }));
+    assert.deepEqual(priceTable(), PRICES, 'a model the shipped table has never heard of must bring both of its own rates');
+    assert.ok((pricesFileError() ?? '').includes('input'), 'the sentence names the rate that is missing');
+  });
+
+  it('merges nothing when the file names a provider Derive does not have', () => {
+    write(JSON.stringify({ 'anthropik-typo': { 'claude-opus-5-5': { input: 0.000004, output: 0.00002 } } }));
+    assert.deepEqual(priceTable(), PRICES, 'a typo in a provider id must not silently cost the learner their other overrides');
+    assert.ok((pricesFileError() ?? '').includes('anthropik-typo'), 'the sentence names the id so it can be fixed');
+  });
+
+  it('merges nothing when a model entry is not an object of rates', () => {
+    write(JSON.stringify({ anthropic: { 'claude-opus-5-5': 0.000004 } }));
+    assert.deepEqual(priceTable(), PRICES);
+    assert.ok((pricesFileError() ?? '').includes('not a JSON object'), 'a bare number where a rate record belongs is named for what it is');
   });
 
   it('merges nothing when the top level is not a JSON object', () => {
