@@ -24,11 +24,12 @@
  * that reads `process.env`.
  */
 import { randomUUID } from 'node:crypto';
-import { isStepCount, jsonSchema, streamText, tool, type JSONSchema7, type LanguageModel, type LanguageModelUsage, type ModelMessage, type ToolSet } from 'ai';
+import { APICallError, isStepCount, jsonSchema, streamText, tool, type JSONSchema7, type LanguageModel, type LanguageModelUsage, type ModelMessage, type ToolSet } from 'ai';
 import * as actions from '../actions.js';
 import { getSetting, loadTurnMessages, recordToolResult, recordedToolResult, saveTurnMessages, type UsageInput } from '../db.js';
 import { type Driver, type EventSink, type TurnContext } from '../driver.js';
-import { type ProviderId } from '../providers.js';
+import { hintFor, providerSentence } from '../probe.js';
+import { labelOf, type ProviderId } from '../providers.js';
 import { safeMessage } from '../secrets.js';
 import { baseUrlKey, currentTutor, effectiveKey } from '../settings.js';
 import { TOOL_LABELS, descriptionFor, jsonSchemaOf, toolsFor } from '../tools.js';
@@ -63,7 +64,7 @@ export function modelOverride(): ModelFactory | null {
  * the turn through the normal `turn_end` with the same continuable shape a Stop
  * produces, so the learner's next message carries the lesson on.
  */
-const STEP_CAP = 400;
+export const STEP_CAP = 400;
 
 /**
  * A lower cap, for the suite. Same spirit as `setModelOverride` and
@@ -79,6 +80,151 @@ export function setStepCapOverride(n: number | null) {
 }
 
 const stepCap = () => capOverride ?? STEP_CAP;
+
+/**
+ * How long the loop is willing to wait out a busy provider, in total.
+ *
+ * Two minutes, because a free-tier Gemini or OpenRouter rate limit can be a
+ * full minute and a lesson that dies on it is a dead lesson; a learner who does
+ * not want to wait presses Stop, which works throughout.
+ */
+export const RETRY_WINDOW_MS = 120_000;
+
+/** The first backoff interval, doubled on each further attempt. One second is short enough that a single hiccup costs the learner nothing they would notice. */
+export const RETRY_BASE_MS = 1_000;
+
+/**
+ * How the loop waits between attempts.
+ *
+ * Overridable for the suite only, in the same posture as `setModelOverride` and
+ * `driver.ts`'s `setDriverOverride`: no route, header, environment variable or
+ * config file can set it, and the production path still sleeps for real. It
+ * exists because the only honest way to assert the exhaustion branch is to reach
+ * it, and reaching it on the real clock would mean a two-minute test.
+ */
+const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+let sleepFor: (ms: number) => Promise<void> = realSleep;
+
+export function setSleepOverride(f: ((ms: number) => Promise<void>) | null) {
+  sleepFor = f ?? realSleep;
+}
+
+/**
+ * What the provider asked us to wait, in milliseconds, or null when it asked
+ * for nothing.
+ *
+ * `retry-after-ms` is read before `retry-after` because it is the precise one
+ * where a provider sends it; `retry-after` is a seconds count or an HTTP date.
+ * The value is honoured as given and is deliberately **not** capped at 60 s —
+ * the SDK's own retry caps it there, which is exactly why `maxRetries: 0` turns
+ * that retry off: a provider that says "ninety seconds" means ninety seconds.
+ */
+export function retryAfterMs(e: unknown): number | null {
+  if (!APICallError.isInstance(e)) return null;
+  const headers = e.responseHeaders;
+  const exact = Number(headers?.['retry-after-ms']);
+  if (Number.isFinite(exact) && exact >= 0 && headers?.['retry-after-ms'] !== undefined) return exact;
+  const after = headers?.['retry-after'];
+  if (after === undefined) return null;
+  const seconds = Number(after);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const at = Date.parse(after);
+  if (Number.isFinite(at)) return Math.max(0, at - Date.now());
+  return null;
+}
+
+/**
+ * How long to wait before attempt `attempt + 1`, given what the provider asked
+ * for and how much of the window has already been spent.
+ *
+ * Exponential from `RETRY_BASE_MS` with jitter over the same interval, so two
+ * lessons that hit one provider's limit together do not retry in lockstep and
+ * re-trip it. Every delay is clamped against what is left of
+ * `RETRY_WINDOW_MS`, so the cumulative wait can never exceed it; a return of 0
+ * means the window is used up and the caller should stop retrying.
+ */
+export function retryDelay(attempt: number, afterMs: number | null, spent = 0): number {
+  const wanted = afterMs ?? RETRY_BASE_MS * 2 ** attempt * (1 + Math.random());
+  return Math.max(0, Math.min(Math.round(wanted), RETRY_WINDOW_MS - spent));
+}
+
+/** Whether a failure is one a provider would answer differently a moment later. `isRetryable` is the SDK's own judgement where it has one; 429 and 5xx are the shapes that mean "busy" where it does not. */
+function retryable(e: unknown): boolean {
+  if (!APICallError.isInstance(e)) return false;
+  if (typeof e.isRetryable === 'boolean') return e.isRetryable;
+  const status = e.statusCode ?? 0;
+  return status === 429 || (status >= 500 && status < 600);
+}
+
+/** Wait, but no longer than the learner's patience: the sleep races the turn's abort signal, so a Stop during a backoff is instant rather than up to a second late. */
+async function waitOrStop(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  let onAbort: (() => void) | undefined;
+  const stopped = new Promise<void>((resolve) => {
+    onAbort = () => resolve();
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    await Promise.race([sleepFor(ms), stopped]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
+
+/**
+ * Run one attempt, and keep running it while the provider says it is busy.
+ *
+ * Derive owns this backoff rather than letting the SDK own it, because the SDK's
+ * retry cannot show the learner a countdown, cannot honour a `Retry-After`
+ * longer than a minute and cannot be stopped mid-wait — and a silent two-minute
+ * stall with no visible reason is the worst of the three failures this guards
+ * against.
+ *
+ * What the learner sees is one ephemeral `status` line, the same event
+ * `Thinking` and the tool labels ride: `Provider busy, retrying in Ns` while the
+ * backoff runs and `Provider busy, retrying now` while an attempt is in flight.
+ * There is no attempt counter — `attempt 3 of 6` is machinery the learner cannot
+ * act on.
+ *
+ * `gate` carries the two things the wait needs and `TurnContext` does not have:
+ * the provider's own label, for the fix hint an exhausted retry ends with, and
+ * the turn's abort signal, so the sleep can be raced against a Stop.
+ */
+export async function withRetries(run: () => Promise<void>, sink: EventSink, ctx: TurnContext, gate: { label: string; signal: AbortSignal }): Promise<void> {
+  const started = Date.now();
+  for (let attempt = 0; ; attempt += 1) {
+    if (ctx.isStopping()) return;
+    try {
+      await run();
+      return;
+    } catch (e) {
+      // A Stop is not a provider failure: the learner asked for this ending.
+      if (ctx.isStopping()) return;
+      if (!retryable(e)) throw e;
+      const delay = retryDelay(attempt, retryAfterMs(e), Date.now() - started);
+      if (delay <= 0) {
+        // The window ran out. The provider's own words reach the learner
+        // unchanged, with Derive's fix hint on its own line beside them — the
+        // same pair the settings page already shows, never a paraphrase that
+        // loses what the provider actually said.
+        const status = APICallError.isInstance(e) ? e.statusCode ?? 0 : 0;
+        const body = (APICallError.isInstance(e) ? e.responseBody : null) ?? safeMessage(e);
+        const sentence = providerSentence(status, body);
+        const hint = hintFor(gate.label, status, sentence);
+        sink.endTurn({ ok: false, error: safeMessage(hint ? `${sentence}\n${hint}` : sentence) });
+        throw e;
+      }
+      const until = Date.now() + delay;
+      for (let left = delay; left > 0; left = until - Date.now()) {
+        sink.emitEphemeral('status', { text: `Provider busy, retrying in ${Math.ceil(left / 1000)}s` });
+        await waitOrStop(Math.min(1_000, left), gate.signal);
+        if (ctx.isStopping()) return;
+      }
+      if (ctx.isStopping()) return;
+      sink.emitEphemeral('status', { text: 'Provider busy, retrying now' });
+    }
+  }
+}
 
 /** What the model is told about a tool call the learner's Stop cut short. */
 const STOPPED_BEFORE_TOOL = 'The learner stopped the turn before this tool ran.';
@@ -302,7 +448,12 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
     blockMeta = null;
   };
 
-  try {
+  // One attempt: the request and the whole stream it yields. The retry
+  // controller re-runs this when the provider says it is busy, so the state it
+  // accumulates has to be a history a provider will accept on the way back in —
+  // which is what the settle in the wrapper below guarantees before any error
+  // escapes.
+  const attempt = async () => {
     const r = streamText({
       model,
       // The array form from the start: it is the shape D-06's stable/volatile
@@ -384,6 +535,12 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
         case 'tool-error':
           answer(part.toolCallId, part.toolName, { type: 'error-text', value: safeMessage(part.error) });
           break;
+        case 'error':
+          // A request failure is delivered here rather than thrown, and the SDK
+          // then closes the stream normally — so without this the turn would end
+          // `ok: true` having taught nothing. Thrown so the retry controller
+          // around the attempt sees it; a 429 is where it belongs.
+          throw part.error;
         case 'start-step':
           // A model that silently drops a capability says so here and nowhere
           // else; the learner is told rather than left with a tutor that stopped
@@ -427,6 +584,29 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
       }
       if (part.type === 'abort' || refused) break;
     }
+  };
+
+  try {
+    await withRetries(
+      async () => {
+        try {
+          await attempt();
+        } catch (e) {
+          // Settle before the error escapes, so the next attempt sends a history
+          // a provider will accept: a half-written block is kept rather than
+          // dropped, and a call this attempt asked for and never answered gets
+          // its synthesized result. Both are idempotent, which is why running
+          // them here as well as in the catch below is safe.
+          flushBlock();
+          patchOrphans(messages, answered);
+          persist();
+          throw e;
+        }
+      },
+      sink,
+      ctx,
+      { label: labelOf(provider), signal: controller.signal },
+    );
 
     flushBlock();
     persist();
