@@ -99,6 +99,16 @@ function answeredIds(messages: ModelMessage[]): Set<string> {
   return ids;
 }
 
+/** Every tool call id the history already asks for. A provider that retries re-sends an id, and a history asking for one call twice is one a provider may refuse. */
+function calledIds(messages: ModelMessage[]): Set<string> {
+  const ids = new Set<string>();
+  for (const m of messages) {
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+    for (const part of m.content) if (part.type === 'tool-call') ids.add(part.toolCallId);
+  }
+  return ids;
+}
+
 /**
  * Give every tool call an abort left unanswered a synthesized error result.
  *
@@ -111,9 +121,13 @@ function answeredIds(messages: ModelMessage[]): Set<string> {
  * Idempotent, so it can run on the abort part, in the catch and again in the
  * finally without inventing a second result for the same call. Returns how many
  * it answered.
+ *
+ * `answered` is the live set the turn keeps, passed in so the patch and a tool
+ * still returning cannot both answer the same call: a Stop lands while a card
+ * is open, and whichever of the two gets there first is the one result the
+ * history carries. The default makes it standalone, which is how it is tested.
  */
-export function patchOrphans(messages: ModelMessage[]): number {
-  const answered = answeredIds(messages);
+export function patchOrphans(messages: ModelMessage[], answered: Set<string> = answeredIds(messages)): number {
   const orphans: { toolCallId: string; toolName: string }[] = [];
   for (const m of messages) {
     if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
@@ -251,6 +265,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
     }
   };
   const answered = answeredIds(messages);
+  const called = calledIds(messages);
   const answer = (toolCallId: string, toolName: string, output: ToolResultOutput) => {
     if (answered.has(toolCallId)) return;
     answered.add(toolCallId);
@@ -340,6 +355,11 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
           break;
         case 'tool-call':
           if (searchTool && part.providerExecuted && part.toolName === searchTool) searches += 1;
+          // Once per id: a provider retry re-sends a call the history already
+          // asks for, and the replay guard below answers it from the record
+          // rather than running it again.
+          if (called.has(part.toolCallId)) break;
+          called.add(part.toolCallId);
           messages.push({
             role: 'assistant',
             content: [
@@ -399,7 +419,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
           // Before the save, so what lands on disk is a history a provider will
           // accept on the next turn rather than one with an unanswered call in
           // it.
-          patchOrphans(messages);
+          patchOrphans(messages, answered);
           persist();
           break;
         default:
@@ -417,7 +437,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
     else sink.endTurn({ ok: true, verified });
   } catch (err) {
     flushBlock();
-    patchOrphans(messages);
+    patchOrphans(messages, answered);
     persist();
     sink.endTurn({ ok: false, error: safeMessage(err) });
   } finally {
@@ -427,7 +447,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
     // is idempotent too, so running it here as well covers the ending no
     // branch above saw.
     flushBlock();
-    patchOrphans(messages);
+    patchOrphans(messages, answered);
     persist();
     sink.endTurn({ ok: true, interrupted: true });
     chains.delete(ctx.lessonId);

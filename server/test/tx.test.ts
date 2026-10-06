@@ -23,7 +23,7 @@ import { after, describe, it } from 'node:test';
 const scratch = mkdtempSync(join(tmpdir(), 'derive-tx-'));
 process.env.DERIVE_DATA_DIR = scratch;
 
-const { addMemory, appendEvent, closeOpenTurns, createLearner, createLesson, db, deleteLearner, deleteLesson, endTurn, finishTurn, getLesson, getTurn, listNodes, listUsage, recordQuiz, recordUsage, replaceGraph, setNodeStatus, startTurn, withTx } =
+const { addMemory, appendEvent, closeOpenTurns, createLearner, createLesson, db, deleteLearner, deleteLesson, endTurn, finishTurn, getLesson, getTurn, listNodes, listUsage, loadTurnMessages, recordQuiz, recordToolResult, recordUsage, recordedToolResult, replaceGraph, saveTurnMessages, setNodeStatus, startTurn, withTx } =
   await import('../src/db.js');
 
 type GraphNodeInput = import('../src/db.js').GraphNodeInput;
@@ -49,6 +49,11 @@ function lessonWithHistory(id: string, learnerId?: string) {
   // deleteLesson has always cleared.
   const turn = startTurn(id, 'fake');
   recordUsage(turn, { cost_source: 'unknown' });
+  // And the owned loop's resumable state: one message history for the lesson
+  // and one recorded result for a call that ran, so the two tables migration 6
+  // added are covered by the same whole-object comparisons.
+  saveTurnMessages(id, 'fake', [{ role: 'user', content: 'teach me' }]);
+  recordToolResult(turn, id, `${id}-c1`, 'set_phase', { ok: true, phase: 'plan' });
   finishTurn(turn, 'ok');
   return id;
 }
@@ -75,6 +80,8 @@ const childRows = (id: string) => ({
   quiz: rowsOf('SELECT count(*) AS n FROM quiz_results WHERE lesson_id = ?', id),
   turns: rowsOf('SELECT count(*) AS n FROM turns WHERE lesson_id = ?', id),
   usage: rowsOf('SELECT count(*) AS n FROM usage WHERE lesson_id = ?', id),
+  turn_messages: rowsOf('SELECT count(*) AS n FROM turn_messages WHERE lesson_id = ?', id),
+  tool_results: rowsOf('SELECT count(*) AS n FROM tool_results WHERE lesson_id = ?', id),
 });
 
 /** What a learner leaves behind in the ledger, whichever lesson the rows name. */
@@ -139,7 +146,7 @@ describe('deleteLesson', () => {
   it('leaves the lesson and every child row when a delete fails partway', () => {
     const id = lessonWithHistory('delete-rollback');
     const before = childRows(id);
-    assert.deepEqual(before, { lessons: 1, nodes: 3, events: 1, memory: 1, quiz: 1, turns: 1, usage: 1 });
+    assert.deepEqual(before, { lessons: 1, nodes: 3, events: 1, memory: 1, quiz: 1, turns: 1, usage: 1, turn_messages: 1, tool_results: 1 });
 
     // Memory and quiz rows are deleted before nodes are, so the transaction is
     // already partway through by the time the trigger fires.
@@ -152,7 +159,7 @@ describe('deleteLesson', () => {
     const id = lessonWithHistory('delete-ok');
     deleteLesson(id);
     assert.equal(getLesson(id), undefined);
-    assert.deepEqual(childRows(id), { lessons: 0, nodes: 0, events: 0, memory: 0, quiz: 0, turns: 0, usage: 0 });
+    assert.deepEqual(childRows(id), { lessons: 0, nodes: 0, events: 0, memory: 0, quiz: 0, turns: 0, usage: 0, turn_messages: 0, tool_results: 0 });
   });
 });
 
@@ -185,7 +192,7 @@ describe('deleteLearner', () => {
     assert.equal(getLesson('gone-l1'), undefined);
     assert.equal(getLesson('gone-l2'), undefined);
     assert.equal(rowsOf('SELECT count(*) AS n FROM learners WHERE id = ?', learner.id), 0);
-    assert.deepEqual(childRows('gone-l1'), { lessons: 0, nodes: 0, events: 0, memory: 0, quiz: 0, turns: 0, usage: 0 });
+    assert.deepEqual(childRows('gone-l1'), { lessons: 0, nodes: 0, events: 0, memory: 0, quiz: 0, turns: 0, usage: 0, turn_messages: 0, tool_results: 0 });
     assert.deepEqual(ledgerOf(learner.id), { turns: 0, usage: 0 });
   });
 });
@@ -201,7 +208,7 @@ describe('the usage ledger', () => {
 
     deleteLesson('ledger-l1');
 
-    assert.deepEqual(childRows('ledger-l1'), { lessons: 0, nodes: 0, events: 0, memory: 0, quiz: 0, turns: 0, usage: 0 });
+    assert.deepEqual(childRows('ledger-l1'), { lessons: 0, nodes: 0, events: 0, memory: 0, quiz: 0, turns: 0, usage: 0, turn_messages: 0, tool_results: 0 });
     assert.deepEqual(childRows('ledger-l2'), neighbour);
     assert.deepEqual(ledgerOf(learner.id), { turns: 1, usage: 1 });
   });
@@ -261,6 +268,44 @@ describe('the usage ledger', () => {
       others,
       'every other learner’s ledger is untouched',
     );
+  });
+});
+
+describe("the owned loop's resumable state", () => {
+  it('leaves no history and no recorded result behind a deleted lesson', () => {
+    const learner = createLearner('Resumable');
+    const id = lessonWithHistory('resume-l1', learner.id);
+    const turn = startTurn(id, 'anthropic', 'claude-opus-5-5');
+    saveTurnMessages(id, 'anthropic', [
+      { role: 'user', content: 'teach me' },
+      { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'c9', toolName: 'quiz', input: {} }] },
+      { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'c9', toolName: 'quiz', output: { type: 'json', value: { correct: true } } }] },
+    ]);
+    recordToolResult(turn, id, 'c9', 'quiz', { correct: true });
+    assert.equal(loadTurnMessages(id, 'anthropic').length, 3);
+    assert.deepEqual(recordedToolResult(turn, 'c9'), { tool: 'quiz', output: { correct: true } });
+
+    deleteLesson(id);
+
+    assert.deepEqual(childRows(id), { lessons: 0, nodes: 0, events: 0, memory: 0, quiz: 0, turns: 0, usage: 0, turn_messages: 0, tool_results: 0 });
+    assert.deepEqual(loadTurnMessages(id, 'anthropic'), []);
+  });
+
+  it('leaves none behind a deleted learner, and the bystander keeps theirs', () => {
+    const learner = createLearner('Resumable Gone');
+    lessonWithHistory('resume-gone-1', learner.id);
+    lessonWithHistory('resume-gone-2', learner.id);
+    const bystander = createLearner('Resumable Bystander');
+    lessonWithHistory('resume-bystander', bystander.id);
+    const kept = childRows('resume-bystander');
+    assert.deepEqual({ turn_messages: kept.turn_messages, tool_results: kept.tool_results }, { turn_messages: 1, tool_results: 1 });
+
+    deleteLearner(learner.id);
+
+    for (const id of ['resume-gone-1', 'resume-gone-2']) {
+      assert.deepEqual(childRows(id), { lessons: 0, nodes: 0, events: 0, memory: 0, quiz: 0, turns: 0, usage: 0, turn_messages: 0, tool_results: 0 });
+    }
+    assert.deepEqual(childRows('resume-bystander'), kept, 'another learner’s history and recorded results are untouched');
   });
 });
 

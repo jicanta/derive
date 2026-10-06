@@ -519,6 +519,61 @@ describe('the usage rows backfilled for turns the ledger never saw', () => {
   });
 });
 
+/** A database on version 5 — the last release with a bare-string learner model — carrying the given prefs and, where one is named, an active provider. */
+function atVersion5(prefs: Record<string, unknown>[], activeProvider?: string): string {
+  const file = legacyDatabase(scratch());
+  migrateTo(file, 5);
+  const db = new DatabaseSync(file);
+  const insert = db.prepare('INSERT INTO learners (id, name, prefs, created_at) VALUES (?, ?, ?, ?)');
+  prefs.forEach((p, i) => insert.run(`l${i}`, `Learner ${i}`, JSON.stringify(p), 1));
+  if (activeProvider) db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run('active_provider', activeProvider, 1);
+  db.close();
+  return file;
+}
+
+/** A learner's prefs column exactly as it is stored, so a case can compare the bytes rather than a re-serialised object. */
+function prefsOf(file: string, id: string): string | null {
+  const db = new DatabaseSync(file);
+  const row = db.prepare('SELECT prefs FROM learners WHERE id = ?').get(id) as { prefs: string | null } | undefined;
+  db.close();
+  return row?.prefs ?? null;
+}
+
+describe('the learner model moved onto its provider', () => {
+  it('pins LATEST_VERSION, so a migration that forgets to bump the number is visible', () => {
+    assert.equal(LATEST_VERSION, 7);
+  });
+
+  it('moves a bare string onto the provider that was active when it was stored', () => {
+    const file = atVersion5([{ language: 'Spanish', model: 'claude-opus-5-5' }], 'anthropic');
+    migrate(file);
+
+    assert.equal(userVersion(file), LATEST_VERSION);
+    assert.deepEqual(JSON.parse(prefsOf(file, 'l0')!), { language: 'Spanish', model: { anthropic: 'claude-opus-5-5' } });
+  });
+
+  it('falls back to claude-code with no active provider stored, and leaves every other shape byte-identical', () => {
+    // The resolver's own fallback when nothing has been detected, which is the
+    // closest honest answer: which provider an id was meant for was never
+    // written down, and nothing is inferred from the id's own text.
+    const file = atVersion5([{ model: 'claude-opus-5-5' }, { model: { openai: 'gpt-6-astra' } }, { how: 'tell me plainly' }]);
+    const already = prefsOf(file, 'l1');
+    const none = prefsOf(file, 'l2');
+
+    migrate(file);
+
+    assert.deepEqual(JSON.parse(prefsOf(file, 'l0')!), { model: { 'claude-code': 'claude-opus-5-5' } });
+    assert.equal(prefsOf(file, 'l1'), already, 'a model already keyed by provider is not rewritten');
+    assert.equal(prefsOf(file, 'l2'), none, 'a learner with no model at all is not rewritten');
+  });
+
+  it('falls back to claude-code when the stored provider is one that cannot teach', () => {
+    const file = atVersion5([{ model: 'claude-opus-5-5' }], 'ollama');
+    migrate(file);
+    assert.deepEqual(JSON.parse(prefsOf(file, 'l0')!), { model: { 'claude-code': 'claude-opus-5-5' } });
+  });
+});
+
 describe('the snapshot taken before migrating', () => {
   const backups = (dir: string) => readdirSync(dir).filter((f) => f.startsWith('derive.db.bak-'));
 

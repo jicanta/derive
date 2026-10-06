@@ -16,14 +16,14 @@ delete process.env.DERIVE_BACKEND;
 delete process.env.DERIVE_MODEL;
 delete process.env.ANTHROPIC_API_KEY;
 
-const { createLesson, lastTurn, listEvents, listUsage, setSetting } = await import('../src/db.js');
+const { createLesson, getLesson, lastTurn, listEvents, listUsage, loadTurnMessages, recordedToolResult, setSessionId, setSetting } = await import('../src/db.js');
 const { interrupt, runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
 const { subscribe } = await import('../src/events.js');
 const { setKey } = await import('../src/keys.js');
 const { answerPrompt, pendingId } = await import('../src/prompts.js');
 const { baseUrlKey } = await import('../src/settings.js');
-const { apiDriverFor, setModelOverride } = await import('../src/drivers/api.js');
+const { apiDriverFor, patchOrphans, setModelOverride, setStepCapOverride } = await import('../src/drivers/api.js');
 
 // A dynamic import cannot carry types across, and a static one would open the
 // database before the scratch directory above is set; these are type positions
@@ -44,6 +44,7 @@ const EVENT_TYPES = [
 after(() => {
   setModelOverride(null);
   setDriverOverride(null);
+  setStepCapOverride(null);
   rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -505,6 +506,256 @@ describe('a stop on a learner-supplied endpoint ends the turn exactly once', () 
       setModelOverride(null);
       unsubscribe();
       backToAnthropic();
+    }
+  });
+});
+
+/** A one-step turn that says exactly `text` and stops. */
+const says = (text: string, modelId = 'claude-opus-5-5') =>
+  new MockLanguageModelV4({
+    modelId,
+    doStream: [
+      step([
+        { type: 'stream-start', warnings: [] },
+        { type: 'text-start', id: 't1' },
+        { type: 'text-delta', id: 't1', delta: text },
+        { type: 'text-end', id: 't1' },
+        finish('stop', 'end_turn'),
+      ]),
+    ],
+  });
+
+/** The roles of a request's messages, which is where a persisted system message would show up. */
+const roles = (model: MockLanguageModelV4, call = 0) => model.doStreamCalls[call].prompt.map((m) => m.role);
+
+/** Drive one turn on an already-created lesson with a stub of this test's choosing. */
+async function turnWith(id: string, model: MockLanguageModelV4, prompt: string, provider: ProviderId = 'anthropic') {
+  setModelOverride(() => model);
+  setDriverOverride(apiDriverFor(provider));
+  try {
+    await runTurn(id, prompt);
+  } finally {
+    setDriverOverride(null);
+    setModelOverride(null);
+  }
+}
+
+/**
+ * Every assistant tool-call id in a request, with whether the same request
+ * answers it. A provider refuses a history that asks for a call and never
+ * answers it, so this is the shape the orphan patch exists to keep true.
+ */
+function callsOf(messages: { role: string; content: unknown }[]) {
+  const called: string[] = [];
+  const answered = new Set<string>();
+  for (const m of messages) {
+    if (!Array.isArray(m.content)) continue;
+    for (const part of m.content as { type: string; toolCallId?: string }[]) {
+      if (part.type === 'tool-call' && m.role === 'assistant') called.push(part.toolCallId!);
+      if (part.type === 'tool-result') answered.add(part.toolCallId!);
+    }
+  }
+  return called.map((id) => ({ id, answered: answered.has(id) }));
+}
+
+describe('a lesson resumes from the history it persisted', () => {
+  it("carries the first turn's messages into the second request, with no system message among them", async () => {
+    const id = randomUUID();
+    createLesson(id, 'Resume on the same provider');
+
+    const first = says('A line is a function.');
+    await turnWith(id, first, 'teach me');
+    const second = says('And so is a plane.');
+    await turnWith(id, second, 'go on');
+
+    // The history was loaded, not rebuilt: the first turn's prose and the
+    // learner's first message are both in the second request.
+    assert.deepEqual(roles(second), ['system', 'user', 'assistant', 'user']);
+    assert.ok(JSON.stringify(second.doStreamCalls[0].prompt[2]).includes('A line is a function.'), 'the first turn’s prose must be in the second request');
+    // Exactly one system message, and it is the one `instructions` supplies:
+    // the method text is rebuilt from method/ every turn, so a persisted system
+    // message would be stale method text.
+    assert.equal(roles(second).filter((r) => r === 'system').length, 1);
+    assert.deepEqual((loadTurnMessages(id, 'anthropic') as { role: string }[]).map((m) => m.role), ['user', 'assistant', 'user', 'assistant']);
+  });
+
+  it('drops the history and the session id together when the provider changes', async () => {
+    const id = randomUUID();
+    createLesson(id, 'Switched providers mid-lesson');
+
+    setSetting('active_provider', 'anthropic');
+    const first = says('On anthropic.');
+    await turnWith(id, first, 'teach me');
+    // The one comparison, from the other side: nothing is readable under a
+    // driver that did not write it, so the drop cannot be forgotten at a call
+    // site even before the row is cleared.
+    assert.deepEqual(loadTurnMessages(id, 'openai'), []);
+    // The owned loop issues no session id, so one is written here: the point of
+    // the case is that both die on the same comparison.
+    setSessionId(id, 's-anthropic');
+
+    setSetting('active_provider', 'openai');
+    try {
+      const second = says('On openai.', 'gpt-6-astra');
+      await turnWith(id, second, 'go on', 'openai');
+
+      assert.deepEqual(roles(second), ['system', 'user'], 'the second request carries none of the first turn’s parts');
+      assert.ok(!JSON.stringify(second.doStreamCalls[0].prompt).includes('On anthropic.'));
+      assert.equal(getLesson(id)!.session_id, null, 'the session id goes with the messages');
+      assert.deepEqual(loadTurnMessages(id, 'anthropic'), [], 'the row now belongs to openai');
+    } finally {
+      backToAnthropic();
+    }
+  });
+});
+
+describe('a stop leaves a history the next turn can be sent', () => {
+  it('synthesizes an error-text result for the call it orphaned, and the next request is well formed', async () => {
+    // A provider-executed call: the provider ran it and its result never
+    // arrived, which is the orphan shape with no race in it. The stream is slow
+    // enough that Stop lands after the call and before the stream ends.
+    const model = new MockLanguageModelV4({
+      modelId: 'claude-opus-5-5',
+      doStream: [
+        {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              { type: 'text-start', id: 't1' },
+              { type: 'text-delta', id: 't1', delta: 'Checking a source' },
+              { type: 'text-end', id: 't1' },
+              { type: 'tool-call', toolCallId: 'orphan-1', toolName: 'web_search', input: '{"query":"fourier"}', providerExecuted: true },
+              { type: 'text-start', id: 't2' },
+              { type: 'text-delta', id: 't2', delta: ' still waiting' },
+              { type: 'text-delta', id: 't2', delta: ' on it' },
+              { type: 'text-end', id: 't2' },
+              finish('stop', 'end_turn'),
+            ] as never[],
+            initialDelayInMs: 10,
+            chunkDelayInMs: 40,
+          }),
+        },
+      ],
+    });
+
+    const id = randomUUID();
+    createLesson(id, 'Stopped with a call in flight');
+    const live: StoredEvent[] = [];
+    const unsubscribe = subscribe(id, (ev) => live.push(ev));
+    setModelOverride(() => model);
+    setDriverOverride(apiDriverFor('anthropic'));
+    try {
+      const turn = runTurn(id, 'teach me');
+      await settle(() => (live.filter((e) => e.type === 'delta').length >= 2 ? true : null));
+      await interrupt(id);
+      await turn;
+    } finally {
+      setDriverOverride(null);
+      setModelOverride(null);
+      unsubscribe();
+    }
+
+    const ends = listEvents(id).filter((e) => e.type === 'turn_end');
+    assert.equal(ends.length, 1, 'a stopped turn must end exactly once');
+    assert.deepEqual(ends[0].payload, { ok: true, interrupted: true }, 'a Stop is interrupted, not failed');
+    assert.equal(lastTurn(id)!.status, 'interrupted');
+
+    const stored = loadTurnMessages(id, 'anthropic') as { role: string; content: unknown }[];
+    const patched = stored.find((m) => m.role === 'tool')!;
+    assert.ok(patched, 'the orphaned call must carry a result');
+    assert.deepEqual(patched.content, [
+      { type: 'tool-result', toolCallId: 'orphan-1', toolName: 'web_search', output: { type: 'error-text', value: 'The learner stopped the turn before this tool ran.' } },
+    ]);
+
+    // And the point of all of it: the next turn's request is a history the
+    // provider will accept, with every call answered.
+    const next = says('Carrying on.');
+    await turnWith(id, next, 'go on');
+    const calls = callsOf(next.doStreamCalls[0].prompt as unknown as { role: string; content: unknown }[]);
+    assert.deepEqual(calls, [{ id: 'orphan-1', answered: true }]);
+  });
+
+  it('answers each unanswered call once and leaves an answered one alone', () => {
+    // patchOrphans on its own, so the sentence and the shape are pinned
+    // independently of how a turn happens to end.
+    const messages = [
+      { role: 'assistant' as const, content: [{ type: 'tool-call' as const, toolCallId: 'a', toolName: 'quiz', input: {} }] },
+      { role: 'tool' as const, content: [{ type: 'tool-result' as const, toolCallId: 'a', toolName: 'quiz', output: { type: 'json' as const, value: { correct: true } } }] },
+      { role: 'assistant' as const, content: [{ type: 'tool-call' as const, toolCallId: 'b', toolName: 'ask', input: {} }] },
+    ];
+    assert.equal(patchOrphans(messages), 1);
+    assert.deepEqual(messages.at(-1), {
+      role: 'tool',
+      content: [{ type: 'tool-result', toolCallId: 'b', toolName: 'ask', output: { type: 'error-text', value: 'The learner stopped the turn before this tool ran.' } }],
+    });
+    // Idempotent: it runs on the abort part, in the catch and in the finally.
+    assert.equal(patchOrphans(messages), 0);
+    assert.equal(messages.length, 4);
+  });
+});
+
+describe('a replayed tool call returns its recorded result', () => {
+  it('runs the action exactly once when the same call id arrives on a later turn', async () => {
+    const id = randomUUID();
+    createLesson(id, 'A call replayed after a restart');
+    const fact = 'they think in pictures';
+    const calls = (modelId = 'claude-opus-5-5') =>
+      new MockLanguageModelV4({
+        modelId,
+        doStream: [
+          step([{ type: 'stream-start', warnings: [] }, toolCall('replay-1', 'remember', JSON.stringify({ fact })), finish('tool-calls', 'tool_use')]),
+          step([
+            { type: 'stream-start', warnings: [] },
+            { type: 'text-start', id: 't1' },
+            { type: 'text-delta', id: 't1', delta: 'Noted.' },
+            { type: 'text-end', id: 't1' },
+            finish('stop', 'end_turn'),
+          ]),
+        ],
+      });
+
+    await turnWith(id, calls(), 'teach me');
+    const firstTurn = lastTurn(id)!.id;
+    assert.deepEqual(recordedToolResult(firstTurn, 'replay-1'), { tool: 'remember', output: { ok: true } });
+    assert.equal(listEvents(id).filter((e) => e.type === 'memory').length, 1);
+
+    // The second turn is a new turn row, which is exactly the restart case: the
+    // guard is asked by lesson, so it still finds what the turn it replaces ran.
+    await turnWith(id, calls(), 'go on');
+
+    // The assertion that matters: a replay that re-ran a graded tool would move
+    // an FSRS row the learner already earned, so the action must not run twice.
+    assert.equal(listEvents(id).filter((e) => e.type === 'memory').length, 1, 'the action ran a second time: a replay must never re-grade');
+    const stored = loadTurnMessages(id, 'anthropic') as { role: string; content: unknown }[];
+    const results = stored.flatMap((m) => (Array.isArray(m.content) ? (m.content as { type: string; toolCallId?: string; output?: unknown }[]) : [])).filter((p) => p.type === 'tool-result');
+    assert.equal(results.length, 1, 'the history carries one result for the call, not two');
+    assert.deepEqual(results[0].output, { type: 'json', value: { ok: true } }, 'the replay returned the recorded result');
+  });
+});
+
+describe('the step cap is a runaway guard, not a failure', () => {
+  it('ends a turn that ran into it as interrupted, with the lesson still resumable', async () => {
+    setStepCapOverride(2);
+    try {
+      const model = new MockLanguageModelV4({
+        modelId: 'claude-opus-5-5',
+        doStream: [
+          step([{ type: 'stream-start', warnings: [] }, toolCall('cap-1', 'set_phase', '{"phase":"plan"}'), finish('tool-calls', 'tool_use')]),
+          step([{ type: 'stream-start', warnings: [] }, toolCall('cap-2', 'set_phase', '{"phase":"teach"}'), finish('tool-calls', 'tool_use')]),
+        ],
+      });
+      const { id, stored } = await turnOn(model);
+
+      const ends = stored.filter((e) => e.type === 'turn_end');
+      assert.equal(ends.length, 1);
+      assert.deepEqual(ends[0].payload, { ok: true, interrupted: true }, 'the cap is not an error card');
+      assert.equal(lastTurn(id)!.status, 'interrupted');
+      assert.equal(model.doStreamCalls.length, 2, 'the cap stopped the loop');
+      // Resumable: the next message continues from what this turn persisted.
+      assert.ok((loadTurnMessages(id, 'anthropic') as unknown[]).length > 0, 'the lesson must still have a history to resume from');
+      for (const ev of stored) assert.ok(EVENT_TYPES.includes(ev.type), `${ev.type} is not a type the web app knows`);
+    } finally {
+      setStepCapOverride(null);
     }
   });
 });
