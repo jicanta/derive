@@ -146,7 +146,10 @@ export function retryAfterMs(e: unknown): number | null {
  * means the window is used up and the caller should stop retrying.
  */
 export function retryDelay(attempt: number, afterMs: number | null, spent = 0): number {
-  const wanted = afterMs ?? RETRY_BASE_MS * 2 ** attempt * (1 + Math.random());
+  // A header of zero falls through to the backoff rather than being honoured:
+  // "retry immediately" from a provider that just said it was busy is how a
+  // rate limit becomes a tight loop hammering the same endpoint.
+  const wanted = afterMs !== null && afterMs > 0 ? afterMs : RETRY_BASE_MS * 2 ** attempt * (1 + Math.random());
   return Math.max(0, Math.min(Math.round(wanted), RETRY_WINDOW_MS - spent));
 }
 
@@ -193,7 +196,13 @@ async function waitOrStop(ms: number, signal: AbortSignal): Promise<void> {
  * the turn's abort signal, so the sleep can be raced against a Stop.
  */
 export async function withRetries(run: () => Promise<void>, sink: EventSink, ctx: TurnContext, gate: { label: string; signal: AbortSignal }): Promise<void> {
-  const started = Date.now();
+  // The window bounds how long the loop *waits*, summed from the delays it
+  // chose, rather than how long the whole sequence took on the wall clock. A
+  // provider that takes thirty seconds to answer each attempt is slow, not busy,
+  // and charging its own latency against the learner's patience would cut the
+  // retries short for the wrong reason. Everything that is not waiting is bounded
+  // by the step cap and by Stop.
+  let waited = 0;
   for (let attempt = 0; ; attempt += 1) {
     if (ctx.isStopping()) return;
     try {
@@ -203,7 +212,8 @@ export async function withRetries(run: () => Promise<void>, sink: EventSink, ctx
       // A Stop is not a provider failure: the learner asked for this ending.
       if (ctx.isStopping()) return;
       if (!retryable(e)) throw e;
-      const delay = retryDelay(attempt, retryAfterMs(e), Date.now() - started);
+      const delay = retryDelay(attempt, retryAfterMs(e), waited);
+      waited += delay;
       if (delay <= 0) {
         // The window ran out. The provider's own words reach the learner
         // unchanged, with Derive's fix hint on its own line beside them — the
@@ -216,8 +226,10 @@ export async function withRetries(run: () => Promise<void>, sink: EventSink, ctx
         sink.endTurn({ ok: false, error: safeMessage(hint ? `${sentence}\n${hint}` : sentence) });
         throw e;
       }
-      const until = Date.now() + delay;
-      for (let left = delay; left > 0; left = until - Date.now()) {
+      // One tick per whole second of the delay, counted down rather than read
+      // off the clock, so the line the learner reads and the time actually
+      // waited are the same number however long a tick takes to come back.
+      for (let left = delay; left > 0; left -= 1_000) {
         sink.emitEphemeral('status', { text: `Provider busy, retrying in ${Math.ceil(left / 1000)}s` });
         await waitOrStop(Math.min(1_000, left), gate.signal);
         if (ctx.isStopping()) return;
