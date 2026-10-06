@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: "Owned Loop: API Keys and Gateways"
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-10-06T22:03:43.012Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-10-06T22:54:54.070Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 03 execution started
-state_head: 2eb4623b5d08693db39f94794a9fb8713716cd9c
+state_head: c7258a6483b4adfef60710ebf25d4cf62e712eb0
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 38
-  completed_plans: 31
+  completed_plans: 32
   percent: 29
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-01)
 ## Current Position
 
 Phase: 03 (Owned Loop: API Keys and Gateways) — EXECUTING
-Plan: 3 of 9
+Plan: 4 of 9
 Status: Ready to execute
 Last activity: 2026-10-06 — Phase 03 execution started
 
@@ -86,6 +86,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02 P07 | 4min | 1 tasks | 5 files |
 | Phase 03 P01 | 14 min | 2 tasks | 9 files |
 | Phase 03 P02 | 22 min | 3 tasks | 6 files |
+| Phase 03 P03 | 39 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -171,6 +172,12 @@ Recent decisions affecting current work:
 - [Phase 03]: Per 03-01 Driver.name on the owned loop is the catalogue ProviderId (apiDriverFor(provider)), never the literal 'api', and apiDriver's name is a getter over currentTutor().provider — providerOfDriver is the identity outside 'claude', lessonView feeds it to the header pill and recordUsage denormalises turn.driver onto every usage row, so one driver named api would collapse five providers into one label in the ledger and in front of the learner
 - [Phase 03]: Per 03-01 usage.input_tokens on the owned loop is mapped from usage.inputTokenDetails.noCacheTokens, one row per finish-step, with cost_usd null and cost_source 'unknown' until the pricing table arrives — usage.inputTokens is a total that already includes cache reads and writes, where this repo's input_tokens column means the uncached part; mapping the total would make a well-cached lesson read as roughly twice the input it paid for
 - [Phase 03]: Per 03-01 a tool-serialisation assertion must be seen failing with the chain removed: the first version passed either way because every tutor action is synchronous, so two blocking ask cards are what proves it — An assertion the mechanism's absence can satisfy is not an assertion, and a gate that has not been seen failing is not known to be a gate (the project's own 01-21 rule)
+- [Phase 03]: Per 03-03 Adapter.cost takes a fourth parameter, the loop's count of provider-executed search tool calls, because the three-parameter type the plan declared cannot express the plan's own fallback — Anthropic's metadata count is preferred and the loop's count stands behind it, and the charge is folded into that request's cost_usd through cost.ts's costOf rather than given a column
+- [Phase 03]: Per 03-03 an adapter's table fallback prices through cost.ts's costOf with a synthesised ledger row rather than re-implementing the per-token arithmetic — a second copy is how a request's figure starts disagreeing with the lesson total printed beside it, and costOf's rules (unknown for a model the table lacks, no money for four null counts) come for free
+- [Phase 03]: Per 03-03 the catalogue now has seven teaching rows, not the six the plan's gate asserted: the four key-and-gateway flips plus claude-code, codex and anthropic; no row was demoted to satisfy the wrong number
+- [Phase 03]: Per 03-03 the openai-compatible row refuses with 'Choose a model for the endpoint first' when no model id resolves, because it is the one teaching row the catalogue carries no default for and an empty id would come back as somebody else's 400
+- [Phase 03]: Per 03-03 a model that silently lost all fourteen tools is a refusal, not a status line: the @ai-sdk/google unsupported-combination warning ends the turn ok false with a lowercase Derive sentence and persists no prose, because teaching with no tools is not teaching
+- [Phase 03]: Per 03-03 every new gate was seen failing with its mechanism removed before being kept (the refusal short-circuited, the per-lesson chain removed, the dotted OpenRouter slug restored to dashes), following the project's own 01-21 rule
 
 ### Pending Todos
 
@@ -199,6 +206,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-06T22:03:42.890Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-10-06T22:54:32.101Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
