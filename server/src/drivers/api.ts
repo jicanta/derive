@@ -26,8 +26,10 @@
 import { randomUUID } from 'node:crypto';
 import { APICallError, isStepCount, jsonSchema, streamText, tool, type JSONSchema7, type LanguageModel, type LanguageModelUsage, type ModelMessage, type ToolSet } from 'ai';
 import * as actions from '../actions.js';
+import { headroomCheck } from '../context.js';
 import { getSetting, loadTurnMessages, recordToolResult, recordedToolResult, saveTurnMessages, type UsageInput } from '../db.js';
 import { type Driver, type EventSink, type TurnContext } from '../driver.js';
+import { priceTable } from '../prices.js';
 import { hintFor, providerSentence } from '../probe.js';
 import { labelOf, type ProviderId } from '../providers.js';
 import { safeMessage } from '../secrets.js';
@@ -385,6 +387,28 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   // when the stored driver is not this one, so D-04's drop on a provider change
   // needs no branch here.
   const prior = loadTurnMessages(ctx.lessonId, provider) as ModelMessage[];
+
+  // Before the request, never after it: waiting for the provider to say no means
+  // five error shapes to recognise, a wasted request each time, and an
+  // unrecognised wording reaching the learner raw at the moment they most need a
+  // sentence that names the next step. The estimate is over the instructions,
+  // the serialised history and the prompt because those are the three things the
+  // request will carry; measuring the serialised history rather than its prose
+  // over-counts by the JSON envelope, which is the direction this estimate is
+  // meant to be wrong in.
+  const headroom = headroomCheck({ provider, model: ctx.model ?? null, instructions: ctx.instructions, messages: JSON.stringify(prior), prompt: ctx.prompt }, priceTable());
+  if (headroom.refuse) {
+    // Three endings, three shapes. A Stop and the step cap are *continuable*
+    // (`{ ok: true, interrupted: true }`: the lesson stays resumable and the
+    // learner's next message carries it on). This one is *failed*, because a
+    // lesson that no longer fits its model's window genuinely cannot continue —
+    // which is why it must not be folded into either of the other two. Nothing
+    // is compacted or summarised on the way here: the understanding gate would
+    // then rest on a summary the model wrote about itself.
+    sink.endTurn({ ok: false, error: headroom.reason });
+    return;
+  }
+
   // Accumulated as the stream yields rather than read from the SDK's
   // result.responseMessages, which rejects after an abort — the one moment the
   // history matters most.

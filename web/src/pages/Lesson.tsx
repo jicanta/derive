@@ -313,7 +313,7 @@ export function LessonPage() {
                   case 'error':
                     return (
                       <div key={it.seq} className="rounded-xl border border-rust-400/40 bg-rust-400/5 px-4 py-3 text-sm text-rust-400">
-                        {it.text}
+                        {withHomeLink(it.text)}
                       </div>
                     );
                 }
@@ -382,6 +382,37 @@ export function LessonPage() {
         </aside>
       </div>
     </div>
+  );
+}
+
+/**
+ * An error sentence with its one next step made reachable: the context-window
+ * refusal ends `… start a review lesson on these nodes from Home.`, so the word
+ * `Home` is the card's only link.
+ *
+ * There is deliberately no button, and the reason is recorded here so a future
+ * reader does not "fix" it by adding one: `api.startReview()` builds a review
+ * lesson from the due queue across every lesson, not from this lesson's nodes,
+ * so a button labelled "start a review lesson on these nodes" would review
+ * whatever happens to be due — which may not include a single node of the lesson
+ * that just refused. Naming the step and letting the learner go to Home is the
+ * only version that is literally true today.
+ *
+ * Every other error string reaching this card — an exhausted retry's provider
+ * sentence, a tool-dropping refusal — carries no `Home`, so it renders exactly
+ * as it did before: the split is once, on the literal word, or not at all.
+ */
+function withHomeLink(text: string) {
+  const at = text.indexOf('Home');
+  if (at < 0) return text;
+  return (
+    <>
+      {text.slice(0, at)}
+      <Link to="/" className="underline">
+        Home
+      </Link>
+      {text.slice(at + 'Home'.length)}
+    </>
   );
 }
 
