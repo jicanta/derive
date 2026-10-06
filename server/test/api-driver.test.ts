@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { APICallError } from 'ai';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 
 // db.ts opens the database on import and keys.ts reads the secrets file beside
@@ -16,14 +17,15 @@ delete process.env.DERIVE_BACKEND;
 delete process.env.DERIVE_MODEL;
 delete process.env.ANTHROPIC_API_KEY;
 
-const { createLesson, getLesson, lastTurn, listEvents, listUsage, loadTurnMessages, recordedToolResult, setSessionId, setSetting } = await import('../src/db.js');
+const { createLesson, getLesson, lastTurn, listEvents, listUsage, loadTurnMessages, recordedToolResult, saveTurnMessages, setSessionId, setSetting } = await import('../src/db.js');
 const { interrupt, runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
 const { subscribe } = await import('../src/events.js');
 const { setKey } = await import('../src/keys.js');
+const { windowOf } = await import('../src/pricing.js');
 const { answerPrompt, pendingId } = await import('../src/prompts.js');
 const { baseUrlKey } = await import('../src/settings.js');
-const { apiDriverFor, patchOrphans, setModelOverride, setStepCapOverride } = await import('../src/drivers/api.js');
+const { RETRY_BASE_MS, RETRY_WINDOW_MS, STEP_CAP, apiDriverFor, patchOrphans, retryAfterMs, retryDelay, setModelOverride, setSleepOverride, setStepCapOverride } = await import('../src/drivers/api.js');
 
 // A dynamic import cannot carry types across, and a static one would open the
 // database before the scratch directory above is set; these are type positions
@@ -45,6 +47,7 @@ after(() => {
   setModelOverride(null);
   setDriverOverride(null);
   setStepCapOverride(null);
+  setSleepOverride(null);
   rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -757,5 +760,356 @@ describe('the step cap is a runaway guard, not a failure', () => {
     } finally {
       setStepCapOverride(null);
     }
+  });
+});
+
+/** An `APICallError` the way a provider's own failure arrives: a status, the headers it carried and the body it sent. */
+const apiError = (over: { statusCode?: number; responseHeaders?: Record<string, string>; responseBody?: string; isRetryable?: boolean; message?: string }) =>
+  new APICallError({
+    message: over.message ?? 'the provider refused the request',
+    url: 'https://api.anthropic.com/v1/messages',
+    requestBodyValues: {},
+    statusCode: over.statusCode,
+    responseHeaders: over.responseHeaders,
+    responseBody: over.responseBody,
+    isRetryable: over.isRetryable,
+  });
+
+/** Every status line a run produced, in order. Status is ephemeral, so this only ever reads the live stream. */
+const statuses = (events: StoredEvent[]) => events.filter((e) => e.type === 'status').map((e) => String((e.payload as { text?: string }).text ?? ''));
+
+/** A stub that fails `times` times and then teaches one line. The failure is the same object every time, which is what a rate-limited provider behaves like. */
+function failsThen(error: unknown, times: number, modelId = 'claude-opus-5-5') {
+  let thrown = 0;
+  return new MockLanguageModelV4({
+    modelId,
+    doStream: async () => {
+      if (thrown < times) {
+        thrown += 1;
+        throw error;
+      }
+      return step([
+        { type: 'stream-start', warnings: [] },
+        { type: 'text-start', id: 't1' },
+        { type: 'text-delta', id: 't1', delta: 'Recovered.' },
+        { type: 'text-end', id: 't1' },
+        finish('stop', 'end_turn'),
+      ]);
+    },
+  });
+}
+
+describe('what the provider asked us to wait, and what the loop waits instead', () => {
+  it('reads retry-after-ms before retry-after, takes seconds or an HTTP date, and caps neither', () => {
+    assert.equal(retryAfterMs(apiError({ statusCode: 429, responseHeaders: { 'retry-after-ms': '1500' } })), 1500);
+    // The precise header wins where both are sent.
+    assert.equal(retryAfterMs(apiError({ statusCode: 429, responseHeaders: { 'retry-after-ms': '1500', 'retry-after': '90' } })), 1500);
+    // Ninety seconds means ninety seconds. The SDK's own retry caps this at 60 s
+    // and shows the learner nothing, which is the whole reason maxRetries is 0.
+    assert.equal(retryAfterMs(apiError({ statusCode: 429, responseHeaders: { 'retry-after': '90' } })), 90_000);
+    assert.notEqual(retryAfterMs(apiError({ statusCode: 429, responseHeaders: { 'retry-after': '90' } })), 60_000);
+
+    const inThirty = retryAfterMs(apiError({ statusCode: 429, responseHeaders: { 'retry-after': new Date(Date.now() + 30_000).toUTCString() } }));
+    assert.ok(typeof inThirty === 'number' && inThirty > 25_000 && inThirty <= 30_000, `an HTTP date read as ${inThirty}`);
+
+    assert.equal(retryAfterMs(apiError({ statusCode: 429 })), null, 'neither header present asks for nothing');
+    assert.equal(retryAfterMs(apiError({ statusCode: 429, responseHeaders: { 'retry-after': 'soon' } })), null, 'an unparseable value asks for nothing');
+    assert.equal(retryAfterMs(new Error('not a provider failure')), null);
+  });
+
+  it('honours a header delay, jitters its own, grows it, and never lets the cumulative wait pass the window', () => {
+    assert.equal(retryDelay(0, 2500), 2500, "a header value is taken as given");
+
+    const first = retryDelay(0, null);
+    assert.ok(first >= RETRY_BASE_MS && first <= RETRY_BASE_MS * 2, `the first delay was ${first}`);
+    const fourth = retryDelay(3, null);
+    assert.ok(fourth >= RETRY_BASE_MS * 8 && fourth <= RETRY_BASE_MS * 16, `the fourth delay was ${fourth}`);
+    assert.ok(fourth > first, 'the backoff must grow');
+
+    // Jitter, so two lessons hitting one provider's limit together do not retry
+    // in lockstep and re-trip it.
+    const spread = new Set(Array.from({ length: 24 }, () => retryDelay(3, null)));
+    assert.ok(spread.size > 1, 'the delay is not jittered');
+
+    // The clamp, from both sides: no single delay can push the total past the
+    // window, and a window already spent asks for no further wait at all.
+    for (const spent of [0, 60_000, 119_500, RETRY_WINDOW_MS]) {
+      const delay = retryDelay(0, 500_000, spent);
+      assert.ok(spent + delay <= RETRY_WINDOW_MS, `${spent} + ${delay} overran the window`);
+    }
+    assert.equal(retryDelay(0, 500_000, RETRY_WINDOW_MS), 0, 'a spent window asks for no more waiting');
+    assert.ok(retryDelay(30, null) <= RETRY_WINDOW_MS, 'an unbounded exponent must still be clamped');
+  });
+});
+
+describe('a busy provider is waited out, visibly, and nothing about the wait is kept', () => {
+  it('counts the backoff down in whole seconds, says so while the attempt is in flight, and persists none of it', async () => {
+    // Collapsed so the suite does not sleep: the countdown ticks once per whole
+    // second of the delay by construction, not by reading the clock, so the
+    // lines below are the ones a learner would really see.
+    setSleepOverride(async () => undefined);
+    try {
+      const model = failsThen(apiError({ statusCode: 429, responseHeaders: { 'retry-after': '3' }, responseBody: '{"error":{"message":"slow down"}}', isRetryable: true }), 1);
+      const { id, live, stored } = await turnOn(model);
+
+      const seen = statuses(live);
+      assert.ok(seen.some((t) => /^Provider busy, retrying in \d+s$/.test(t)), `no countdown line among ${JSON.stringify(seen)}`);
+      assert.ok(seen.includes('Provider busy, retrying now'), 'the countdown reached zero with no line saying the attempt was in flight');
+      // Three seconds asked for, three seconds counted: the number read and the
+      // time waited are the same number.
+      assert.deepEqual(seen.filter((t) => t.startsWith('Provider busy, retrying in')), ['Provider busy, retrying in 3s', 'Provider busy, retrying in 2s', 'Provider busy, retrying in 1s']);
+      // No attempt counter: `attempt 3 of 6` is machinery the learner cannot act on.
+      for (const t of seen) assert.ok(!/attempt/i.test(t), `a status line named an attempt: ${t}`);
+
+      // A transient stall is not part of what the learner learned, so it reaches
+      // neither the event log, the SSE replay nor their Obsidian notes.
+      assert.ok(!types(stored).includes('status'), 'a status line was persisted');
+      assert.ok(!JSON.stringify(stored).includes('Provider busy'), 'the stall reached the durable record');
+
+      assert.equal(model.doStreamCalls.length, 2, 'the loop retried exactly once');
+      const ends = stored.filter((e) => e.type === 'turn_end');
+      assert.equal(ends.length, 1);
+      assert.deepEqual(ends[0].payload, { ok: true, verified: 0 }, 'a survived rate limit is an ordinary turn');
+      assert.ok(JSON.stringify(stored).includes('Recovered.'), 'the lesson carried on after the wait');
+      assert.equal(listEvents(id).filter((e) => e.type === 'status').length, 0);
+      for (const ev of [...stored, ...live]) assert.ok(EVENT_TYPES.includes(ev.type), `${ev.type} is not a type the web app knows`);
+    } finally {
+      setSleepOverride(null);
+    }
+  });
+
+  it('ends the wait the moment the learner presses Stop, rather than at the end of the countdown', async () => {
+    // A tick that takes 50 ms rather than a second, so a ten-second backoff is
+    // observable inside a test. The wall clock therefore measures ticks, not
+    // seconds — which is why the assertions below are about how far the countdown
+    // got and how many attempts were made, not about elapsed milliseconds.
+    setSleepOverride((ms) => new Promise((r) => setTimeout(r, ms > 0 ? 50 : 0)));
+    const model = failsThen(apiError({ statusCode: 429, responseHeaders: { 'retry-after': '10' }, responseBody: '{"error":{"message":"slow down"}}', isRetryable: true }), Number.POSITIVE_INFINITY);
+    const id = randomUUID();
+    createLesson(id, 'Stopped while the provider was busy');
+    const live: StoredEvent[] = [];
+    const unsubscribe = subscribe(id, (ev) => live.push(ev));
+    setModelOverride(() => model);
+    setDriverOverride(apiDriverFor('anthropic'));
+    const began = Date.now();
+    try {
+      const turn = runTurn(id, 'teach me');
+      await settle(() => (statuses(live).some((t) => t.startsWith('Provider busy, retrying in')) ? true : null));
+      await interrupt(id);
+      await turn;
+    } finally {
+      setDriverOverride(null);
+      setModelOverride(null);
+      setSleepOverride(null);
+      unsubscribe();
+    }
+
+    const ticks = statuses(live).filter((t) => t.startsWith('Provider busy, retrying in')).length;
+    assert.ok(ticks > 0 && ticks < 10, `the countdown ran to ${ticks} of its ten ticks instead of being cut short`);
+    assert.equal(model.doStreamCalls.length, 1, 'the Stop must land inside the first backoff, not after a second attempt');
+    assert.ok(Date.now() - began < RETRY_WINDOW_MS, 'the turn waited out the whole window');
+
+    const ends = listEvents(id).filter((e) => e.type === 'turn_end');
+    assert.equal(ends.length, 1, 'a stopped turn must end exactly once');
+    assert.deepEqual(ends[0].payload, { ok: true, interrupted: true }, 'a Stop during a backoff is interrupted, not failed');
+    assert.equal(lastTurn(id)!.status, 'interrupted');
+  });
+
+  it("ends an exhausted retry in the provider's own sentence, with derive's hint on its own line", async () => {
+    setSleepOverride(async () => undefined);
+    try {
+      const model = failsThen(
+        apiError({ statusCode: 429, responseBody: '{"error":{"message":"rate limit exceeded for requests per minute"}}', isRetryable: true }),
+        Number.POSITIVE_INFINITY,
+      );
+      const { id, live, stored } = await turnOn(model);
+
+      const ends = stored.filter((e) => e.type === 'turn_end');
+      assert.equal(ends.length, 1, 'the turn must end exactly once');
+      const payload = ends[0].payload as { ok: boolean; error: string };
+      assert.equal(payload.ok, false, 'an exhausted retry is a failed turn');
+      // The provider's own words, unchanged: providerSentence's `${status} ${message}`.
+      assert.ok(payload.error.startsWith('429 rate limit exceeded for requests per minute'), `the provider's sentence is missing from ${JSON.stringify(payload.error)}`);
+      // Derive's fix hint beside them, on its own line — never folded into the
+      // provider's sentence and never a paraphrase of it.
+      assert.ok(payload.error.includes('\n'), "derive's hint must be on its own line");
+      assert.equal(payload.error.split('\n')[1], 'Rate limited; wait a moment and test again.');
+      // Every other error string reaching the browser's error card carries no
+      // `Home`, so the card's one-link split leaves them rendering as plain text.
+      assert.ok(!payload.error.includes('Home'), 'an error string carrying Home would be split by the refusal card renderer');
+
+      assert.ok(model.doStreamCalls.length > 1, 'the loop must have been patient before giving up');
+      assert.ok(!types(stored).includes('status'), 'the ephemeral countdown must not survive in the record');
+      assert.ok(!JSON.stringify(stored).includes('Provider busy'), 'the stall reached the durable record');
+      assert.ok(statuses(live).some((t) => t.startsWith('Provider busy, retrying in')), 'the learner was given no visible reason for the wait');
+      assert.equal(lastTurn(id)!.status, 'error');
+      for (const ev of [...stored, ...live]) assert.ok(EVENT_TYPES.includes(ev.type), `${ev.type} is not a type the web app knows`);
+    } finally {
+      setSleepOverride(null);
+    }
+  });
+
+  it('fails a refused key immediately, without pretending it was a rate limit', async () => {
+    setSleepOverride(async () => undefined);
+    try {
+      const model = failsThen(
+        apiError({ statusCode: 401, responseBody: '{"error":{"message":"invalid x-api-key"}}', isRetryable: false, message: 'invalid x-api-key' }),
+        Number.POSITIVE_INFINITY,
+      );
+      const { live, stored } = await turnOn(model);
+
+      // A wrong key must not spend two minutes behind a `Provider busy` line.
+      assert.equal(model.doStreamCalls.length, 1, 'a non-retryable failure must not be retried');
+      assert.ok(!statuses(live).some((t) => t.startsWith('Provider busy')), 'a refused key was shown as a busy provider');
+      const ends = stored.filter((e) => e.type === 'turn_end');
+      assert.equal(ends.length, 1);
+      assert.equal((ends[0].payload as { ok: boolean }).ok, false);
+    } finally {
+      setSleepOverride(null);
+    }
+  });
+});
+
+/** The verbatim refusal from 03-UI-SPEC.md §Copywriting Contract → Context-window refusal (A6), em dash and full stop included. */
+const REFUSAL = 'This lesson has grown too long to continue. Everything you locked is saved — start a review lesson on these nodes from Home.';
+
+/** A history long enough to overrun a one-million-token window at three characters per token with twenty per cent held back. */
+const tooLong = () => [{ role: 'user', content: 'x'.repeat(2_500_000) }];
+
+describe('a lesson that outgrew the model’s window is refused before the request', () => {
+  it('makes no request at all, and ends the turn failed with derive’s own sentence', async () => {
+    assert.equal(windowOf('anthropic', 'claude-opus-5-5'), 1_000_000, 'the case rests on the table carrying a window for this model');
+
+    const id = randomUUID();
+    createLesson(id, 'A lesson that grew too long');
+    saveTurnMessages(id, 'anthropic', tooLong());
+
+    const model = says('This should never be asked for.');
+    await turnWith(id, model, 'go on');
+
+    // The whole point of checking before the request: the learner gets Derive's
+    // sentence rather than one of five provider error shapes, and pays for
+    // nothing.
+    assert.ok(model.doStreamCalls.length === 0, 'the request was made anyway');
+    const ends = listEvents(id).filter((e) => e.type === 'turn_end');
+    assert.equal(ends.length, 1, 'the refusal must end the turn exactly once');
+    assert.deepEqual(ends[0].payload, { ok: false, error: REFUSAL });
+    // Failed, not interrupted: a lesson that no longer fits its window cannot
+    // continue, which is what separates this from a Stop and from the step cap.
+    assert.equal(lastTurn(id)!.status, 'error');
+    for (const ev of listEvents(id)) assert.ok(EVENT_TYPES.includes(ev.type), `${ev.type} is not a type the web app knows`);
+  });
+
+  it('does not refuse a model the table has no window for', async () => {
+    assert.equal(windowOf('openai-compatible', 'some-model-of-my-own'), undefined, 'the abstain case rests on the table carrying no window');
+
+    const id = randomUUID();
+    createLesson(id, 'A long lesson on my own endpoint');
+    saveTurnMessages(id, 'openai-compatible', tooLong());
+    setSetting('active_provider', 'openai-compatible');
+    try {
+      const model = says('Carrying on regardless.', 'some-model-of-my-own');
+      await turnWith(id, model, 'go on', 'openai-compatible');
+
+      // Refusing a learner's perfectly capable endpoint on a guessed window
+      // would be worse than letting that endpoint's own error through.
+      assert.equal(model.doStreamCalls.length, 1, 'an unlisted window must abstain, not refuse');
+      const ends = listEvents(id).filter((e) => e.type === 'turn_end');
+      assert.equal((ends.at(-1)!.payload as { ok: boolean }).ok, true);
+    } finally {
+      backToAnthropic();
+    }
+  });
+
+  it('gives a learner who retries one card per attempt, with no deduplication and no counter', async () => {
+    const id = randomUUID();
+    createLesson(id, 'Refused twice');
+    saveTurnMessages(id, 'anthropic', tooLong());
+
+    await turnWith(id, says('never asked'), 'go on');
+    await turnWith(id, says('never asked'), 'and again');
+
+    const refusals = listEvents(id).filter((e) => e.type === 'turn_end' && (e.payload as { ok: boolean }).ok === false);
+    assert.equal(refusals.length, 2, 'two attempts must leave two timeline items');
+    for (const r of refusals) assert.deepEqual(r.payload, { ok: false, error: REFUSAL });
+  });
+});
+
+describe('three endings, three shapes', () => {
+  it('keeps a stop and the step cap continuable while the refusal is failed', async () => {
+    // Why the distinction matters: a continuable end leaves the lesson
+    // resumable, so the learner's next message carries it on; a failed end tells
+    // them it cannot continue. Folding the three into one shape would either
+    // strand a resumable lesson behind an error card or quietly promise that a
+    // lesson which no longer fits its window can be continued.
+    assert.equal(STEP_CAP, 400, 'the production cap is the Claude driver’s own maxTurns');
+
+    const stopped = randomUUID();
+    createLesson(stopped, 'Ending one: a stop');
+    const slow = new MockLanguageModelV4({
+      modelId: 'claude-opus-5-5',
+      doStream: [
+        {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              { type: 'text-start', id: 't1' },
+              { type: 'text-delta', id: 't1', delta: 'Going' },
+              { type: 'text-delta', id: 't1', delta: ' slowly' },
+              { type: 'text-end', id: 't1' },
+              finish('stop', 'end_turn'),
+            ] as never[],
+            initialDelayInMs: 10,
+            chunkDelayInMs: 60,
+          }),
+        },
+      ],
+    });
+    const liveStop: StoredEvent[] = [];
+    const un = subscribe(stopped, (ev) => liveStop.push(ev));
+    setModelOverride(() => slow);
+    setDriverOverride(apiDriverFor('anthropic'));
+    try {
+      const turn = runTurn(stopped, 'teach me');
+      await settle(() => liveStop.find((e) => e.type === 'delta') ?? null);
+      await interrupt(stopped);
+      await turn;
+    } finally {
+      setDriverOverride(null);
+      setModelOverride(null);
+      un();
+    }
+
+    const capped = randomUUID();
+    createLesson(capped, 'Ending two: the step cap');
+    setStepCapOverride(2);
+    try {
+      await turnWith(
+        capped,
+        new MockLanguageModelV4({
+          modelId: 'claude-opus-5-5',
+          doStream: [
+            step([{ type: 'stream-start', warnings: [] }, toolCall('three-1', 'set_phase', '{"phase":"plan"}'), finish('tool-calls', 'tool_use')]),
+            step([{ type: 'stream-start', warnings: [] }, toolCall('three-2', 'set_phase', '{"phase":"teach"}'), finish('tool-calls', 'tool_use')]),
+          ],
+        }),
+        'teach me',
+      );
+    } finally {
+      setStepCapOverride(null);
+    }
+
+    const refused = randomUUID();
+    createLesson(refused, 'Ending three: the refusal');
+    saveTurnMessages(refused, 'anthropic', tooLong());
+    await turnWith(refused, says('never asked'), 'go on');
+
+    const endOf = (lesson: string) => listEvents(lesson).filter((e) => e.type === 'turn_end').at(-1)!.payload as Record<string, unknown>;
+    assert.deepEqual(endOf(stopped), { ok: true, interrupted: true }, 'a stop stays resumable');
+    assert.deepEqual(endOf(capped), { ok: true, interrupted: true }, 'the cap is a runaway guard, not a failure');
+    assert.deepEqual(endOf(refused), { ok: false, error: REFUSAL }, 'the refusal says the lesson cannot continue');
+    assert.equal(lastTurn(stopped)!.status, 'interrupted');
+    assert.equal(lastTurn(capped)!.status, 'interrupted');
+    assert.equal(lastTurn(refused)!.status, 'error');
   });
 });

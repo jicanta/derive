@@ -509,6 +509,11 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
       maxRetries: 0,
       abortSignal: controller.signal,
       providerOptions: adapter.providerOptions,
+      // The SDK's own default here is `console.error(error)`, which would dump a
+      // stack trace to the learner's terminal on every tick of an ordinary rate
+      // limit. The failure already reaches them through the `error` part below,
+      // so the loop is the one place it is reported.
+      onError: () => undefined,
     });
 
     for await (const part of r.fullStream) {
