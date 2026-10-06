@@ -258,11 +258,17 @@ export function adapterFor(provider: ProviderId): Adapter {
           // same refusal sentence probe.ts already answers the learner with
           // when there is none.
           if (!base) throw new Error("Add the endpoint's base URL first");
+          // This is the one teaching row the catalogue carries no default model
+          // for, because only the learner knows what their endpoint serves. An
+          // empty id would go out as one and come back as somebody else's 400,
+          // so it is refused here with a sentence in the same voice as the one
+          // above.
+          if (!modelId) throw new Error('Choose a model for the endpoint first');
           // includeUsage defaults to undefined (false): without it the endpoint
           // reports no usage at all and every lesson on this row would read
           // `not reported`. An endpoint that still reports nothing is the honest
           // blank, not a bug.
-          return createOpenAICompatible({ name: 'openai-compatible', apiKey: key, baseURL: v1(base), includeUsage: true, fetch: noRedirectFetch })(modelId ?? '');
+          return createOpenAICompatible({ name: 'openai-compatible', apiKey: key, baseURL: v1(base), includeUsage: true, fetch: noRedirectFetch })(modelId);
         },
         search: () => null,
         // The model behind a learner's own endpoint is not in the table, and

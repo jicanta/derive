@@ -1106,6 +1106,27 @@ describe('the resolver, in process', () => {
     assert.deepEqual(PROVIDERS.filter((p) => p.optionalKey).map((p) => p.id), ['lmstudio', 'llamacpp']);
   });
 
+  it('gives every teaching row a model id its provider will actually serve', () => {
+    // Three rows carry no catalogue default on purpose: the two logins take
+    // their own CLI's default, and only the learner knows what their own
+    // endpoint serves — the adapter refuses that row with its own sentence
+    // rather than sending an empty model id.
+    const ownDefault = ['claude-code', 'codex', 'openai-compatible'];
+    for (const p of PROVIDERS.filter((x) => x.teaches)) {
+      if (ownDefault.includes(p.id)) {
+        assert.equal(p.defaultModel, null, `${p.id} names a default model that is not the catalogue's to name`);
+        continue;
+      }
+      assert.ok(typeof p.defaultModel === 'string' && p.defaultModel.length > 0, `${p.id} teaches with no default model, so a fresh lesson on it has nothing to run`);
+    }
+    const slug = providerOf('openrouter')!.defaultModel!;
+    assert.ok(slug.includes('/'), "OpenRouter names a model as vendor/model, so a bare id would not resolve");
+    assert.ok(
+      !slug.includes('-5-5'),
+      "OpenRouter spells its slugs with dots where Anthropic's own ids use dashes: a catalogue default the gateway does not serve fails every fresh lesson on that row with a model-not-found error from the gateway, which reads to the learner as Derive being broken",
+    );
+  });
+
   it('detects in the order the old memo used: Claude, then Codex, then Claude', () => {
     deleteSetting(ACTIVE_PROVIDER);
     rememberDetection({ logins: { 'claude-code': true, codex: true } });
