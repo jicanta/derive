@@ -37,6 +37,13 @@ export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /** Everything a driver needs to run one turn. A driver reads its inputs here and nowhere else, so it has no hidden state. */
 export type TurnContext = {
   lessonId: string;
+  /**
+   * The turn row this run was opened as — the same id the sink files usage
+   * under, never a second identifier. A driver that runs tools itself records
+   * each executed call against it, so a turn resumed after a crash returns the
+   * recorded result instead of running a graded tool a second time.
+   */
+  turnId: string;
   /** The learner's message, with any pending notices already folded in. */
   prompt: string;
   /** The whole system prompt: the method, the material, the library and the learner profile. */

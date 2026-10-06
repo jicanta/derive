@@ -3,7 +3,7 @@ import { createSdkMcpServer, query, tool, type SDKMessage } from '@anthropic-ai/
 import * as actions from './actions.js';
 import { codexDriver, type Active } from './codex.js';
 import { DATA_DIR, EFFORT, VERSION } from './config.js';
-import { clearSessionId, getLesson, lastTurn, learnerProfile, startTurn } from './db.js';
+import { clearSessionId, clearTurnMessages, getLesson, lastTurn, learnerProfile, startTurn } from './db.js';
 import { driverOverride, sinkFor, type Driver, type EventSink, type TurnContext } from './driver.js';
 import { apiDriverFor } from './drivers/api.js';
 import { emit } from './events.js';
@@ -264,9 +264,17 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   // changed since the last turn, the lesson starts a fresh provider
   // conversation; a model change on the same provider keeps resuming. On the
   // owned loop `driver.name` already is the catalogue provider id, so this
-  // reads as the comparison of providers D-04 actually means.
+  // reads as the comparison of providers D-04 actually means. The persisted
+  // messages go with the session id on the same comparison and for the same
+  // reason: a provider's reasoning signatures and thought signatures are not
+  // portable, so carrying a history across a switch would replay one vendor's
+  // opaque blocks into another that rejects them. The tutor rebuilds from the
+  // lesson's events and nodes instead.
   const last = lastTurn(lessonId);
-  if (last && last.driver !== driver.name && lesson.session_id) clearSessionId(lessonId);
+  if (last && last.driver !== driver.name) {
+    if (lesson.session_id) clearSessionId(lessonId);
+    clearTurnMessages(lessonId);
+  }
   const turnId = startTurn(lessonId, driver.name, tutor.model);
   emit(lessonId, 'turn_start', { provider: tutor.provider, model: tutor.model });
 
@@ -279,6 +287,7 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   // the teardown after — is the same whichever driver runs.
   const ctx: TurnContext = {
     lessonId,
+    turnId,
     prompt,
     instructions,
     model: tutor.model ?? undefined,

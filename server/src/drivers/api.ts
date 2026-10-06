@@ -26,7 +26,7 @@
 import { randomUUID } from 'node:crypto';
 import { isStepCount, jsonSchema, streamText, tool, type JSONSchema7, type LanguageModel, type LanguageModelUsage, type ModelMessage, type ToolSet } from 'ai';
 import * as actions from '../actions.js';
-import { getSetting, type UsageInput } from '../db.js';
+import { getSetting, loadTurnMessages, recordToolResult, recordedToolResult, saveTurnMessages, type UsageInput } from '../db.js';
 import { type Driver, type EventSink, type TurnContext } from '../driver.js';
 import { type ProviderId } from '../providers.js';
 import { safeMessage } from '../secrets.js';
@@ -53,6 +53,80 @@ export function setModelOverride(factory: ModelFactory | null) {
 
 export function modelOverride(): ModelFactory | null {
   return modelFactory;
+}
+
+/**
+ * How many model calls one turn may make.
+ *
+ * 400 mirrors the Claude driver's `maxTurns: 400` so no existing lesson behaves
+ * differently. It is a runaway guard, not a teaching limit: reaching it ends
+ * the turn through the normal `turn_end` with the same continuable shape a Stop
+ * produces, so the learner's next message carries the lesson on.
+ */
+const STEP_CAP = 400;
+
+/**
+ * A lower cap, for the suite. Same spirit as `setModelOverride` and
+ * `driver.ts`'s `setDriverOverride`: no route, header, environment variable or
+ * config file can set it, and the production path still runs on `STEP_CAP`. It
+ * exists because the only honest way to assert the cap's own branch is to reach
+ * it, and scripting four hundred stub steps asserts the stub.
+ */
+let capOverride: number | null = null;
+
+export function setStepCapOverride(n: number | null) {
+  capOverride = n;
+}
+
+const stepCap = () => capOverride ?? STEP_CAP;
+
+/** What the model is told about a tool call the learner's Stop cut short. */
+const STOPPED_BEFORE_TOOL = 'The learner stopped the turn before this tool ran.';
+
+/** The output half of a `ToolResultPart`, read off `ModelMessage` rather than imported: `@ai-sdk/provider-utils` declares it but is not a direct dependency of this package. */
+type ToolResultOutput = Extract<Extract<ModelMessage, { role: 'tool' }>['content'][number], { type: 'tool-result' }>['output'];
+
+/** The roles a lesson's history keeps. A system message is never one of them: the method text is rebuilt from `method/` every turn and rides `instructions`, so a persisted one would be stale method text. */
+const PERSISTED_ROLES = new Set(['assistant', 'tool', 'user']);
+
+/** Every tool call id the history already carries a result for, whichever message it sits on. */
+function answeredIds(messages: ModelMessage[]): Set<string> {
+  const ids = new Set<string>();
+  for (const m of messages) {
+    if (!Array.isArray(m.content)) continue;
+    for (const part of m.content) if (part.type === 'tool-result') ids.add(part.toolCallId);
+  }
+  return ids;
+}
+
+/**
+ * Give every tool call an abort left unanswered a synthesized error result.
+ *
+ * A provider refuses a request whose history asks for a tool call and never
+ * answers it, so without this the turn the learner stopped would be the last
+ * one the lesson could ever run. `error-text` is the purpose-built
+ * `ToolResultOutput` shape and every provider adapter maps it to its own
+ * error-result encoding.
+ *
+ * Idempotent, so it can run on the abort part, in the catch and again in the
+ * finally without inventing a second result for the same call. Returns how many
+ * it answered.
+ */
+export function patchOrphans(messages: ModelMessage[]): number {
+  const answered = answeredIds(messages);
+  const orphans: { toolCallId: string; toolName: string }[] = [];
+  for (const m of messages) {
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+    for (const part of m.content) {
+      if (part.type !== 'tool-call' || answered.has(part.toolCallId)) continue;
+      answered.add(part.toolCallId);
+      orphans.push({ toolCallId: part.toolCallId, toolName: part.toolName });
+    }
+  }
+  for (const o of orphans) {
+    messages.push({ role: 'tool', content: [{ type: 'tool-result', toolCallId: o.toolCallId, toolName: o.toolName, output: { type: 'error-text', value: STOPPED_BEFORE_TOOL } }] });
+  }
+  return orphans.length;
 }
 
 /**
@@ -90,8 +164,16 @@ const DROPS_THE_TOOLS = /combination of function and provider-defined tools/i;
 /** What the learner is told when that happens. Lowercase like every Derive sentence, and it names the next step rather than the library that did it. */
 const NO_TOOLS_WITH_SEARCH = "this model cannot use derive's tools and a web search tool together; pick a newer model, or set web search to tavily or searxng in settings";
 
-/** Every tutor tool, as the SDK takes them: the registry's description, a pre-projected JSON Schema, and an execute that only dispatches. */
-function buildTools(lessonId: string, sink: EventSink): ToolSet {
+/**
+ * Every tutor tool, as the SDK takes them: the registry's description, a
+ * pre-projected JSON Schema, and an execute that replays, dispatches and
+ * records.
+ *
+ * `answer` is how a result reaches the turn's history. It is called from inside
+ * the mutex in the same step as the record, so the replay guard and the history
+ * can never disagree about whether a call ran.
+ */
+function buildTools(ctx: TurnContext, sink: EventSink, answer: (toolCallId: string, toolName: string, output: ToolResultOutput) => void): ToolSet {
   const set: ToolSet = {};
   for (const spec of toolsFor('agent')) {
     set[spec.name] = tool({
@@ -101,10 +183,23 @@ function buildTools(lessonId: string, sink: EventSink): ToolSet {
       // draft-2020-12, so the bytes on the wire would stop matching
       // server/test/wire-surface.json.
       inputSchema: jsonSchema<Record<string, unknown>>(jsonSchemaOf(spec, 'agent') as JSONSchema7),
-      execute: async (input: Record<string, unknown>) =>
-        serialise(lessonId, async () => {
+      execute: async (input: Record<string, unknown>, { toolCallId }) =>
+        serialise(ctx.lessonId, async () => {
+          // D-07's replay guard, inside the mutex and before anything else.
+          // This is the only version under which resuming cannot re-grade a
+          // quiz, and a re-graded quiz moves an FSRS row the learner already
+          // earned — a change to their memory record made by a crash rather
+          // than by them.
+          const recorded = recordedToolResult(ctx.turnId, toolCallId);
+          if (recorded) {
+            answer(toolCallId, spec.name, { type: 'json', value: recorded.output as never });
+            return recorded.output;
+          }
           sink.emitEphemeral('status', { text: TOOL_LABELS[spec.name] ?? `Using ${spec.name}` });
-          return await actions.runTool(lessonId, spec.name, input);
+          const out = await actions.runTool(ctx.lessonId, spec.name, input);
+          recordToolResult(ctx.turnId, ctx.lessonId, toolCallId, spec.name, out);
+          answer(toolCallId, spec.name, { type: 'json', value: out as never });
+          return out;
         }),
     });
   }
@@ -125,10 +220,43 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   ctx.onActive({ interrupt: async () => controller.abort() });
 
   const names = toolsFor('agent').map((s) => s.name);
-  // The turn's history, accumulated as the stream yields rather than read from
-  // result.responseMessages, which rejects after an abort. Plan 03-04 persists
-  // this; here it is what the step after a tool call is built from.
-  const messages: ModelMessage[] = [{ role: 'user', content: ctx.prompt }];
+  // The lesson's own history, loaded before the request so an interrupted turn
+  // costs a turn rather than the lesson. loadTurnMessages answers with nothing
+  // when the stored driver is not this one, so D-04's drop on a provider change
+  // needs no branch here.
+  const prior = loadTurnMessages(ctx.lessonId, provider) as ModelMessage[];
+  // Accumulated as the stream yields rather than read from the SDK's
+  // result.responseMessages, which rejects after an abort — the one moment the
+  // history matters most.
+  const messages: ModelMessage[] = [...prior, { role: 'user', content: ctx.prompt }];
+  // Set when a warning says the model received a search tool instead of
+  // Derive's; the turn is ended with this sentence before anything unwinds, so
+  // the idempotent endTurn keeps it as the one thing the lesson records.
+  let refused = false;
+  // Every part is persisted verbatim, `providerOptions` included: Anthropic's
+  // compaction signature and Google's per-block signature live there and are
+  // round-tripped on the next turn, so nothing here filters or rewrites one.
+  // Reasoning never reaches this array at all — D-09 keeps it out of SQLite
+  // entirely — so there is none to carry forward.
+  const persist = () => {
+    // A refused turn is not a lesson: nothing the model said under a tool set
+    // it could not teach with belongs in the history the next turn resumes.
+    if (refused) return;
+    try {
+      saveTurnMessages(ctx.lessonId, provider, messages.filter((m) => PERSISTED_ROLES.has(m.role)));
+    } catch (e) {
+      // Best effort, and on purpose: a turn that cannot save its history must
+      // still end, or the lesson reads busy until the next boot sweep.
+      console.error('[turn]', e);
+    }
+  };
+  const answered = answeredIds(messages);
+  const answer = (toolCallId: string, toolName: string, output: ToolResultOutput) => {
+    if (answered.has(toolCallId)) return;
+    answered.add(toolCallId);
+    messages.push({ role: 'tool', content: [{ type: 'tool-result', toolCallId, toolName, output }] });
+    persist();
+  };
 
   // A text block is persisted the moment it starts and rewritten in place as it
   // grows (checkpointed every ~1.5 s, finalised at block end), so the learner
@@ -137,23 +265,26 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   let blockId: string | null = null;
   let blockSeq: number | null = null;
   let blockText = '';
+  let blockMeta: Record<string, unknown> | null = null;
   let lastCheckpoint = 0;
   let verified = 0;
+  // Model calls made, against the cap. A turn that reaches it ends continuable.
+  let steps = 0;
   // The provider's own searches in the step now running, counted from the
   // provider-executed tool calls because that path works the same on every
   // provider where the metadata path does not. Reset at each finish-step, so a
   // step is priced for its own searches and not the turn's.
   const searchTool = searchCountOf(provider);
   let searches = 0;
-  // Set when a warning says the model received a search tool instead of
-  // Derive's; the turn is ended with this sentence before anything unwinds, so
-  // the idempotent endTurn keeps it as the one thing the lesson records.
-  let refused = false;
   const flushBlock = () => {
     if (blockId && blockSeq !== null) sink.emitUpdate(blockSeq, 'assistant', { id: blockId, text: blockText });
+    // The same prose, in the history the next turn resumes from: the learner's
+    // log and the model's own record of what it said stay the same text.
+    if (blockText) messages.push({ role: 'assistant', content: [{ type: 'text', text: blockText, ...(blockMeta ? { providerOptions: blockMeta as never } : {}) }] });
     blockId = null;
     blockSeq = null;
     blockText = '';
+    blockMeta = null;
   };
 
   try {
@@ -164,15 +295,12 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
       // system message inside `messages` would be refused outright.
       instructions: [{ role: 'system', content: ctx.instructions }],
       messages,
-      tools: buildTools(ctx.lessonId, sink),
+      tools: buildTools(ctx, sink, answer),
       toolOrder: names,
-      // 400 mirrors today's maxTurns: 400 so no existing lesson behaves
-      // differently; the unit here is model calls rather than agent turns, and
-      // the cap is a runaway guard rather than a teaching limit — hitting it
-      // ends the turn through the normal turn_end with a continuable status,
-      // the same shape as a Stop. It is passed explicitly because streamText's
-      // own default is a single step.
-      stopWhen: isStepCount(400),
+      // The unit here is model calls rather than agent turns. Passed explicitly
+      // because streamText's own default is a single step; see STEP_CAP for why
+      // reaching it is a continuable ending rather than an error.
+      stopWhen: isStepCount(stepCap()),
       // Derive owns the backoff: the SDK's retry cannot show a countdown, honour
       // a long Retry-After or be stopped mid-wait. streamRetries stays unset,
       // because a retried stream cannot retract prose already persisted.
@@ -200,6 +328,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
           }
           break;
         case 'text-end':
+          blockMeta = (part.providerMetadata as Record<string, unknown> | undefined) ?? null;
           flushBlock();
           break;
         case 'reasoning-start':
@@ -211,13 +340,29 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
           break;
         case 'tool-call':
           if (searchTool && part.providerExecuted && part.toolName === searchTool) searches += 1;
-          messages.push({ role: 'assistant', content: [{ type: 'tool-call', toolCallId: part.toolCallId, toolName: part.toolName, input: part.input }] });
+          messages.push({
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: part.toolCallId,
+                toolName: part.toolName,
+                input: part.input,
+                ...(part.providerExecuted ? { providerExecuted: true } : {}),
+                ...(part.providerMetadata ? { providerOptions: part.providerMetadata } : {}),
+              },
+            ],
+          });
+          persist();
           break;
         case 'tool-result':
-          messages.push({ role: 'tool', content: [{ type: 'tool-result', toolCallId: part.toolCallId, toolName: part.toolName, output: { type: 'json', value: part.output as never } }] });
+          // A Derive tool has already answered from inside its own execute, in
+          // the same step as its record; this is what catches a result the
+          // provider produced itself.
+          answer(part.toolCallId, part.toolName, { type: 'json', value: part.output as never });
           break;
         case 'tool-error':
-          messages.push({ role: 'tool', content: [{ type: 'tool-result', toolCallId: part.toolCallId, toolName: part.toolName, output: { type: 'error-text', value: safeMessage(part.error) } }] });
+          answer(part.toolCallId, part.toolName, { type: 'error-text', value: safeMessage(part.error) });
           break;
         case 'start-step':
           // A model that silently drops a capability says so here and nowhere
@@ -243,10 +388,19 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
           const ran = part.response.modelId ?? asked;
           sink.usage(usageOf(part.usage, ran, adapter.cost(part.providerMetadata, part.usage, ran, searches || null)));
           searches = 0;
+          steps += 1;
+          // Saved at the end of every step, so a crash loses at most the step
+          // that was in flight.
+          persist();
           break;
         }
         case 'abort':
           flushBlock();
+          // Before the save, so what lands on disk is a history a provider will
+          // accept on the next turn rather than one with an unanswered call in
+          // it.
+          patchOrphans(messages);
+          persist();
           break;
         default:
           break;
@@ -255,16 +409,26 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
     }
 
     flushBlock();
-    if (ctx.isStopping()) sink.endTurn({ ok: true, interrupted: true });
+    persist();
+    // The step cap is a runaway guard, not a teaching limit: a turn that ran
+    // into it ends with the same continuable shape a Stop produces, never an
+    // error card and never a lost lesson.
+    if (ctx.isStopping() || steps >= stepCap()) sink.endTurn({ ok: true, interrupted: true });
     else sink.endTurn({ ok: true, verified });
   } catch (err) {
     flushBlock();
+    patchOrphans(messages);
+    persist();
     sink.endTurn({ ok: false, error: safeMessage(err) });
   } finally {
     // The stream can end without a finish (Stop, the provider hanging up). The
     // learner still needs the prose kept and the turn marked finished;
-    // sink.endTurn is idempotent, which is what makes this safe.
+    // sink.endTurn is idempotent, which is what makes this safe. patchOrphans
+    // is idempotent too, so running it here as well covers the ending no
+    // branch above saw.
     flushBlock();
+    patchOrphans(messages);
+    persist();
     sink.endTurn({ ok: true, interrupted: true });
     chains.delete(ctx.lessonId);
   }

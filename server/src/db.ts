@@ -179,7 +179,11 @@ const q = {
   // INSERT OR IGNORE: the first write for a (turn, call) wins, so a double
   // record is a no-op rather than a conflict the loop would have to catch.
   insertToolResult: db.prepare('INSERT OR IGNORE INTO tool_results (turn_id, lesson_id, call_id, tool, output, ts) VALUES (?, ?, ?, ?, ?, ?)'),
-  getToolResult: db.prepare('SELECT tool, output FROM tool_results WHERE turn_id = ? AND call_id = ?'),
+  // Asked by lesson, not by turn: a turn resumed after a restart is a new turn
+  // row, so a turn-scoped read would find nothing and the tool would run twice
+  // — which is the case D-07 exists for. A call id is the provider's own, made
+  // for one request, so the lesson is the honest scope to ask in.
+  getToolResult: db.prepare('SELECT tool, output FROM tool_results WHERE lesson_id = ? AND call_id = ? ORDER BY ts LIMIT 1'),
   deleteToolResultsByLesson: db.prepare('DELETE FROM tool_results WHERE lesson_id = ?'),
   insertMaterial: db.prepare(
     'INSERT INTO materials (id, lesson_id, name, kind, unit, pages, chars, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -852,9 +856,17 @@ export function recordToolResult(turnId: string, lessonId: string, callId: strin
  * a change to their memory record made by a crash rather than by them. A row
  * whose output cannot be read back is still a row: it answers with a null
  * output rather than inviting the tool to run a second time.
+ *
+ * It takes the turn asking rather than the lesson, because that is what a
+ * driver has to hand, and resolves the lesson off it: the row is looked up by
+ * lesson, so a restart's new turn still finds what the turn it replaces ran.
+ * D-07 rejected a per-turn set for exactly that reason — the restart is the
+ * case that damages the memory record.
  */
 export function recordedToolResult(turnId: string, callId: string): { tool: string; output: unknown } | null {
-  const row = q.getToolResult.get(turnId, callId) as { tool: string; output: string } | undefined;
+  const turn = getTurn(turnId);
+  if (!turn) return null;
+  const row = q.getToolResult.get(turn.lesson_id, callId) as { tool: string; output: string } | undefined;
   if (!row) return null;
   try {
     return { tool: row.tool, output: JSON.parse(row.output) as unknown };
