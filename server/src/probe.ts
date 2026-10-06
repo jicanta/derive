@@ -143,8 +143,8 @@ export type TestResult = { ok: true; models: number | null; ms: number } | { ok:
 /** The request a row's model list is fetched with: where it goes, and the headers the key rides in. */
 export type ModelsRequest = { url: string; headers: Record<string, string> };
 
-/** A base that already ends in /v1 is used as it is; any other has /v1 appended, so both `https://host` and `https://host/v1` reach `/v1/models`. */
-const v1 = (base: string): string => (/\/v1$/.test(base) ? base : `${base}/v1`);
+/** A base that already ends in /v1 is used as it is; any other has /v1 appended, so both `https://host` and `https://host/v1` reach `/v1/models`. Exported because the owned loop's OpenAI-compatible adapter joins the same learner-stored base and a second normaliser would be a second answer. */
+export const v1 = (base: string): string => (/\/v1$/.test(base) ? base : `${base}/v1`);
 
 /** The bearer header when a key is set, nothing when none is: a local server without a token must not see an empty Authorization line. */
 const bearer = (key: string | undefined): Record<string, string> => (key ? { authorization: `Bearer ${key}` } : {});

@@ -132,9 +132,10 @@ describe('settings over HTTP', () => {
   });
 
   it('refuses a row whose driver has not arrived, and an id it does not know', async () => {
-    const unwired = await api('/api/settings/active', { provider: 'openai' });
+    // Ollama, not OpenAI: the four key-and-gateway rows gained their adapters with the owned loop, and the three local rows are the ones still waiting for one.
+    const unwired = await api('/api/settings/active', { provider: 'ollama' });
     assert.equal(unwired.status, 400);
-    assert.equal(unwired.json.error, 'teaching on OpenAI arrives with the next release');
+    assert.equal(unwired.json.error, 'teaching on Ollama arrives with the next release');
     const unknown = await api('/api/settings/active', { provider: 'nope' });
     assert.equal(unknown.status, 404);
     assert.equal(unknown.json.error, 'unknown provider');
@@ -196,13 +197,14 @@ describe('settings over HTTP', () => {
       ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible', 'ollama', 'lmstudio', 'llamacpp'],
     );
     assert.match(r.json.defaults_as_of, /^\d{4}-\d{2}-\d{2}$/);
-    // The anthropic row joined the two logins when the owned loop shipped; every other key row flips with its own adapter.
-    assert.deepEqual(r.json.rows.filter((row) => row.teaches).map((row) => row.id), ['claude-code', 'codex', 'anthropic']);
+    // Every key-and-gateway row joined the two logins when the owned loop reached it; the three local rows flip in Phase 4 with their own adapters.
+    assert.deepEqual(r.json.rows.filter((row) => row.teaches).map((row) => row.id), ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible']);
     const byId = new Map(r.json.rows.map((row) => [row.id, row]));
     assert.equal(byId.get('anthropic')!.default_model, 'claude-opus-5-5');
     assert.equal(byId.get('openai')!.default_model, 'gpt-6-astra');
     assert.equal(byId.get('gemini')!.default_model, 'gemini-3.8-flash');
-    assert.equal(byId.get('openrouter')!.default_model, 'anthropic/claude-opus-5-5');
+    // OpenRouter's slugs are dotted where Anthropic's own ids are dashed; the dashed form is absent from OpenRouter's model list.
+    assert.equal(byId.get('openrouter')!.default_model, 'anthropic/claude-opus-5.5');
     assert.deepEqual(r.json.rows.filter((row) => row.active).map((row) => row.id), ['codex']);
     assert.equal(byId.get('codex')!.model, 'gpt-5.4');
     // The boot line observed the logins once; nothing has probed a port yet.
@@ -1028,7 +1030,7 @@ describe('the resolver, in process', () => {
 
   it('ignores a stored provider that does not teach and falls to detection', () => {
     fresh();
-    setSetting(ACTIVE_PROVIDER, 'openai');
+    setSetting(ACTIVE_PROVIDER, 'ollama');
     const t = resolveTutor();
     assert.equal(t.source, 'detected');
     assert.equal(t.provider, 'claude-code');
@@ -1100,7 +1102,7 @@ describe('the resolver, in process', () => {
       PROVIDERS.map((p) => p.id),
       ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible', 'ollama', 'lmstudio', 'llamacpp'],
     );
-    assert.deepEqual(PROVIDERS.filter((p) => p.teaches).map((p) => p.id), ['claude-code', 'codex', 'anthropic']);
+    assert.deepEqual(PROVIDERS.filter((p) => p.teaches).map((p) => p.id), ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible']);
     assert.deepEqual(PROVIDERS.filter((p) => p.optionalKey).map((p) => p.id), ['lmstudio', 'llamacpp']);
   });
 

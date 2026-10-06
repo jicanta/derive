@@ -32,7 +32,7 @@ import { type ProviderId } from '../providers.js';
 import { safeMessage } from '../secrets.js';
 import { baseUrlKey, currentTutor, effectiveKey } from '../settings.js';
 import { TOOL_LABELS, descriptionFor, jsonSchemaOf, toolsFor } from '../tools.js';
-import { adapterFor } from './adapters.js';
+import { adapterFor, searchCountOf, type CostRead } from './adapters.js';
 
 /** How the suite hands this loop a model with no network behind it. The provider id is passed through so a stub can still behave per provider. */
 export type ModelFactory = (provider: ProviderId, modelId: string | null) => LanguageModel;
@@ -75,6 +75,20 @@ function serialise<T>(lessonId: string, f: () => Promise<T>): Promise<T> {
 
 /** A number the provider actually reported, or null. Anything else — undefined, NaN — is a count nobody gave us, and stays blank. */
 const reported = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * The warning that means the model was handed a search tool and *no* Derive
+ * tools at all.
+ *
+ * `@ai-sdk/google`'s `prepareTools` discards every function declaration when a
+ * provider-defined tool is present on a model it does not treat as Gemini 3,
+ * and pushes this one warning instead. There is no exception and no 400: the
+ * tutor simply talks and never draws a graph, which is not a Derive lesson.
+ */
+const DROPS_THE_TOOLS = /combination of function and provider-defined tools/i;
+
+/** What the learner is told when that happens. Lowercase like every Derive sentence, and it names the next step rather than the library that did it. */
+const NO_TOOLS_WITH_SEARCH = "this model cannot use derive's tools and a web search tool together; pick a newer model, or set web search to tavily or searxng in settings";
 
 /** Every tutor tool, as the SDK takes them: the registry's description, a pre-projected JSON Schema, and an execute that only dispatches. */
 function buildTools(lessonId: string, sink: EventSink): ToolSet {
@@ -125,6 +139,16 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   let blockText = '';
   let lastCheckpoint = 0;
   let verified = 0;
+  // The provider's own searches in the step now running, counted from the
+  // provider-executed tool calls because that path works the same on every
+  // provider where the metadata path does not. Reset at each finish-step, so a
+  // step is priced for its own searches and not the turn's.
+  const searchTool = searchCountOf(provider);
+  let searches = 0;
+  // Set when a warning says the model received a search tool instead of
+  // Derive's; the turn is ended with this sentence before anything unwinds, so
+  // the idempotent endTurn keeps it as the one thing the lesson records.
+  let refused = false;
   const flushBlock = () => {
     if (blockId && blockSeq !== null) sink.emitUpdate(blockSeq, 'assistant', { id: blockId, text: blockText });
     blockId = null;
@@ -186,6 +210,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
           sink.emitEphemeral('status', { text: 'Thinking' });
           break;
         case 'tool-call':
+          if (searchTool && part.providerExecuted && part.toolName === searchTool) searches += 1;
           messages.push({ role: 'assistant', content: [{ type: 'tool-call', toolCallId: part.toolCallId, toolName: part.toolName, input: part.input }] });
           break;
         case 'tool-result':
@@ -198,18 +223,35 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
           // A model that silently drops a capability says so here and nowhere
           // else; the learner is told rather than left with a tutor that stopped
           // drawing its graph.
-          for (const w of part.warnings) if (w.type === 'unsupported') sink.emitEphemeral('status', { text: `This model does not support ${w.feature}` });
+          for (const w of part.warnings) {
+            if (w.type !== 'unsupported') continue;
+            if (DROPS_THE_TOOLS.test(w.feature)) {
+              // Not a status line: every one of the fourteen tools was dropped,
+              // so continuing would teach a lesson with no graph in it.
+              // Refusing is the safe direction, and ending the turn here rather
+              // than after the abort unwinds is what makes this sentence the one
+              // the lesson records.
+              refused = true;
+              sink.endTurn({ ok: false, error: NO_TOOLS_WITH_SEARCH });
+              controller.abort();
+              break;
+            }
+            sink.emitEphemeral('status', { text: `This model does not support ${w.feature}` });
+          }
           break;
-        case 'finish-step':
-          sink.usage(usageOf(part.usage, part.response.modelId ?? asked));
+        case 'finish-step': {
+          const ran = part.response.modelId ?? asked;
+          sink.usage(usageOf(part.usage, ran, adapter.cost(part.providerMetadata, part.usage, ran, searches || null)));
+          searches = 0;
           break;
+        }
         case 'abort':
           flushBlock();
           break;
         default:
           break;
       }
-      if (part.type === 'abort') break;
+      if (part.type === 'abort' || refused) break;
     }
 
     flushBlock();
@@ -235,19 +277,23 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
  * always meant and what the Claude driver already writes. `usage.inputTokens`
  * is a total that includes cache reads and writes, so mapping it here would
  * make a well-cached lesson read as roughly twice the input it actually paid
- * for. The cost figure arrives with the pricing table in a later plan; until
- * then the honest answer is that nobody reported one.
+ * for.
+ *
+ * The money comes from the provider's own adapter, which is the only thing that
+ * knows where that provider reports a cost. The `searches` the adapter read are
+ * already folded into its `cost_usd`: the ledger has no column for a per-call
+ * charge, and adding one would give `cost_source` a second meaning.
  */
-function usageOf(u: LanguageModelUsage, model: string | null): UsageInput {
+function usageOf(u: LanguageModelUsage, model: string | null, cost: CostRead): UsageInput {
   return {
     model,
-    input_tokens: reported(u.inputTokenDetails.noCacheTokens),
+    input_tokens: reported(u.inputTokenDetails?.noCacheTokens),
     output_tokens: reported(u.outputTokens),
-    cache_read_tokens: reported(u.inputTokenDetails.cacheReadTokens),
-    cache_write_tokens: reported(u.inputTokenDetails.cacheWriteTokens),
-    reasoning_tokens: reported(u.outputTokenDetails.reasoningTokens),
-    cost_usd: null,
-    cost_source: 'unknown',
+    cache_read_tokens: reported(u.inputTokenDetails?.cacheReadTokens),
+    cache_write_tokens: reported(u.inputTokenDetails?.cacheWriteTokens),
+    reasoning_tokens: reported(u.outputTokenDetails?.reasoningTokens),
+    cost_usd: cost.cost_usd,
+    cost_source: cost.cost_source,
   };
 }
 

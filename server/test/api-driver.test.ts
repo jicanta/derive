@@ -152,8 +152,9 @@ describe("a lesson turn runs on an api key through derive's own loop", () => {
       assert.equal(row.cache_write_tokens, null);
       assert.equal(row.output_tokens, 30);
       assert.equal(row.reasoning_tokens, 5);
-      assert.equal(row.cost_source, 'unknown');
-      assert.equal(row.cost_usd, null);
+      // The anthropic adapter prices from the table: claude-opus-5-5 carries a rate, so the row is a money figure labelled `estimated`, never a blank.
+      assert.equal(row.cost_source, 'table');
+      assert.ok(typeof row.cost_usd === 'number' && row.cost_usd > 0, `priced at ${row.cost_usd}`);
     }
   });
 
