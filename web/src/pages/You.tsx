@@ -8,7 +8,12 @@ import type { Learner, LearnerPrefs } from '../lib/types';
 
 type Draft = Required<Record<keyof LearnerPrefs, string>>;
 const empty: Draft = { language: '', style: 'adaptive', pace: 'standard', background: '', how: '', examples: '', model: '' };
-const toDraft = (p: LearnerPrefs): Draft => ({ ...empty, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v)) });
+/** The stored preferences as one field per input. `model` is kept per provider, so the field shows the id stored for the provider this install runs on. */
+const toDraft = (p: LearnerPrefs, provider: string | null): Draft => ({
+  ...empty,
+  ...Object.fromEntries(Object.entries(p).filter(([k, v]) => k !== 'model' && v)),
+  model: (provider && p.model?.[provider]) || '',
+});
 
 const field = 'w-full rounded-xl border hairline bg-ink-900/70 px-3 text-[14px] leading-relaxed text-ink-100 outline-none focus:border-gold-500/60 placeholder:text-ink-500';
 
@@ -25,6 +30,9 @@ export function YouPage() {
   const [err, setErr] = useState<string | null>(null);
   // The install-wide model, named in the model field's placeholder; null while the request is pending or failed, so the placeholder falls back to the bare words.
   const [installModel, setInstallModel] = useState<string | null>(null);
+  // Which provider this install runs on. A learner's model id is stored per
+  // provider, so this is the key the field below reads and writes under.
+  const provider = useRef<string | null>(null);
   const timer = useRef<number | null>(null);
 
   const load = () =>
@@ -33,16 +41,25 @@ export function YouPage() {
       .then((r) => {
         if (!r.learner) return;
         setMe(r.learner);
-        const d = toDraft(r.learner.prefs);
+        const d = toDraft(r.learner.prefs, provider.current);
         setDraft(d);
         setSaved(d);
         setNotes(r.memory);
       })
       .catch((e) => setErr((e as Error).message));
   useEffect(() => {
-    void load();
-    // Provider and model only: no key reaches this page.
-    api.activeTutor().then((t) => setInstallModel(t.model ?? 'provider default')).catch(() => undefined);
+    // Provider and model only: no key reaches this page. The provider is read
+    // before the profile becomes a draft, because the model field shows the id
+    // stored for the provider this install runs on.
+    void (async () => {
+      const tutor = await api.activeTutor().catch(() => null);
+      if (tutor) {
+        provider.current = tutor.provider;
+        setInstallModel(tutor.model ?? 'provider default');
+      }
+      await load();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
@@ -51,8 +68,12 @@ export function YouPage() {
     if (!me || !dirty) return;
     setState('saving');
     try {
-      const l = await api.setPrefs(me.id, draft);
-      const d = toDraft(l.prefs);
+      const { model, ...rest } = draft;
+      // The model id is written under the provider this install runs on and
+      // merges there, so the ids stored for other providers stay. Without a
+      // provider there is nothing to key it to, so it is left untouched.
+      const l = await api.setPrefs(me.id, provider.current ? { ...rest, model: { [provider.current]: model } } : rest);
+      const d = toDraft(l.prefs, provider.current);
       setSaved(d);
       setDraft(d);
       setMe(l);
@@ -132,7 +153,7 @@ export function YouPage() {
             <input value={draft.examples} onChange={(e) => set('examples')(e.target.value)} placeholder="cooking, distributed systems, football tactics" className={`${field} h-10`} />
           </Section>
 
-          <Section n="07" title="Model" hint="Optional. A model id for you alone, on the active provider. Leave it empty to use the install setting.">
+          <Section n="07" title="Model" hint="Optional. A model id for you alone, on the provider this install runs on. Leave it empty to use the install setting.">
             <input
               value={draft.model}
               onChange={(e) => set('model')(e.target.value)}

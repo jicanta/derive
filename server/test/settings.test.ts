@@ -162,12 +162,16 @@ describe('settings over HTTP', () => {
     assert.ok(!active.text.includes('email'), active.text);
   });
 
+  // The learner-owned model is keyed by provider from migration 7 on (WR-01):
+  // the three cases below were written against the bare string that shipped in
+  // Phase 2 and are updated rather than deleted, because what they assert — one
+  // learner's id reaches their own turn and nobody else's — has not changed.
   it('resolves a learner-owned model for that learner alone, by query and by header, and leaves the default learner on the install setting', async () => {
-    const ana = await api<{ id: string; prefs: { model?: string } }>('/api/learners', { name: 'Ana' });
+    const ana = await api<{ id: string; prefs: { model?: Record<string, string> } }>('/api/learners', { name: 'Ana' });
     assert.equal(ana.status, 201, ana.text);
-    const patched = await api<{ prefs: { model?: string } }>(`/api/learners/${ana.json.id}`, { prefs: { model: 'my-own-model' } }, 'PATCH');
+    const patched = await api<{ prefs: { model?: Record<string, string> } }>(`/api/learners/${ana.json.id}`, { prefs: { model: { codex: 'my-own-model' } } }, 'PATCH');
     assert.equal(patched.status, 200, patched.text);
-    assert.equal(patched.json.prefs.model, 'my-own-model');
+    assert.deepEqual(patched.json.prefs.model, { codex: 'my-own-model' });
     const byQuery = await api<Tutor>(`/api/settings/active?learner=${ana.json.id}`);
     assert.deepEqual(byQuery.json, { provider: 'codex', model: 'my-own-model', source: 'settings', modelSource: 'learner' });
     const byHeader = await fetch(`${base}/api/settings/active`, { headers: { 'x-derive-token': token, 'x-derive-learner': ana.json.id } });
@@ -176,13 +180,35 @@ describe('settings over HTTP', () => {
     assert.deepEqual(everyone.json, { provider: 'codex', model: 'gpt-5.4', source: 'settings', modelSource: 'settings' });
   });
 
-  it('bounds the learner model id like the install one, and clears it with an empty string', async () => {
-    const ana = await api<{ id: string }>('/api/learners', { name: 'Ana' });
-    const bad = await api<{ prefs: { model?: string } }>(`/api/learners/${ana.json.id}`, { prefs: { model: 'bad id!' } }, 'PATCH');
+  it('keeps a learner-owned model on the provider it was stored under, and hands no other provider that id', async () => {
+    // WR-01 itself: an id typed while Anthropic was active must not be handed
+    // to Codex, which has never heard of it. The merge is per provider too, so
+    // storing the second id does not drop the first.
+    // Its own learner: createLearner is name-deduped, so sharing 'Ana' with the
+    // case above would carry that case's stored id in here.
+    const ana = await api<{ id: string }>('/api/learners', { name: 'Ana Per Provider' });
+    await api(`/api/learners/${ana.json.id}`, { prefs: { model: { anthropic: 'claude-opus-5-5' } } }, 'PATCH');
+    const onlyAnthropic = await api<Tutor>(`/api/settings/active?learner=${ana.json.id}`);
+    assert.deepEqual(onlyAnthropic.json, { provider: 'codex', model: 'gpt-5.4', source: 'settings', modelSource: 'settings' });
+
+    const both = await api<{ prefs: { model?: Record<string, string> } }>(`/api/learners/${ana.json.id}`, { prefs: { model: { codex: 'my-own-model' } } }, 'PATCH');
+    assert.deepEqual(both.json.prefs.model, { anthropic: 'claude-opus-5-5', codex: 'my-own-model' });
+    const onCodex = await api<Tutor>(`/api/settings/active?learner=${ana.json.id}`);
+    assert.equal(onCodex.json.model, 'my-own-model');
+    assert.equal(onCodex.json.modelSource, 'learner');
+  });
+
+  it('bounds the learner model id like the install one, refuses a key that is not a provider, and clears it with an empty string', async () => {
+    const ana = await api<{ id: string }>('/api/learners', { name: 'Ana Bounds' });
+    const bad = await api<{ prefs: { model?: Record<string, string> } }>(`/api/learners/${ana.json.id}`, { prefs: { model: { codex: 'bad id!' } } }, 'PATCH');
     assert.equal(bad.status, 200, bad.text);
     assert.equal(bad.json.prefs.model, undefined);
     assert.ok(!('model' in bad.json.prefs), bad.text);
-    const cleared = await api<{ prefs: { model?: string } }>(`/api/learners/${ana.json.id}`, { prefs: { model: '' } }, 'PATCH');
+    // A key no catalogue row carries is dropped the same way a bad id is: an
+    // override stored under a provider that does not exist could never be read.
+    const unknownKey = await api<{ prefs: { model?: Record<string, string> } }>(`/api/learners/${ana.json.id}`, { prefs: { model: { 'not-a-provider': 'fine-id' } } }, 'PATCH');
+    assert.ok(!('model' in unknownKey.json.prefs), unknownKey.text);
+    const cleared = await api<{ prefs: { model?: Record<string, string> } }>(`/api/learners/${ana.json.id}`, { prefs: { model: { codex: '' } } }, 'PATCH');
     assert.ok(!('model' in cleared.json.prefs), cleared.text);
     const active = await api<Tutor>(`/api/settings/active?learner=${ana.json.id}`);
     assert.equal(active.json.modelSource, 'settings');
@@ -760,8 +786,10 @@ describe('the environment locks its fields', () => {
 
   it('outranks a learner-owned model while DERIVE_MODEL is set', async () => {
     const ana = await api<{ id: string }>('/api/learners', { name: 'Ana' });
-    const patched = await api<{ prefs: { model?: string } }>(`/api/learners/${ana.json.id}`, { prefs: { model: 'my-own-model' } }, 'PATCH');
-    assert.equal(patched.json.prefs.model, 'my-own-model');
+    // Stored under the provider the environment pins, so the tier order is
+    // what the assertion measures rather than a key the resolver never reads.
+    const patched = await api<{ prefs: { model?: Record<string, string> } }>(`/api/learners/${ana.json.id}`, { prefs: { model: { 'claude-code': 'my-own-model' } } }, 'PATCH');
+    assert.deepEqual(patched.json.prefs.model, { 'claude-code': 'my-own-model' });
     const r = await api<Tutor>(`/api/settings/active?learner=${ana.json.id}`);
     assert.deepEqual(r.json, { provider: 'claude-code', model: 'pinned-model', source: 'environment', modelSource: 'environment' });
   });
@@ -1052,7 +1080,9 @@ describe('the resolver, in process', () => {
     setSetting(ACTIVE_PROVIDER, 'codex');
     setSetting(modelKey('codex'), 'gpt-5.4');
     const ana = createLearner(`Ana ${randomUUID().slice(0, 8)}`);
-    updateLearnerPrefs(ana.id, { model: 'my-own-model', examples: 'cooking' });
+    // Keyed by provider (WR-01): the id applies on Codex, which is what this
+    // install is on, and nowhere else.
+    updateLearnerPrefs(ana.id, { model: { codex: 'my-own-model' }, examples: 'cooking' });
     const id = randomUUID();
     createLesson(id, 'Whose model teaches', { learnerId: ana.id });
     await fakeTurn(id);
@@ -1066,7 +1096,7 @@ describe('the resolver, in process', () => {
     assert.ok(profile.includes('cooking'), profile);
     assert.ok(!profile.includes('my-own-model'), profile);
     assert.ok(!preferencesSection(ana.id).includes('my-own-model'));
-    assert.equal(getLearner(ana.id)!.prefs.model, 'my-own-model');
+    assert.deepEqual(getLearner(ana.id)!.prefs.model, { codex: 'my-own-model' });
     // Another learner's lesson on the same install is untouched.
     const other = randomUUID();
     createLesson(other, 'Everyone else');

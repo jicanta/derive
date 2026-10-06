@@ -28,6 +28,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
+import { providerOf } from './providers.js';
 import { redactErrors } from './secrets.js';
 
 /** The schema as `server/src/db.ts` wrote it before this runner existed. Byte-identical on purpose; see the note above. */
@@ -248,6 +249,59 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 6,
+    name: 'turn-messages',
+    up(db) {
+      // Two tables rather than one. The message array is rewritten wholesale at
+      // every step of a turn, while an executed call's result is written once
+      // and never again; and a replay guard sharing a row with the history
+      // could not be read without parsing the history first.
+      //
+      // `turn_messages` is one row per lesson, because the history *is* the
+      // lesson's conversation, and `driver` is what the drop-on-provider-change
+      // comparison reads: a provider's reasoning signatures are not portable,
+      // so a history is only ever loaded back on the driver that wrote it.
+      // `messages` holds JSON.stringify of the AI SDK ModelMessage array; every
+      // part Derive produces round-trips through JSON losslessly apart from
+      // keys whose value was undefined.
+      //
+      // `tool_results` is keyed on the executed call, which is the grain the
+      // replay guard needs: the first write wins and a resumed turn returns the
+      // recorded result instead of running a graded tool a second time.
+      //
+      // No backfill. No turn has ever run on Derive's own loop, so there is no
+      // history to recover, and reconstructing one from the event log would be
+      // exactly the estimate backfillUsage's comment below forbids.
+      db.exec(`
+        CREATE TABLE turn_messages (
+          lesson_id TEXT PRIMARY KEY,
+          learner_id TEXT NOT NULL,
+          driver TEXT NOT NULL,
+          messages TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX turn_messages_lesson ON turn_messages (lesson_id);
+        CREATE TABLE tool_results (
+          turn_id TEXT NOT NULL,
+          lesson_id TEXT NOT NULL,
+          call_id TEXT NOT NULL,
+          tool TEXT NOT NULL,
+          output TEXT NOT NULL,
+          ts INTEGER NOT NULL,
+          PRIMARY KEY (turn_id, call_id)
+        );
+        CREATE INDEX tool_results_turn ON tool_results (turn_id, call_id);
+      `);
+    },
+  },
+  {
+    version: 7,
+    name: 'learner-model-per-provider',
+    up(db) {
+      convertLearnerModelPrefs(db);
+    },
+  },
 ];
 
 /**
@@ -346,6 +400,53 @@ function backfillUsage(db: DatabaseSync) {
     WHERE t.status <> 'running'
       AND NOT EXISTS (SELECT 1 FROM usage u WHERE u.turn_id = t.id)
   `);
+}
+
+/**
+ * A learner's own model id, moved onto the provider it was chosen on.
+ *
+ * `LearnerPrefs.model` shipped as a bare string and was resolved against
+ * whichever provider happened to be active, so a learner who typed an
+ * Anthropic id and later switched to OpenAI handed OpenAI a model it has never
+ * heard of — the defect `.planning/phases/02-settings-and-secrets/02-REVIEW.md`
+ * records as WR-01. The field is a record keyed by provider from this version
+ * on, and this pass rewrites what is already stored.
+ *
+ * Which provider an id was meant for was never written down, so the closest
+ * honest answer is the provider the install was on when it was stored: the
+ * `active_provider` setting, or — where that key is absent, or names a row that
+ * cannot teach — the same `claude-code` the resolver falls back to when no
+ * login has been detected. Nothing is inferred from the id's own text: a string
+ * that looks like an Anthropic slug is not evidence of anything, and a
+ * learner's own endpoint serves ids that look like whatever its owner chose.
+ *
+ * This conversion cannot be reverted. The one fact it uses — which provider was
+ * active — is gone the moment it lands, so a migration undoing it would have to
+ * pick one of the record's keys and hope. A learner whose `model` is already a
+ * record, absent, empty or any other shape is left exactly as it was.
+ */
+function convertLearnerModelPrefs(db: DatabaseSync) {
+  const rows = db.prepare('SELECT id, prefs FROM learners WHERE prefs IS NOT NULL').all() as { id: string; prefs: string }[];
+  if (rows.length === 0) return;
+  // The key literal rather than settings.ts's ACTIVE_PROVIDER constant: that
+  // module imports db.ts, which imports this one to migrate at all.
+  const active = (db.prepare("SELECT value FROM settings WHERE key = 'active_provider'").get() as { value: string } | undefined)?.value;
+  const provider = active && providerOf(active)?.teaches ? active : 'claude-code';
+  const update = db.prepare('UPDATE learners SET prefs = ? WHERE id = ?');
+
+  for (const row of rows) {
+    let prefs: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(row.prefs) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+      prefs = parsed as Record<string, unknown>;
+    } catch {
+      /* unreadable prefs read as none everywhere else; this pass does not get to rewrite them either */
+      continue;
+    }
+    if (typeof prefs.model !== 'string' || !prefs.model) continue;
+    update.run(JSON.stringify({ ...prefs, model: { [provider]: prefs.model } }), row.id);
+  }
 }
 
 /** The version a fully migrated database reports. 0 when there are no migrations at all. */

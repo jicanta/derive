@@ -170,7 +170,9 @@ function chooseProvider(logins: () => Logins | null | undefined): { provider: Pr
 /** The model for a provider: the environment, then the learner's own id when a learner is named, then the stored id, then the catalogue default. */
 function chooseModel(provider: ProviderId, learnerId?: string): { model: string | null; modelSource: ModelSource } {
   if (MODEL) return { model: MODEL, modelSource: 'environment' };
-  const own = learnerId ? getLearner(learnerId)?.prefs.model : undefined;
+  // Per provider: a learner's own id belongs to the provider they chose it on,
+  // so switching providers no longer hands one provider another's model id.
+  const own = learnerId ? getLearner(learnerId)?.prefs.model?.[provider] : undefined;
   if (own) return { model: own, modelSource: 'learner' };
   const stored = getSetting(modelKey(provider));
   if (stored) return { model: stored, modelSource: 'settings' };

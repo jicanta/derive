@@ -22,8 +22,8 @@ export type LearnerPrefs = {
   background?: string;
   how?: string;
   examples?: string;
-  /** A model id for you alone, on the active provider; empty means the install setting. */
-  model?: string;
+  /** A model id for you alone, per provider; a provider with no entry uses the install setting. */
+  model?: Record<string, string>;
 };
 export type Learner ={ id: string; name: string; created_at: number; prefs: LearnerPrefs; lessons?: number };
 

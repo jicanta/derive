@@ -5,6 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DATA_DIR, DB_PATH } from './config.js';
 import { runMigrations } from './migrations.js';
+import { providerOf } from './providers.js';
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 mkdirSync(DATA_DIR, { recursive: true });
@@ -57,8 +58,8 @@ export type LearnerPrefs = {
   how?: string;
   /** Domains to draw examples and analogies from. */
   examples?: string;
-  /** A model id for this learner alone, on the active provider. Not a teaching preference: never rendered into the prompt. */
-  model?: string;
+  /** A model id for this learner alone, per provider. Not a teaching preference: never rendered into the prompt. */
+  model?: Record<string, string>;
 };
 export const PREF_STYLES = ['adaptive', 'socratic', 'narrated'] as const;
 export const PREF_PACES = ['brisk', 'standard', 'thorough'] as const;
@@ -88,6 +89,25 @@ export type NodeRow = {
 };
 
 export type StoredEvent = { seq: number; type: string; payload: unknown; ts: number };
+
+/**
+ * One lesson's conversation with the model, as Derive's own loop persists it.
+ *
+ * One row per lesson: the history *is* the lesson's conversation, and a
+ * provider change drops it rather than carrying it, so there is never a second
+ * one to keep. `driver` is what that comparison reads — a history is only ever
+ * loaded back on the driver that wrote it. `messages` is `JSON.stringify` of
+ * the AI SDK `ModelMessage` array, stored verbatim: the per-block signatures
+ * Anthropic and Google attach live inside each part's `providerOptions` and are
+ * round-tripped on the next turn, so nothing filters or rewrites a part.
+ */
+export type TurnMessagesRow = {
+  lesson_id: string;
+  learner_id: string;
+  driver: string;
+  messages: string;
+  updated_at: number;
+};
 
 const q = {
   insertLesson: db.prepare(
@@ -148,6 +168,19 @@ const q = {
   deleteQuiz: db.prepare('DELETE FROM quiz_results WHERE lesson_id = ?'),
   deleteUsageByLesson: db.prepare('DELETE FROM usage WHERE lesson_id = ?'),
   deleteTurnsByLesson: db.prepare('DELETE FROM turns WHERE lesson_id = ?'),
+  upsertTurnMessages: db.prepare(`
+    INSERT INTO turn_messages (lesson_id, learner_id, driver, messages, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(lesson_id) DO UPDATE SET
+      learner_id = excluded.learner_id, driver = excluded.driver, messages = excluded.messages, updated_at = excluded.updated_at
+  `),
+  getTurnMessages: db.prepare('SELECT * FROM turn_messages WHERE lesson_id = ?'),
+  deleteTurnMessagesByLesson: db.prepare('DELETE FROM turn_messages WHERE lesson_id = ?'),
+  // INSERT OR IGNORE: the first write for a (turn, call) wins, so a double
+  // record is a no-op rather than a conflict the loop would have to catch.
+  insertToolResult: db.prepare('INSERT OR IGNORE INTO tool_results (turn_id, lesson_id, call_id, tool, output, ts) VALUES (?, ?, ?, ?, ?, ?)'),
+  getToolResult: db.prepare('SELECT tool, output FROM tool_results WHERE turn_id = ? AND call_id = ?'),
+  deleteToolResultsByLesson: db.prepare('DELETE FROM tool_results WHERE lesson_id = ?'),
   insertMaterial: db.prepare(
     'INSERT INTO materials (id, lesson_id, name, kind, unit, pages, chars, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   ),
@@ -272,9 +305,26 @@ export function cleanPrefs(input: unknown): LearnerPrefs {
     const v = str(k);
     if (v) out[k] = v;
   }
-  // The model id is bounded to the characters real ids use, as PUT /api/settings/:provider bounds the install-wide one; it is stored here and read by the resolver only, never by preferencesSection.
-  const model = str('model').slice(0, 200);
-  if (model && /^[A-Za-z0-9._:/-]+$/.test(model)) out.model = model;
+  // One model id per provider, because an override belongs to the provider it
+  // was chosen on: a bare id resolved against whichever provider happened to be
+  // active is WR-01, and this phase takes the teaching providers from two to
+  // seven. Each key must name a catalogue row and each value is bounded to the
+  // characters real ids use, as PUT /api/settings/:provider bounds the
+  // install-wide one. An entry that fails either check is dropped on its own
+  // rather than the whole patch refused — the rest of the learner's
+  // preferences are theirs and are not in question. Stored here and read by the
+  // resolver only, never by preferencesSection.
+  const given = o.model;
+  if (given && typeof given === 'object' && !Array.isArray(given)) {
+    const model: Record<string, string> = {};
+    for (const [key, value] of Object.entries(given as Record<string, unknown>)) {
+      if (!providerOf(key)) continue;
+      if (typeof value !== 'string') continue;
+      const id = value.trim().slice(0, 200);
+      if (id && /^[A-Za-z0-9._:/-]+$/.test(id)) model[key] = id;
+    }
+    if (Object.keys(model).length) out.model = model;
+  }
   return out;
 }
 
@@ -307,7 +357,16 @@ export function updateLearnerPrefs(id: string, patch: Partial<Record<keyof Learn
   const current = getLearner(id);
   if (!current) throw new Error('learner not found');
   const merged: Record<string, unknown> = { ...current.prefs };
-  for (const [k, v] of Object.entries(patch)) if (v !== undefined) merged[k] = v;
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue;
+    // The model record merges per provider rather than replacing the field: the
+    // settings page patches the provider the install is on, and a whole-field
+    // overwrite would drop the id this learner stored for every other provider
+    // the moment they switched. An empty value under a key still clears that
+    // one provider, because cleanPrefs drops it.
+    if (k === 'model' && v && typeof v === 'object' && !Array.isArray(v)) merged.model = { ...(current.prefs.model ?? {}), ...(v as Record<string, unknown>) };
+    else merged[k] = v;
+  }
   const prefs = cleanPrefs(merged);
   q.setLearnerPrefs.run(Object.keys(prefs).length ? JSON.stringify(prefs) : null, id);
   return getLearner(id)!;
@@ -374,6 +433,11 @@ export function deleteLearner(id: string) {
     // outlive the lesson row it names. These two are what catch those.
     q.deleteUsageOfLearner.run(id);
     q.deleteTurnsOfLearner.run(id);
+    // turn_messages and tool_results need no learner-scoped clear of their own.
+    // Both are keyed by lesson, both are cleared by the loop above, and their
+    // only writers — saveTurnMessages and recordToolResult — refuse to write at
+    // all without the lesson or turn row they read their scope off, so no row
+    // of either can exist that the loop cannot reach.
     q.deleteLearner.run(id);
   });
 }
@@ -418,6 +482,10 @@ export function deleteLesson(id: string) {
     q.deleteQuiz.run(id);
     q.deleteNodes.run(id);
     q.deleteEvents.run(id);
+    // The owned loop's two tables before turns, for the same reason usage is: a
+    // tool_results row names the turn it was recorded against.
+    q.deleteTurnMessagesByLesson.run(id);
+    q.deleteToolResultsByLesson.run(id);
     // Usage before turns: a usage row names the turn it was recorded against,
     // so clearing usage first means no state inside the transaction has a row
     // pointing at a turn that is already gone.
@@ -705,6 +773,94 @@ export function listUsage(filter: { turn?: string; lesson?: string; learner?: st
 export function closeUsage(turnId: string) {
   if (listUsage({ turn: turnId }).length) return;
   recordUsage(turnId, { cost_source: 'unknown' });
+}
+
+// ---------- the owned loop's resumable state ----------
+
+/**
+ * Keep a lesson's message history, replacing whatever was there.
+ *
+ * `learner_id` is read off the lesson row here and never taken from the caller,
+ * the same rule `recordUsage` states and for the same reason: a second write
+ * path is how a denormalised column starts disagreeing with the table it was
+ * copied from, and a history filed under the wrong learner is a history the
+ * wrong person's next turn would resume.
+ *
+ * `messages` is stored verbatim. Every part is persisted as the SDK produced
+ * it, `providerOptions` included, because Anthropic's compaction signature and
+ * Google's per-block signature live there and are round-tripped on the next
+ * turn. Nothing here filters or rewrites a part to make it portable: carrying a
+ * sanitised history across a provider change would replay one vendor's opaque
+ * blocks into another that rejects them, which is why a provider change drops
+ * the history instead.
+ */
+export function saveTurnMessages(lessonId: string, driver: string, messages: unknown[]): void {
+  const lesson = getLesson(lessonId);
+  if (!lesson) throw new Error('lesson not found');
+  q.upsertTurnMessages.run(lessonId, lesson.learner_id, driver, JSON.stringify(messages), Date.now());
+}
+
+/**
+ * A lesson's message history for `driver`, or an empty array.
+ *
+ * The driver comparison is here rather than at the call site, so D-04's
+ * drop-on-provider-change cannot be forgotten by a caller: asking for a
+ * history on a driver that did not write it is answered with nothing, and the
+ * tutor rebuilds from the lesson's events and nodes as the Claude and Codex
+ * paths already do.
+ */
+export function loadTurnMessages(lessonId: string, driver: string): unknown[] {
+  const row = q.getTurnMessages.get(lessonId) as TurnMessagesRow | undefined;
+  if (!row || row.driver !== driver) return [];
+  try {
+    const parsed = JSON.parse(row.messages) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    /* an unreadable history is no history */
+    return [];
+  }
+}
+
+/** Forget a lesson's message history, so the next turn starts a fresh conversation; a provider change does this before the turn. */
+export function clearTurnMessages(lessonId: string): void {
+  q.deleteTurnMessagesByLesson.run(lessonId);
+}
+
+/**
+ * Record what one executed tool call returned, against the turn that ran it.
+ *
+ * The lesson comes off the turn row, as in `recordUsage`; `lessonId` is the
+ * caller's claim about the same thing and a disagreement throws rather than
+ * filing the call under a lesson its turn does not belong to. The write is an
+ * `INSERT OR IGNORE`, so the first result for a call id stands for good — which
+ * is what makes the replay guard a guard rather than a cache.
+ */
+export function recordToolResult(turnId: string, lessonId: string, callId: string, tool: string, output: unknown): void {
+  const turn = getTurn(turnId);
+  if (!turn) throw new Error('turn not found');
+  if (turn.lesson_id !== lessonId) throw new Error('turn belongs to another lesson');
+  q.insertToolResult.run(turnId, turn.lesson_id, callId, tool, JSON.stringify(output ?? null), Date.now());
+}
+
+/**
+ * What a tool call already returned, or null when it has not run.
+ *
+ * This is the whole of D-07's replay guard: a resumed turn that reaches a call
+ * id already in here returns the recorded result instead of running the tool
+ * again. Re-running is the one thing that must never happen — a second `quiz`
+ * on the same call would move an FSRS row the learner already earned, which is
+ * a change to their memory record made by a crash rather than by them. A row
+ * whose output cannot be read back is still a row: it answers with a null
+ * output rather than inviting the tool to run a second time.
+ */
+export function recordedToolResult(turnId: string, callId: string): { tool: string; output: unknown } | null {
+  const row = q.getToolResult.get(turnId, callId) as { tool: string; output: string } | undefined;
+  if (!row) return null;
+  try {
+    return { tool: row.tool, output: JSON.parse(row.output) as unknown };
+  } catch {
+    return { tool: row.tool, output: null };
+  }
 }
 
 export type GraphNodeInput = {

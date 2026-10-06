@@ -58,8 +58,8 @@ export const api = {
   learners: () => get('/api/learners').then((r) => j<{ learners: Learner[]; current: string }>(r)),
   createLearner: (name: string) => post('/api/learners', { name }).then((r) => j<Learner>(r)),
   renameLearner: (id: string, name: string) => post(`/api/learners/${id}`, { name }, 'PATCH').then((r) => j<Learner>(r)),
-  /** How this learner wants to be taught. Fields merge; an empty string clears one. */
-  setPrefs: (id: string, prefs: Partial<Record<keyof LearnerPrefs, string>>) => post(`/api/learners/${id}`, { prefs }, 'PATCH').then((r) => j<Learner>(r)),
+  /** How this learner wants to be taught. Fields merge; an empty string clears one. `model` is a per-provider record and merges per provider, so naming one leaves the others alone. */
+  setPrefs: (id: string, prefs: Partial<Record<keyof LearnerPrefs, string | Record<string, string>>>) => post(`/api/learners/${id}`, { prefs }, 'PATCH').then((r) => j<Learner>(r)),
   /** What the tutor knows about the current learner: the notes it kept, open misconceptions, what is due. */
   profile: () => get('/api/profile').then((r) => j<{ memory: string[]; misconceptions: { topic: string; picked: string; correct: string }[]; learner?: Learner }>(r)),
   deleteLearner: (id: string) => del(`/api/learners/${id}`).then((r) => j<{ ok: true }>(r)),
