@@ -20,6 +20,8 @@ export const DB_PATH = join(DATA_DIR, 'derive.db');
 export const TOKEN_PATH = join(DATA_DIR, 'token');
 /** One key per provider, keyed by catalogue id, in a 0600 file beside the token and never inside derive.db, which is 0644. Written atomically and read live by keys.ts. */
 export const SECRETS_PATH = join(DATA_DIR, 'secrets.json');
+/** The learner's optional price override, laid over the shipped table in pricing.ts and read live by prices.ts. Derive never writes it; an absent file is the ordinary case. */
+export const PRICES_PATH = join(DATA_DIR, 'prices.json');
 /** Which interface the server answers on. Loopback by default; DERIVE_HOST=0.0.0.0 opens it to the network, and the token stays mandatory there. */
 export const HOST = process.env.DERIVE_HOST?.trim() || '127.0.0.1';
 /** True when HOST is a loopback address, which is the default and the only quiet case. */
