@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 15
+open_count: 16
 waived_count: 0
 fixed_count: 0
-total_count: 15
-last_updated: 2026-10-06T22:51:41.778Z
+total_count: 16
+last_updated: 2026-10-06T23:30:48.227Z
 ---
 
 # Broken Windows Ledger
@@ -30,6 +30,7 @@ last_updated: 2026-10-06T22:51:41.778Z
 | 13 | 02 | unrun-verify | .planning/phases/02-settings-and-secrets/02-UAT.md |  | Phase 2 UAT is status: partial — the four visual findings 02-07 closed in source (375px header truncation, 32px text-button hit area, /you Section 07 id fit, tutor pill 40ch) were verified against the emitted CSS, not re-driven in headless Chrome; UAT tests 4 and 5 need a re-run to close | open |  | 2026-10-01T10:54:49.674Z |  |
 | 14 | 03 | unrun-verify | server/src/drivers/api.ts |  | 03-01 human check unrun: one real Anthropic-key lesson to a locked node (streaming pill, Thinking line with no reasoning in the record or vault, clean Stop) — no provider key exists in this environment | open |  | 2026-10-06T21:40:44.849Z |  |
 | 15 | 03 | unrun-verify | server/src/drivers/adapters.ts |  | 03-03 human check unrun: one real lesson each on an OpenAI key, a Gemini key (graph actually drawn), an OpenRouter key (usage rows read cost_source provider with a non-null cost_usd) and a learner base URL, plus a Stop-and-resume — no provider key exists in this environment | open |  | 2026-10-06T22:51:41.778Z |  |
+| 16 | 03 | unrun-verify | .planning/phases/03-owned-loop-api-keys-and-gateways/03-04-PLAN.md |  | Plan 03-04 human check unrun: a real Stop-and-continue, a mid-card Stop with the quiz_results count unchanged, and a provider switch mid-lesson all need a real provider key, and none exists in this environment | open |  | 2026-10-06T23:30:48.227Z |  |
 
 ````json
 [
@@ -225,6 +226,19 @@ last_updated: 2026-10-06T22:51:41.778Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-06T22:51:41.778Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 16,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": ".planning/phases/03-owned-loop-api-keys-and-gateways/03-04-PLAN.md",
+    "line": null,
+    "description": "Plan 03-04 human check unrun: a real Stop-and-continue, a mid-card Stop with the quiz_results count unchanged, and a provider switch mid-lesson all need a real provider key, and none exists in this environment",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-06T23:30:48.227Z",
     "resolved_at": null,
     "milestone": null
   }
