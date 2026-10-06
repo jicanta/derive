@@ -196,7 +196,8 @@ describe('settings over HTTP', () => {
       ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible', 'ollama', 'lmstudio', 'llamacpp'],
     );
     assert.match(r.json.defaults_as_of, /^\d{4}-\d{2}-\d{2}$/);
-    assert.deepEqual(r.json.rows.filter((row) => row.teaches).map((row) => row.id), ['claude-code', 'codex']);
+    // The anthropic row joined the two logins when the owned loop shipped; every other key row flips with its own adapter.
+    assert.deepEqual(r.json.rows.filter((row) => row.teaches).map((row) => row.id), ['claude-code', 'codex', 'anthropic']);
     const byId = new Map(r.json.rows.map((row) => [row.id, row]));
     assert.equal(byId.get('anthropic')!.default_model, 'claude-opus-5-5');
     assert.equal(byId.get('openai')!.default_model, 'gpt-6-astra');
@@ -1094,12 +1095,12 @@ describe('the resolver, in process', () => {
     assert.equal(providerOfDriver('fake'), 'fake');
   });
 
-  it('lists ten providers in a fixed order, and only the two logins teach', () => {
+  it('lists ten providers in a fixed order, and only the wired rows teach', () => {
     assert.deepEqual(
       PROVIDERS.map((p) => p.id),
       ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible', 'ollama', 'lmstudio', 'llamacpp'],
     );
-    assert.deepEqual(PROVIDERS.filter((p) => p.teaches).map((p) => p.id), ['claude-code', 'codex']);
+    assert.deepEqual(PROVIDERS.filter((p) => p.teaches).map((p) => p.id), ['claude-code', 'codex', 'anthropic']);
     assert.deepEqual(PROVIDERS.filter((p) => p.optionalKey).map((p) => p.id), ['lmstudio', 'llamacpp']);
   });
 

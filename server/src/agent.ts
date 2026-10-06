@@ -3,8 +3,9 @@ import { createSdkMcpServer, query, tool, type SDKMessage } from '@anthropic-ai/
 import * as actions from './actions.js';
 import { codexDriver, type Active } from './codex.js';
 import { DATA_DIR, EFFORT, VERSION } from './config.js';
-import { clearSessionId, getLesson, lastTurn, learnerProfile, startTurn, type GraphNodeInput } from './db.js';
+import { clearSessionId, getLesson, lastTurn, learnerProfile, startTurn } from './db.js';
 import { driverOverride, sinkFor, type Driver, type EventSink, type TurnContext } from './driver.js';
+import { apiDriverFor } from './drivers/api.js';
 import { emit } from './events.js';
 import { librarySection } from './library.js';
 import { materialsSection } from './materials.js';
@@ -47,24 +48,6 @@ function text(obj: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(obj) }] };
 }
 
-/** The only per-tool code left in this file: each tool's handler calls a different action with a different shape. */
-const handlers: Record<string, (lessonId: string, a: Record<string, unknown>) => unknown> = {
-  quiz: (l, a) => actions.quiz(l, a as unknown as Parameters<typeof actions.quiz>[1]),
-  ask: (l, a) => actions.ask(l, a as unknown as Parameters<typeof actions.ask>[1]),
-  set_plan: (l, a) => actions.setPlan(l, { goal: a.goal as string, nodes: a.nodes as GraphNodeInput[] }),
-  node_status: (l, a) => actions.nodeStatus(l, a as unknown as Parameters<typeof actions.nodeStatus>[1]),
-  set_phase: (l, a) => actions.phase(l, a as unknown as Parameters<typeof actions.phase>[1]),
-  explain_back: (l, a) => actions.explainBack(l, a as unknown as Parameters<typeof actions.explainBack>[1]),
-  remember: (l, a) => actions.remember(l, a as unknown as Parameters<typeof actions.remember>[1]),
-  set_preferences: (l, a) => actions.setPreferences(l, a as unknown as Parameters<typeof actions.setPreferences>[1]),
-  read_material: (l, a) => actions.readMaterial(l, a as unknown as Parameters<typeof actions.readMaterial>[1]),
-  search_material: (l, a) => actions.searchMaterial(l, a as unknown as Parameters<typeof actions.searchMaterial>[1]),
-  search_library: (l, a) => actions.searchLibrary(l, a as unknown as Parameters<typeof actions.searchLibrary>[1]),
-  read_resource: (l, a) => actions.readResource(l, a as unknown as Parameters<typeof actions.readResource>[1]),
-  suggest_resource: (l, a) => actions.suggestResource(l, a as unknown as Parameters<typeof actions.suggestResource>[1]),
-  add_resource: (l, a) => actions.saveResource(l, a as unknown as Parameters<typeof actions.saveResource>[1]),
-};
-
 /**
  * Every tool the agent offers, built from the registry: the name, the
  * description the model reads and the input schema all come from the one spec
@@ -72,13 +55,15 @@ const handlers: Record<string, (lessonId: string, a: Record<string, unknown>) =>
  * them. The description and the shape come through the registry's accessors
  * rather than off the spec, so a difference this surface one day declares
  * under `per_surface` is honoured here without another change.
+ *
+ * The dispatch itself lives in `actions.ts` as `runTool`, so this driver and
+ * the owned loop in `drivers/api.ts` call the same fourteen handlers; a second
+ * copy here is how the tool set starts drifting between two drivers.
  */
 function buildTools(lessonId: string) {
-  const tools = toolsFor('agent').map((spec) => {
-    const run = handlers[spec.name];
-    if (!run) throw new Error(`no handler for tool: ${spec.name}`);
-    return tool(spec.name, descriptionFor(spec, 'agent'), shapeFor(spec, 'agent'), async (a) => text(await run(lessonId, a as Record<string, unknown>)));
-  });
+  const tools = toolsFor('agent').map((spec) =>
+    tool(spec.name, descriptionFor(spec, 'agent'), shapeFor(spec, 'agent'), async (a) => text(await actions.runTool(lessonId, spec.name, a as Record<string, unknown>))),
+  );
 
   // The material and library tools are always registered: material can be
   // attached while a card is pending, and the tutor should be able to read
@@ -274,10 +259,12 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   // and the event the browser replays. The driver is chosen first only so the
   // row can say which one ran it.
   const tutor = resolveTutor(lesson.learner_id);
-  const driver = driverOverride() ?? (backendOf(tutor.provider) === 'codex' ? codexDriver : claudeDriver);
+  const driver = driverOverride() ?? (backendOf(tutor.provider) === 'codex' ? codexDriver : tutor.provider === 'claude-code' ? claudeDriver : apiDriverFor(tutor.provider));
   // D-04: a session id belongs to the provider that issued it. When the driver
   // changed since the last turn, the lesson starts a fresh provider
-  // conversation; a model change on the same provider keeps resuming.
+  // conversation; a model change on the same provider keeps resuming. On the
+  // owned loop `driver.name` already is the catalogue provider id, so this
+  // reads as the comparison of providers D-04 actually means.
   const last = lastTurn(lessonId);
   if (last && last.driver !== driver.name && lesson.session_id) clearSessionId(lessonId);
   const turnId = startTurn(lessonId, driver.name, tutor.model);

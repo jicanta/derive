@@ -100,9 +100,9 @@ export const PROVIDERS: readonly ProviderSpec[] = [
     endpoint: 'https://api.anthropic.com',
     modelsPath: '/v1/models?limit=1000',
     port: null,
-    teaches: false,
+    teaches: true,
     optionalKey: false,
-    note: unwired('Anthropic'),
+    note: "Runs the app's tutor on your Anthropic API key through Derive's own agent loop. Leave the model empty to use the catalogue default.",
   },
   {
     id: 'openai',

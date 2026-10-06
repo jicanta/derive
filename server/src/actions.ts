@@ -605,3 +605,37 @@ export function renderCard(kind: PromptKind, payload: Record<string, unknown>, n
     }
   }
 }
+
+// ---------- the one tool dispatch map ----------
+
+/**
+ * The tutor's fourteen tools, each mapped onto the action it runs.
+ *
+ * It lives here rather than in a driver because the tutor's tools used to be
+ * written out three times and the copies had already drifted — a drifting copy
+ * is a drifting tutor. The Claude driver and the owned loop both look a tool up
+ * here, so a provider cannot quietly offer a different fourteen.
+ */
+export const TUTOR_TOOL_HANDLERS: Record<string, (lessonId: string, a: Record<string, unknown>) => unknown> = {
+  quiz: (l, a) => quiz(l, a as unknown as QuizArgs),
+  ask: (l, a) => ask(l, a as unknown as Parameters<typeof ask>[1]),
+  set_plan: (l, a) => setPlan(l, { goal: a.goal as string, nodes: a.nodes as GraphNodeInput[] }),
+  node_status: (l, a) => nodeStatus(l, a as unknown as Parameters<typeof nodeStatus>[1]),
+  set_phase: (l, a) => phase(l, a as unknown as Parameters<typeof phase>[1]),
+  explain_back: (l, a) => explainBack(l, a as unknown as Parameters<typeof explainBack>[1]),
+  remember: (l, a) => remember(l, a as unknown as Parameters<typeof remember>[1]),
+  set_preferences: (l, a) => setPreferences(l, a as unknown as Parameters<typeof setPreferences>[1]),
+  read_material: (l, a) => readMaterial(l, a as unknown as Parameters<typeof readMaterial>[1]),
+  search_material: (l, a) => searchMaterial(l, a as unknown as Parameters<typeof searchMaterial>[1]),
+  search_library: (l, a) => searchLibrary(l, a as unknown as Parameters<typeof searchLibrary>[1]),
+  read_resource: (l, a) => readResource(l, a as unknown as Parameters<typeof readResource>[1]),
+  suggest_resource: (l, a) => suggestResource(l, a as unknown as Parameters<typeof suggestResource>[1]),
+  add_resource: (l, a) => saveResource(l, a as unknown as Parameters<typeof saveResource>[1]),
+};
+
+/** Run one tutor tool for a lesson. The one way a driver reaches an action; an unknown name is the driver's bug, not the learner's. */
+export async function runTool(lessonId: string, name: string, a: Record<string, unknown>): Promise<unknown> {
+  const run = TUTOR_TOOL_HANDLERS[name];
+  if (!run) throw new Error(`no handler for tool: ${name}`);
+  return await run(lessonId, a);
+}
