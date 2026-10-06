@@ -41,14 +41,48 @@ type Loaded = { table: PriceTable; error: string | null };
 /** The last read and when it happened. Deliberate module state: the cache the one-second window is about. */
 let cache: (Loaded & { at: number }) | null = null;
 
-/** The four fields a learner may leave out or set to null; `input` and `output` are the two a brand-new model must carry. */
-const NULLABLE = ['cache_read', 'cache_write', 'web_search', 'context'] as const;
+/** Every field a rate record carries, in the order pricing.ts declares them. */
+const FIELDS = ['input', 'output', 'cache_read', 'cache_write', 'web_search', 'context'] as const;
 
 /** A rate is usable only when it is a real, finite, non-negative number: NaN, Infinity, a string and a negative all fail the same way. */
 const isRate = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
 /** The sentence a bad field is reported with. Names the path, the provider, the model and the field — and nothing else, because the file holds no secret and there is nothing to echo. */
-const badField = (provider: string, model: string, field: string): string => `${PRICES_PATH} gives ${provider} ${model} a ${field} that is not a number at or above zero`;
+const badField = (provider: string, model: string, field: string): string => `${PRICES_PATH} sets ${field} for ${provider} ${model} to something that is not a number at or above zero`;
+
+/**
+ * One model's record, laid field by field over the shipped one, or the sentence
+ * the whole file is refused with.
+ *
+ * Built as a `ModelPrice` by construction rather than assembled loosely and
+ * cast: the cast would be the one place a malformed field could reach the cost
+ * path, which is the thing this module exists to make impossible.
+ */
+function priceFrom(given: Record<string, unknown>, base: ModelPrice | undefined, provider: string, model: string): { price: ModelPrice } | { error: string } {
+  for (const field of FIELDS) {
+    const v = given[field];
+    if (v === undefined) continue;
+    if (v === null) {
+      // null is a learner saying "this provider publishes no such rate"; input and output always exist, so a null there is a malformed file rather than a statement.
+      if (field === 'input' || field === 'output') return { error: badField(provider, model, field) };
+      continue;
+    }
+    if (!isRate(v)) return { error: badField(provider, model, field) };
+  }
+  /** The learner's value for one field, the shipped one where they left it out, and null where neither exists. */
+  const of = (field: (typeof FIELDS)[number]): number | null => {
+    const v = given[field];
+    if (isRate(v)) return v;
+    if (v === null) return null;
+    return base ? base[field] : null;
+  };
+  const input = of('input');
+  const output = of('output');
+  // Only reachable when the field is absent and the shipped table has no row to take it from; a rate of zero would read as a free lesson, so the file is refused instead.
+  if (input === null) return { error: `${PRICES_PATH} sets no input for ${provider} ${model}, and the shipped table has no ${model} to take a rate from` };
+  if (output === null) return { error: `${PRICES_PATH} sets no output for ${provider} ${model}, and the shipped table has no ${model} to take a rate from` };
+  return { price: { input, output, cache_read: of('cache_read'), cache_write: of('cache_write'), web_search: of('web_search'), context: of('context') } };
+}
 
 /**
  * Validate the parsed file and lay it over the shipped table.
@@ -67,26 +101,9 @@ function merge(raw: unknown): Loaded {
     if (!models || typeof models !== 'object' || Array.isArray(models)) return { table: PRICES, error: `${PRICES_PATH} gives ${provider} something that is not a JSON object of model ids` };
     for (const [model, entry] of Object.entries(models as Record<string, unknown>)) {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return { table: PRICES, error: `${PRICES_PATH} gives ${provider} an entry for ${model} that is not a JSON object` };
-      const given = entry as Record<string, unknown>;
-      const base = PRICES[provider]?.[model];
-      const price: Record<string, number | null> = base ? { ...base } : {};
-      for (const field of ['input', 'output'] as const) {
-        if (given[field] === undefined) {
-          if (base) continue;
-          return { table: PRICES, error: `${PRICES_PATH} gives ${provider} ${model} no ${field}, and the shipped table has no ${model} to take one from` };
-        }
-        if (!isRate(given[field])) return { table: PRICES, error: badField(provider, model, field) };
-        price[field] = given[field];
-      }
-      for (const field of NULLABLE) {
-        if (given[field] === undefined) {
-          if (!base) price[field] = null;
-          continue;
-        }
-        if (given[field] !== null && !isRate(given[field])) return { table: PRICES, error: badField(provider, model, field) };
-        price[field] = given[field] as number | null;
-      }
-      merged[provider] = { ...merged[provider], [model]: price as unknown as ModelPrice };
+      const result = priceFrom(entry as Record<string, unknown>, PRICES[provider]?.[model], provider, model);
+      if ('error' in result) return { table: PRICES, error: result.error };
+      merged[provider] = { ...merged[provider], [model]: result.price };
     }
   }
   return { table: merged, error: null };
