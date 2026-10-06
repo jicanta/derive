@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 13
+open_count: 14
 waived_count: 0
 fixed_count: 0
-total_count: 13
-last_updated: 2026-10-01T10:54:49.674Z
+total_count: 14
+last_updated: 2026-10-06T21:40:44.849Z
 ---
 
 # Broken Windows Ledger
@@ -28,6 +28,7 @@ last_updated: 2026-10-01T10:54:49.674Z
 | 11 | 01 | unrun-verify | server/test/guards.test.ts |  | The five clone-argv pins 01-21 added (ssh command, credential helper, fsmonitor, hooks path, pager) are asserted at the source, not driven: fromGitClone refuses anything that is not https:// before git is spawned and there is no DNS or outbound network here. Fold one repo import by GitHub URL into HC-2's run and confirm it still imports normally. | open |  | 2026-09-20T17:35:28.787Z |  |
 | 12 | 01 | deviation | server/test/security.test.ts |  | Deleting the ticket describe block also deleted its source-assertion that server/src/mcp.ts contains no exec( shell spawn and no searchParams.set('token'); nothing now goes red if a future change puts the install token back into the browser-opener URL | open |  | 2026-09-20T18:26:11.288Z |  |
 | 13 | 02 | unrun-verify | .planning/phases/02-settings-and-secrets/02-UAT.md |  | Phase 2 UAT is status: partial — the four visual findings 02-07 closed in source (375px header truncation, 32px text-button hit area, /you Section 07 id fit, tutor pill 40ch) were verified against the emitted CSS, not re-driven in headless Chrome; UAT tests 4 and 5 need a re-run to close | open |  | 2026-10-01T10:54:49.674Z |  |
+| 14 | 03 | unrun-verify | server/src/drivers/api.ts |  | 03-01 human check unrun: one real Anthropic-key lesson to a locked node (streaming pill, Thinking line with no reasoning in the record or vault, clean Stop) — no provider key exists in this environment | open |  | 2026-10-06T21:40:44.849Z |  |
 
 ````json
 [
@@ -197,6 +198,19 @@ last_updated: 2026-10-01T10:54:49.674Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-01T10:54:49.674Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 14,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": "server/src/drivers/api.ts",
+    "line": null,
+    "description": "03-01 human check unrun: one real Anthropic-key lesson to a locked node (streaming pill, Thinking line with no reasoning in the record or vault, clean Stop) — no provider key exists in this environment",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-06T21:40:44.849Z",
     "resolved_at": null,
     "milestone": null
   }

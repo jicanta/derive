@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: "Owned Loop: API Keys and Gateways"
 status: executing
-stopped_at: Phase 3 UI-SPEC approved
-last_updated: "2026-10-02T00:02:07.503Z"
-last_activity: 2026-10-01
-last_activity_desc: Phase 02 learnings extracted — 10 decisions, 8 lessons, 8 patterns, 7 surprises
-state_head: a65a6cc6f541d2dd0658c23becfd7d465bbed90b
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-10-06T21:40:35.178Z"
+last_activity: 2026-10-06
+last_activity_desc: Phase 03 execution started
+state_head: fe61e93e0fcbaab4d7d8b4b7736f842b83b5768e
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 38
-  completed_plans: 29
+  completed_plans: 30
   percent: 29
 ---
 
@@ -24,14 +24,14 @@ See: .planning/PROJECT.md (updated 2026-10-01)
 
 **Core value:** A learner can sit down with any model they have access to and be taught the Derive way: the dependency graph, the understanding gate, the review loop, with nothing lost between providers.
 **Simplicity rule (binding):** one screen, one next step. The default UI shows the lesson and what to do next; everything else lives behind Settings. No feature ships without a one-sentence reason tied to learning better.
-**Current focus:** Phase 02 — Settings and Secrets
+**Current focus:** Phase 03 — Owned Loop: API Keys and Gateways
 
 ## Current Position
 
-Phase: 03 (Owned Loop: API Keys and Gateways) — READY TO EXECUTE
-Plan: Not started
+Phase: 03 (Owned Loop: API Keys and Gateways) — EXECUTING
+Plan: 2 of 9
 Status: Ready to execute
-Last activity: 2026-10-01 — Phase 02 learnings extracted (10 decisions, 8 lessons, 8 patterns, 7 surprises)
+Last activity: 2026-10-06 — Phase 03 execution started
 
 Progress: [███░░░░░░░] 29%
 
@@ -84,6 +84,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02 P04 | 5 min | 3 tasks | 9 files |
 | Phase 02 P05 | 3 min | 2 tasks | 8 files |
 | Phase 02 P07 | 4min | 1 tasks | 5 files |
+| Phase 03 P01 | 14 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -165,6 +166,10 @@ Recent decisions affecting current work:
 - [Phase 02]: Per 02-05 the learner model id is a preference the tutor must not read: LearnerPrefs.model and cleanPrefs (200 chars, [A-Za-z0-9._:/-]) carry it through the unchanged PATCH path, preferencesSection and describePrefs render no line for it, and the suite asserts learnerProfile text lacks the id
 - [Phase 02]: Phase 2 gap closure: the text-button 32px hit area lives only in ProviderRow's shared textButton constant; a button that hand-rolls its class string opts out silently, so the destructive confirm composes ${textButton} plus its rust override
 - [Phase 02]: A Tailwind 4 colour class compiles to nothing unless @theme declares the token: hover:text-rust-300 was inert with no build error, so hover feedback is checked against the emitted CSS, not the source
+- [Phase 03]: Per 03-01 the fourteen tutor tools are dispatched from one place: actions.ts exports TUTOR_TOOL_HANDLERS and runTool, agent.ts buildTools calls it and its local handlers record is gone, so the Claude driver and the owned loop cannot offer a different fourteen — tools.ts's own module header records that the tutor's tools used to be written out three times and the copies had already drifted; a drifting copy is a drifting tutor
+- [Phase 03]: Per 03-01 Driver.name on the owned loop is the catalogue ProviderId (apiDriverFor(provider)), never the literal 'api', and apiDriver's name is a getter over currentTutor().provider — providerOfDriver is the identity outside 'claude', lessonView feeds it to the header pill and recordUsage denormalises turn.driver onto every usage row, so one driver named api would collapse five providers into one label in the ledger and in front of the learner
+- [Phase 03]: Per 03-01 usage.input_tokens on the owned loop is mapped from usage.inputTokenDetails.noCacheTokens, one row per finish-step, with cost_usd null and cost_source 'unknown' until the pricing table arrives — usage.inputTokens is a total that already includes cache reads and writes, where this repo's input_tokens column means the uncached part; mapping the total would make a well-cached lesson read as roughly twice the input it paid for
+- [Phase 03]: Per 03-01 a tool-serialisation assertion must be seen failing with the chain removed: the first version passed either way because every tutor action is synchronous, so two blocking ask cards are what proves it — An assertion the mechanism's absence can satisfy is not an assertion, and a gate that has not been seen failing is not known to be a gate (the project's own 01-21 rule)
 
 ### Pending Todos
 
@@ -193,6 +198,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-01T17:17:00.871Z
-Stopped at: Phase 3 UI-SPEC approved
-Resume file: .planning/phases/03-owned-loop-api-keys-and-gateways/03-UI-SPEC.md
+Last session: 2026-10-06T21:40:01.322Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
