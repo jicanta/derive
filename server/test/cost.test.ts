@@ -15,13 +15,45 @@ process.env.DERIVE_DATA_DIR = scratch;
 const { PRICES, PRICES_AS_OF, priceOf, windowOf } = await import('../src/pricing.js');
 const { priceTable, pricesFileError, resetPriceCache } = await import('../src/prices.js');
 const { PROVIDERS } = await import('../src/providers.js');
+const { costLabel, costOf, weakestSource } = await import('../src/cost.js');
+const { CHARS_PER_TOKEN, HEADROOM_FRACTION, estimateTokens, headroomCheck } = await import('../src/context.js');
 
 // A dynamic import cannot carry types across, and a static one would resolve
 // PRICES_PATH before the scratch directory above is set; these are type
-// positions only, so nothing is imported at run time.
+// positions only, so nothing is imported at run time. db.ts is never imported
+// as a value anywhere in this suite — cost.ts takes its row types with `import
+// type`, which is what keeps the database out of the cost path.
 type ModelPrice = import('../src/pricing.js').ModelPrice;
+type CostRow = import('../src/cost.js').CostRow;
 
 const PRICES_FILE = join(scratch, 'prices.json');
+
+/** The verbatim refusal from 03-UI-SPEC.md §Copywriting Contract → Context-window refusal (A6). */
+const REFUSAL = 'This lesson has grown too long to continue. Everything you locked is saved — start a review lesson on these nodes from Home.';
+
+/** A usage row built by hand: every field present, nothing read from a database. */
+const row = (over: Partial<CostRow> = {}): CostRow => ({
+  id: 1,
+  turn_id: 'turn-1',
+  lesson_id: 'lesson-1',
+  learner_id: 'me',
+  driver: 'anthropic',
+  model: 'claude-opus-5-5',
+  input_tokens: null,
+  output_tokens: null,
+  cache_read_tokens: null,
+  cache_write_tokens: null,
+  reasoning_tokens: null,
+  cost_source: 'table',
+  cost_usd: null,
+  ts: 0,
+  ...over,
+});
+
+/** Money is summed in floating point, so compare to the cent-fraction rather than to the bit. */
+const close = (actual: number | null, expected: number, message: string): void => {
+  assert.ok(actual !== null && Math.abs(actual - expected) < 1e-12, `${message} (expected ≈ ${expected}, got ${actual})`);
+};
 
 /** Write a fixture and drop the cache, so the next read goes to the file. */
 const write = (body: string): void => {
@@ -121,5 +153,122 @@ describe('the override file', () => {
     assert.ok(price, 'the shipped Anthropic row survives the merge');
     assert.equal(typeof price?.input, 'number');
     assert.equal(typeof price?.output, 'number');
+  });
+});
+
+describe('the cost arithmetic and the money string', () => {
+  it('shows no figure for a lesson that has not run a turn', () => {
+    assert.deepEqual(costOf([], PRICES), { usd: null, source: 'unknown' }, 'no rows means no figure, not a zero');
+  });
+
+  it("takes the provider's own figure without consulting the table", () => {
+    const reported = row({ cost_source: 'provider', cost_usd: 0.0123, model: 'a-model-no-table-has-ever-heard-of', input_tokens: 9_000_000 });
+    assert.deepEqual(costOf([reported], PRICES), { usd: 0.0123, source: 'provider' }, 'a figure the provider billed outranks anything a table could say');
+  });
+
+  it('prices a lesson from the table when the provider reported no figure', () => {
+    const priced = row({ cost_source: 'table', input_tokens: 1000, output_tokens: 500, cache_read_tokens: 2000, cache_write_tokens: 100 });
+    const cost = costOf([priced], PRICES);
+    assert.equal(cost.source, 'table');
+    // 1000 × $0.000004 + 500 × $0.00002 + 2000 × $0.0000002 + 100 × $0.000005
+    close(cost.usd, 0.0149, 'the four token columns are priced at their own four rates');
+  });
+
+  it('counts a null token column as nothing rather than guessing at it', () => {
+    const partial = row({ cost_source: 'table', input_tokens: 1000, output_tokens: null, cache_read_tokens: null, cache_write_tokens: null });
+    close(costOf([partial], PRICES).usd, 0.004, 'only the column that was reported is priced');
+  });
+
+  it("folds a native search's per-call charge into the same total", () => {
+    const searched = row({ cost_source: 'table', input_tokens: 1000, searches: 2 });
+    close(costOf([searched], PRICES).usd, 0.004 + 0.02, 'two searches at $0.01 a call land in the lesson total rather than vanishing from it');
+  });
+
+  it('contributes no money and carries unknown for a model the table does not have', () => {
+    const unlisted = row({ cost_source: 'table', model: 'some-local-gguf', driver: 'ollama', input_tokens: 500_000 });
+    assert.deepEqual(costOf([unlisted], PRICES), { usd: null, source: 'unknown' }, 'an unpriceable request must not be priced as free');
+  });
+
+  it('never prices a request the provider reported nothing for', () => {
+    const silent = row({ cost_source: 'unknown', input_tokens: null, output_tokens: null, cache_read_tokens: null, cache_write_tokens: null });
+    assert.deepEqual(costOf([silent], PRICES), { usd: null, source: 'unknown' }, 'no counts and no figure is a blank, not a zero');
+  });
+
+  it('lets the weakest source in the lesson decide the word, whatever order the rows arrive in', () => {
+    const cases: [import('../src/db.js').CostSource[], string][] = [
+      [['provider', 'provider'], 'provider'],
+      [['subscription', 'subscription'], 'subscription'],
+      [['provider', 'table'], 'table'],
+      [['provider', 'subscription'], 'table'],
+      [['provider', 'unknown'], 'unknown'],
+      [['table', 'unknown'], 'unknown'],
+    ];
+    for (const [sources, expected] of cases) {
+      assert.equal(weakestSource(sources), expected, `${sources.join(' + ')} should read ${expected}`);
+      assert.equal(weakestSource([...sources].reverse()), expected, `${sources.join(' + ')} reversed should still read ${expected}`);
+    }
+  });
+
+  it('takes the whole lesson down to its weakest row', () => {
+    const billed = row({ cost_source: 'provider', cost_usd: 0.09 });
+    const estimated = row({ cost_source: 'table', input_tokens: 1000 });
+    const cost = costOf([billed, estimated], PRICES);
+    assert.equal(cost.source, 'table', 'a subscription or billed lesson that ran one table-priced turn reads estimated');
+    close(cost.usd, 0.09 + 0.004, 'both halves are still in the total');
+  });
+
+  it('says the four words and nothing else', () => {
+    assert.equal(costLabel(null, 'unknown'), 'not reported');
+    assert.equal(costLabel(0, 'subscription'), 'not billed');
+    assert.equal(costLabel(0.42, 'subscription'), 'not billed', 'a subscription path never carries a figure');
+    assert.equal(costLabel(0.42, 'unknown'), 'not reported', 'an unreported path never carries a figure');
+    assert.equal(costLabel(0.14, 'table'), 'about $0.14 estimated');
+    assert.equal(costLabel(0.14, 'provider'), 'about $0.14 billed');
+  });
+
+  it('floors a sub-cent lesson at under $0.01 rather than rounding it to nothing', () => {
+    assert.equal(costLabel(0, 'provider'), 'billed', 'exactly zero shows its label and no figure');
+    assert.equal(costLabel(0.004, 'provider'), 'under $0.01 billed', 'a metered lesson under a cent must not read as free');
+    assert.equal(costLabel(0.005, 'provider'), 'about $0.01 billed', 'toFixed(2) renders 0.005 as 0.01, so the boundary sits on the about side');
+    assert.equal(costLabel(0.004, 'table'), 'under $0.01 estimated');
+  });
+
+  it('returns null rather than an empty string when there is nothing to say', () => {
+    assert.equal(costLabel(null, null), null, 'a lesson with no usage rows renders no segment at all, not an empty one');
+  });
+});
+
+describe('the estimator', () => {
+  it('over-counts tokens on purpose', () => {
+    assert.equal(estimateTokens(''), 0);
+    assert.equal(estimateTokens('x'.repeat(300)), 100, 'three characters per token, where English runs nearer four');
+    assert.equal(CHARS_PER_TOKEN, 3);
+    assert.equal(HEADROOM_FRACTION, 0.8);
+  });
+
+  it('lets a prompt through while it is under the headroom', () => {
+    const window = windowOf('anthropic', 'claude-opus-5-5') ?? 0;
+    const chars = Math.floor(window * HEADROOM_FRACTION * CHARS_PER_TOKEN) - 3000;
+    assert.deepEqual(headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: '', messages: '', prompt: 'x'.repeat(chars) }, PRICES), { refuse: false });
+  });
+
+  it('refuses before the request once the prompt passes the headroom', () => {
+    const window = windowOf('anthropic', 'claude-opus-5-5') ?? 0;
+    const chars = Math.ceil(window * HEADROOM_FRACTION * CHARS_PER_TOKEN) + 3000;
+    const check = headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: 'x'.repeat(chars), messages: '', prompt: '' }, PRICES);
+    assert.equal(check.refuse, true, 'a prompt past 80% of a known window is refused with Derive own sentence rather than the provider error');
+    assert.equal(check.refuse === true ? check.reason : null, REFUSAL, 'the sentence is the UI-SPEC copy, byte for byte');
+  });
+
+  it('sums the three texts rather than measuring only the newest one', () => {
+    const window = windowOf('anthropic', 'claude-opus-5-5') ?? 0;
+    const third = Math.ceil((window * HEADROOM_FRACTION * CHARS_PER_TOKEN) / 3) + 1000;
+    const check = headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: 'x'.repeat(third), messages: 'y'.repeat(third), prompt: 'z'.repeat(third) }, PRICES);
+    assert.equal(check.refuse, true, 'the system prompt, the history and the new message all occupy the window');
+  });
+
+  it('abstains rather than guessing when the window is not in the table', () => {
+    const check = headroomCheck({ provider: 'openai-compatible', model: 'some-endpoint-model', instructions: 'x'.repeat(8_000_000), messages: '', prompt: '' }, PRICES);
+    assert.deepEqual(check, { refuse: false }, "refusing a learner's perfectly capable endpoint on a guessed window would be worse than letting that endpoint's own error through");
   });
 });
