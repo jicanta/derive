@@ -51,14 +51,18 @@ export const CODEX_BIN = process.env.DERIVE_CODEX_BIN || undefined;
 /** Where Codex keeps its login, config and session logs. */
 export const CODEX_HOME = resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex'));
 
-/** The five variables a provider key may arrive in. */
-export type EnvKeyName = 'ANTHROPIC_API_KEY' | 'OPENAI_API_KEY' | 'GEMINI_API_KEY' | 'GOOGLE_API_KEY' | 'OPENROUTER_API_KEY';
+/** The id the Tavily search key is stored under in `secrets.json`, so the search key rides `keys.ts` like every provider key rather than a path of its own. Not a catalogue id: no provider row searches for Derive. */
+export const SEARCH_KEY_ID = 'search:tavily';
+
+/** The six variables a key may arrive in: one per provider row, plus the fallback web search's. */
+export type EnvKeyName = 'ANTHROPIC_API_KEY' | 'OPENAI_API_KEY' | 'GEMINI_API_KEY' | 'GOOGLE_API_KEY' | 'OPENROUTER_API_KEY' | 'TAVILY_API_KEY';
 /**
  * The provider keys the environment carries, each read once. A set variable
  * outranks and locks the file value for its row: the row reads `set from
  * environment`, names the variable to unset, and the page cannot store a
  * competing key while it is set. The catalogue decides which variable a row
- * reads first (Google before Gemini on the Gemini row).
+ * reads first (Google before Gemini on the Gemini row); the search key's is
+ * declared here because it has no catalogue row to declare it.
  */
 export const ENV_KEYS: Readonly<Record<EnvKeyName, string | undefined>> = {
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || undefined,
@@ -66,6 +70,7 @@ export const ENV_KEYS: Readonly<Record<EnvKeyName, string | undefined>> = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || undefined,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || undefined,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || undefined,
+  TAVILY_API_KEY: process.env.TAVILY_API_KEY || undefined,
 };
 /** Where Ollama listens when not on its default port, in the form Ollama's own CLI reads (a host, host:port or URL). Locks the Ollama row's address: the row is probed there and reads `set from environment`. */
 export const OLLAMA_HOST = process.env.OLLAMA_HOST || undefined;

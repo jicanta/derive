@@ -13,7 +13,7 @@ import * as actions from './actions.js';
 import { interrupt, isBusy, runTurn } from './agent.js';
 import { ensureToken, matchesSession, matchesToken, sessionValue } from './credentials.js';
 import { keyView, removeKey, secretsFileError, setKey } from './keys.js';
-import { ALLOWED_ORIGINS, DERIVE_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, TOKEN_PATH, VAULT_DIR, VERSION } from './config.js';
+import { ALLOWED_ORIGINS, DERIVE_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, SEARCH_KEY_ID, TOKEN_PATH, VAULT_DIR, VERSION } from './config.js';
 import {
   allNodes,
   bindMaterials,
@@ -62,9 +62,11 @@ import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief 
 import { detect, listModels, testConnection } from './probe.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
 import { DEFAULTS_AS_OF, labelOf, PROVIDERS, providerOf, providerOfDriver, type ProviderSpec } from './providers.js';
+import { SEARCH_BASE_URL, SEARCH_PROVIDERS, SEARCH_SETTING, searchProvider, testSearch } from './search.js';
 import { registerSecret, safeMessage } from './secrets.js';
 import { ACTIVE_PROVIDER, baseUrlKey, currentTutor, envKeyFor, lastDetection, localBase, lockedBy, modelKey, normaliseBaseUrl, resetDetection, resolveTutor, type Detection, type Local } from './settings.js';
 import { shapeFor, toolsFor } from './tools.js';
+import { nativeSearch } from './drivers/adapters.js';
 
 /**
  * A restart kills in-flight turns without a turn_end. Close them on boot so
@@ -418,6 +420,24 @@ const rowView = (spec: ProviderSpec, activeId: string, seen: Detection | null = 
   };
 };
 
+/**
+ * The web-search block as the page paints it: the learner's choice, the key as
+ * `{ set, hint }` and never the value, the SearXNG address, and whether the
+ * provider the next turn would run on searches with its own tool.
+ *
+ * `native` is answered here rather than guessed in the browser: which providers
+ * have a search of their own is a fact of the adapter table, and on Gemini it
+ * depends on the model id too, so a hard-coded list in a component would be
+ * wrong the day a row changes.
+ */
+const searchView = (active = currentTutor()) => ({
+  provider: searchProvider(),
+  key: keyView(SEARCH_KEY_ID),
+  key_locked: lockedBy(`key:${SEARCH_KEY_ID}`),
+  base_url: getSetting(SEARCH_BASE_URL) ?? null,
+  native: !!nativeSearch(active.provider, active.model),
+});
+
 /** The whole page in one read: stored config at once, the active row computed once, the secrets file's complaint if it has one, and no child process behind any of it. */
 const settingsView = () => {
   const active = currentTutor();
@@ -429,6 +449,7 @@ const settingsView = () => {
     model_locked: lockedBy('model'),
     secrets_error: secretsFileError(),
     rows: PROVIDERS.map((s) => rowView(s, active.provider, seen)),
+    search: searchView(active),
   };
 };
 
@@ -455,6 +476,63 @@ app.post('/api/settings/active', async (c) => {
     return c.json({ error: safeMessage(e) }, 400);
   }
 });
+
+// ---------- web search ----------
+
+/**
+ * The fields the web-search block may write. The same shapes the provider
+ * write takes, for the same reasons: an unknown choice is a 400 naming the
+ * three, a key is only ever written, and an empty address clears the setting.
+ */
+const SearchWrite = z
+  .object({
+    provider: z.enum(SEARCH_PROVIDERS).optional().describe("Which web search the tutor uses where the provider has none of its own: the provider's own, tavily or searxng."),
+    key: z.string().max(4096, 'the key is longer than any provider issues').optional().describe('The Tavily key to store. Never read back.'),
+    base_url: z.string().trim().max(500, 'the base URL is longer than any endpoint needs').optional().describe('Where the learner’s SearXNG instance is reached, or an empty string to clear it.'),
+  })
+  .strict();
+
+/** The 409 a search-key write or removal gets while the environment carries it. The same sentence shape a provider row answers with, so the two fields read alike. */
+const searchKeyLock = (lock: string) => `the Tavily key is set by ${lock} in the environment; unset it to store one here`;
+
+/** Store the web-search choice and whatever it needs. Registered before `/:provider`, which would otherwise match `search` as a provider id. */
+app.put('/api/settings/search', async (c) => {
+  const parsed = SearchWrite.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) {
+    const bad = parsed.error.issues[0];
+    const message = bad?.path[0] === 'provider' ? `web search must be one of ${SEARCH_PROVIDERS.join(', ')}` : (bad?.message ?? 'the settings body could not be read');
+    return c.json({ error: message }, 400);
+  }
+  const { provider, key, base_url } = parsed.data;
+  const lock = key !== undefined ? lockedBy(`key:${SEARCH_KEY_ID}`) : null;
+  if (lock) return c.json({ error: searchKeyLock(lock) }, 409);
+  try {
+    if (key !== undefined) setKey(SEARCH_KEY_ID, key);
+    if (provider !== undefined) setSetting(SEARCH_SETTING, provider);
+    if (base_url !== undefined) {
+      if (base_url) setSetting(SEARCH_BASE_URL, normaliseBaseUrl(base_url));
+      else deleteSetting(SEARCH_BASE_URL);
+    }
+    return c.json(searchView());
+  } catch (e) {
+    return c.json({ error: safeMessage(e) }, 400);
+  }
+});
+
+/** Forget the stored search key. The file entry goes and nothing else does, exactly as a provider key's removal. */
+app.delete('/api/settings/search/key', (c) => {
+  const lock = lockedBy(`key:${SEARCH_KEY_ID}`);
+  if (lock) return c.json({ error: searchKeyLock(lock) }, 409);
+  try {
+    removeKey(SEARCH_KEY_ID);
+    return c.json({ ok: true, note: 'the value stays hidden from logs and events until Derive restarts' });
+  } catch (e) {
+    return c.json({ error: safeMessage(e) }, 400);
+  }
+});
+
+/** The search's own test, timed: always a 200 whose body says ok with the hit count or carries the engine's sentence. Like the provider test, it never throws for a search failure; the result says. */
+app.post('/api/settings/search/test', async (c) => c.json(await testSearch()));
 
 /** Store one provider's fields. A field the environment sets is refused with the variable's name rather than silently outranked. */
 app.put('/api/settings/:provider', async (c) => {

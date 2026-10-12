@@ -26,7 +26,7 @@
  * this module never reads it directly.
  */
 import { claudeLoggedIn, codexLoggedIn } from './backend.js';
-import { BACKEND_SETTING, ENV_KEYS, MODEL, OLLAMA_HOST, type Backend, type EnvKeyName } from './config.js';
+import { BACKEND_SETTING, ENV_KEYS, MODEL, OLLAMA_HOST, SEARCH_KEY_ID, type Backend, type EnvKeyName } from './config.js';
 import { getLearner, getSetting } from './db.js';
 import { keyOf } from './keys.js';
 import { providerOf, type ProviderId, type ProviderSpec } from './providers.js';
@@ -195,9 +195,12 @@ export function currentTutor(): TutorChoice {
 /** The dialect the two login drivers and systemPrompt() speak. Only teaching rows reach a turn in this release. */
 export const backendOf = (provider: string): Backend => (provider === 'codex' ? 'codex' : 'claude');
 
-/** The environment variable carrying a provider's key, with its value, or null when none of the row's variables is set. The catalogue lists a row's variables in precedence order, so the first set one wins (Google before Gemini). */
+/** The variables a key id reads that is not a catalogue row. Only the fallback web search's key is one: it is stored under `search:tavily` so it rides keys.ts like every provider key, and it still has to be lockable by an environment variable. */
+const OFF_CATALOGUE_ENV_KEYS: Readonly<Record<string, readonly string[]>> = { [SEARCH_KEY_ID]: ['TAVILY_API_KEY'] };
+
+/** The environment variable carrying a key, with its value, or null when none of the row's variables is set. The catalogue lists a row's variables in precedence order, so the first set one wins (Google before Gemini). */
 export function envKeyFor(id: string): { name: string; value: string } | null {
-  for (const name of providerOf(id)?.envKeys ?? []) {
+  for (const name of providerOf(id)?.envKeys ?? OFF_CATALOGUE_ENV_KEYS[id] ?? []) {
     const value = Object.hasOwn(ENV_KEYS, name) ? ENV_KEYS[name as EnvKeyName] : undefined;
     if (value) return { name, value };
   }

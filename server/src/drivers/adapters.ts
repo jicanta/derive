@@ -160,6 +160,21 @@ const SEARCH_TOOL: Record<ProviderId, string | null> = {
 export const searchCountOf = (provider: ProviderId): string | null => SEARCH_TOOL[provider];
 
 /**
+ * The provider's own server-side search tool for this model, or null.
+ *
+ * The safe way to ask the question: a row with no search of its own is answered
+ * from the table above without building an adapter at all, so a login row or a
+ * local row — where `adapterFor` throws on purpose — can be asked as freely as
+ * a teaching one. That matters because the settings view asks it about whatever
+ * provider happens to be active, and the loop and the method text both ask it
+ * about the turn's own.
+ */
+export function nativeSearch(provider: ProviderId, modelId: string | null): Tool | null {
+  if (!SEARCH_TOOL[provider]) return null;
+  return adapterFor(provider).search?.(modelId) ?? null;
+}
+
+/**
  * The adapter for one catalogue row.
  *
  * Only the rows whose driver exists today answer; every other case throws a
