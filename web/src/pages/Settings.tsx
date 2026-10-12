@@ -1,13 +1,12 @@
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { pill, textButton } from '../components/fields';
 import { LearnerMenu } from '../components/LearnerMenu';
 import { ProviderRow } from '../components/ProviderRow';
+import { WebSearchCard } from '../components/WebSearchCard';
 import { api } from '../lib/api';
 import type { ProviderView, Settings } from '../lib/types';
-
-const pill = 'inline-flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 border hairline rounded-full px-2.5 h-6';
-const textButton = 'inline-flex items-center gap-1.5 h-8 font-mono text-[10px] text-ink-400 hover:text-ink-50 transition-colors focus-visible:text-ink-50 focus-visible:underline disabled:opacity-40';
 
 /** The three eyebrows the rows sit under, in page order. The ids are the API's; only the words are the page's. */
 const GROUPS: { id: ProviderView['group']; label: string }[] = [
@@ -128,7 +127,8 @@ export function SettingsPage() {
             ) : err ? (
               <span className="text-[14px] leading-relaxed text-rust-400">{err}</span>
             ) : null}
-            <button type="button" onClick={rescan} disabled={scanning} className={`ml-auto ${textButton}`}>
+            {/* The one button on this page that carries an icon beside its word, so it composes the shared class with the gap it needs rather than restating the string. */}
+            <button type="button" onClick={rescan} disabled={scanning} className={`ml-auto gap-1.5 ${textButton}`}>
               <RefreshCw size={12} strokeWidth={2} />
               {scanning ? 'scanning…' : 'rescan'}
             </button>
@@ -161,6 +161,25 @@ export function SettingsPage() {
                     ))}
                 </div>
               </section>
+            ))}
+
+          {settings && (
+            <section className="mt-8">
+              <div className="eyebrow">web search</div>
+              <div className="mt-3 flex flex-col gap-6">
+                <WebSearchCard search={settings.search} onChange={(search) => setSettings((s) => s && { ...s, search })} />
+              </div>
+            </section>
+          )}
+
+          {/* The whole of COST-04's learner-facing surface: where the figures come from and where to put your own. No price editor, by decision — the page's job is picking a provider. An unreadable override file is the server's own sentence, loud; an absent one is silent, because the sentence below already names the place to put it. */}
+          {settings &&
+            (settings.prices_error ? (
+              <p className="mt-8 text-[14px] leading-relaxed text-rust-400 max-w-[62ch]">{settings.prices_error}</p>
+            ) : (
+              <p className="mt-8 text-[14px] leading-relaxed text-ink-500 max-w-[62ch]">
+                Prices come from a table shipped with Derive, as of {settings.prices_as_of}. To use your own, put them in ~/.derive/prices.json.
+              </p>
             ))}
         </div>
       </div>

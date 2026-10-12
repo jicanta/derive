@@ -1,4 +1,4 @@
-import type { Atlas, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, LessonView, Library, Material, ProviderView, Resource, Settings, Stats, TestResult, TutorChoice } from './types';
+import type { Atlas, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, LessonView, Library, Material, ProviderView, Resource, SearchView, Settings, Stats, TestResult, TutorChoice } from './types';
 
 /**
  * The selected learner profile, kept in this browser. Sent on every request
@@ -116,4 +116,10 @@ export const api = {
   providerModels: (id: string) => post(`/api/settings/${id}/models`).then((r) => j<{ models: string[] }>(r)),
   /** The cheapest real request for a provider, timed: the model count and latency, or the provider's sentence and Derive's hint. Never throws for a provider failure; the result says. */
   testProvider: (id: string) => post(`/api/settings/${id}/test`).then((r) => j<TestResult>(r)),
+  /** Store the web-search choice and whatever that choice needs. A key is only ever written: the block comes back with `{ set, hint }` and the value is never read again. An empty base URL clears the address. */
+  setSearch: (body: { provider?: string; key?: string; base_url?: string }) => post('/api/settings/search', body, 'PUT').then((r) => j<SearchView>(r)),
+  /** Forget the stored search key. The running process keeps redacting the value until it restarts; the note says so. */
+  removeSearchKey: () => del('/api/settings/search/key').then((r) => j<{ ok: true; note: string }>(r)),
+  /** One real search on the stored choice, timed: the hit count and latency, or the engine's own sentence. Never throws for a search failure; the result says. */
+  testSearch: () => post('/api/settings/search/test').then((r) => j<TestResult>(r)),
 };

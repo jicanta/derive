@@ -59,6 +59,8 @@ import { addResource, deleteResource, editResource, getResource, isKind, library
 import { ACCEPTED, describe, ingestMaterial, ingestRepo, materialsSection, MAX_FILE_BYTES } from './materials.js';
 import { addNotice, takeNotices } from './notices.js';
 import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief } from './prompt.js';
+import { pricesFileError } from './prices.js';
+import { PRICES_AS_OF } from './pricing.js';
 import { detect, listModels, testConnection } from './probe.js';
 import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
 import { DEFAULTS_AS_OF, labelOf, PROVIDERS, providerOf, providerOfDriver, type ProviderSpec } from './providers.js';
@@ -454,6 +456,12 @@ const settingsView = () => {
     secrets_error: secretsFileError(),
     rows: PROVIDERS.map((s) => rowView(s, active.provider, seen)),
     search: searchView(active),
+    // COST-04's whole surface is one sentence on this page, so both halves of
+    // it ride the read the page already waits for: the date the shipped table
+    // was checked, and why an override file yielded nothing. An absent file is
+    // null here, as it is for secrets.json — absent is the normal state.
+    prices_as_of: PRICES_AS_OF,
+    prices_error: pricesFileError(),
   };
 };
 

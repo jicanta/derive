@@ -76,6 +76,24 @@ export type TutorChoice = {
 /** What a connection test answers: the model count and latency, or the provider's own sentence with Derive's fix hint beside it. `models` is null on a login, which has no list to count. */
 export type TestResult = { ok: true; models: number | null; ms: number } | { ok: false; error: string; hint?: string; ms: number };
 
+/**
+ * The web-search block as GET /api/settings paints it: the learner's choice,
+ * the key as the page may know it, the SearXNG address, and whether the
+ * provider the next turn would run on searches with its own tool.
+ */
+export type SearchView = {
+  /** Which search the tutor uses where the provider has none of its own. */
+  provider: 'provider' | 'tavily' | 'searxng';
+  /** The stored Tavily key as the page paints it — set or not, the last four characters when it is long enough. The value is never in it. */
+  key: { set: boolean; hint: string | null };
+  /** The environment variable that locks the key field, or null when the key is the learner's to store. */
+  key_locked: string | null;
+  /** Where the learner's SearXNG instance is reached, or null when none is stored. */
+  base_url: string | null;
+  /** Whether the active provider has a search tool of its own. The server answers it because which providers do is a fact of the adapter table — and on Gemini a fact of the model id too — so a list in a component would be wrong the day a row changes. */
+  native: boolean;
+};
+
 /** The settings page in one read: the active choice, the locks, and every row in catalogue order. */
 export type Settings = {
   active: TutorChoice;
@@ -87,6 +105,12 @@ export type Settings = {
   /** Why ~/.derive/secrets.json could not be read, naming the path, or null when it is fine or absent. Nothing overwrites the file while this is set. */
   secrets_error: string | null;
   rows: ProviderView[];
+  /** How the tutor searches the web where the provider has no search of its own. */
+  search: SearchView;
+  /** The day the shipped price table was last checked against each vendor's own page. */
+  prices_as_of: string;
+  /** Why ~/.derive/prices.json yielded nothing, naming the path, or null when it reads fine or is absent. Derive prices with its shipped table while this is set. */
+  prices_error: string | null;
 };
 
 export type LessonSummary = Lesson & {

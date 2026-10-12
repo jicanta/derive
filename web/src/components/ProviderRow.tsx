@@ -1,13 +1,7 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import type { ProviderStatus, ProviderView, TestResult } from '../lib/types';
-
-const field = 'w-full rounded-xl border hairline bg-ink-900/70 px-3 text-[14px] leading-relaxed text-ink-100 outline-none focus:border-gold-500/60 placeholder:text-ink-500 disabled:opacity-60';
-const pill = 'inline-flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 border hairline rounded-full px-2.5 h-6';
-const textButton = 'inline-flex items-center h-8 font-mono text-[10px] text-ink-400 hover:text-ink-50 transition-colors focus-visible:text-ink-50 focus-visible:underline disabled:opacity-40';
-const tickLine = 'mt-2 font-mono text-[10px] text-gold-500';
-const errLine = 'mt-2 text-[14px] leading-relaxed text-rust-400';
-const noteLine = 'mt-2 text-[14px] leading-relaxed text-ink-500';
+import { blurOnEnter, errLine, field, noteLine, pill, textButton, tickLine, useTick } from './fields';
 
 /** The dot before a status pill: moss where something is there, ink where nothing is, and a pulse only while the pass is still looking. */
 const dotOf = (status: ProviderStatus): string =>
@@ -28,32 +22,6 @@ const resultText = (r: TestResult): string => (r.ok ? (r.models === null ? `Logg
 /** How many ids the last fetch brought back, as the line under the combobox says it. */
 const fetchedText = (n: number): string => (n === 0 ? '0 models fetched · type an id' : n === 1 ? '1 model fetched' : `${n} models fetched`);
 
-/** Blur the input on Enter so the one save path (onBlur) runs; the form has no submit. */
-const blurOnEnter = (e: KeyboardEvent<HTMLInputElement>) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    e.currentTarget.blur();
-  }
-};
-
-/** A saved tick that shows for 1800 ms and then goes away; one timer per field, cleared on unmount. */
-function useTick(): [boolean, () => void] {
-  const [on, setOn] = useState(false);
-  const timer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (timer.current) window.clearTimeout(timer.current);
-    },
-    [],
-  );
-  const tick = () => {
-    setOn(true);
-    if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setOn(false), 1800);
-  };
-  return [on, tick];
-}
-
 /**
  * The key field of one row. The value goes one way: typed here, sent on blur
  * or Enter, and never seen again — the row comes back as `{ set, hint }` and
@@ -61,9 +29,31 @@ function useTick(): [boolean, () => void] {
  * same input with a way back; removing is a second inline step, no dialog;
  * an environment key locks the field and names its variable. There is no
  * reveal toggle, by decision.
+ *
+ * Exported, and parameterised on the two writes rather than on a provider row,
+ * because the web-search card stores a key the same way and a second copy of
+ * this machine would be a second place to lose the `keep` button's
+ * mouse-down guard. It is the one exception to one component per file: it
+ * belongs beside the row it was written for, and `fields.ts` holds no JSX.
  */
-function KeyField({ row, onChange }: { row: ProviderView; onChange: (row: ProviderView) => void }) {
-  const key = row.key;
+export function KeyField({
+  value: key,
+  label,
+  optional = false,
+  save: write,
+  remove: forget,
+}: {
+  /** The key as the API paints it: set or not, the last four characters when it is long enough, and the environment variable that locks the field. The value is never in it. */
+  value: { set: boolean; hint: string | null; locked: string | null };
+  /** What the field is called, for its label and the sentences about it. */
+  label: string;
+  /** True where the key is optional: the field carries an `optional key` eyebrow. */
+  optional?: boolean;
+  /** Store the typed key. A refusal throws the server's sentence, which is shown with the typed value left in the field. */
+  save: (key: string) => Promise<void>;
+  /** Forget the stored key. */
+  remove: () => Promise<void>;
+}) {
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [replacing, setReplacing] = useState(false);
@@ -93,7 +83,7 @@ function KeyField({ row, onChange }: { row: ProviderView; onChange: (row: Provid
     setSaving(true);
     setErr(null);
     try {
-      onChange(await api.setProvider(row.id, { key: v }));
+      await write(v);
       setValue('');
       setReplacing(false);
       setRemoved(false);
@@ -109,9 +99,8 @@ function KeyField({ row, onChange }: { row: ProviderView; onChange: (row: Provid
   const remove = async () => {
     setErr(null);
     try {
-      await api.removeKey(row.id);
+      await forget();
       setConfirming(false);
-      onChange({ ...row, key: { set: false, hint: null, locked: null }, status: row.status === 'key set' ? 'not configured' : row.status });
       setRemoved(true);
       if (removedTimer.current) window.clearTimeout(removedTimer.current);
       removedTimer.current = window.setTimeout(() => setRemoved(false), 5000);
@@ -121,9 +110,7 @@ function KeyField({ row, onChange }: { row: ProviderView; onChange: (row: Provid
     }
   };
 
-  if (!key) return null;
-
-  const eyebrow = row.key_optional ? <div className="mb-1.5 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-500">optional key</div> : null;
+  const eyebrow = optional ? <div className="mb-1.5 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-500">optional key</div> : null;
 
   if (key.locked) {
     return (
@@ -197,7 +184,7 @@ function KeyField({ row, onChange }: { row: ProviderView; onChange: (row: Provid
           }}
           disabled={saving}
           placeholder={replacing ? 'Paste the new key' : 'Paste a key · saved when you leave the field'}
-          aria-label={`${row.label} API key`}
+          aria-label={`${label} API key`}
           autoComplete="off"
           spellCheck={false}
           className={`${field} h-10`}
@@ -429,7 +416,18 @@ export function ProviderRow({
       {using === 'saved' && <p className={tickLine}>saved · applies from the next turn of every lesson</p>}
 
       <div className="mt-3 flex flex-col gap-2 md:grid md:grid-cols-2 md:gap-4">
-        {row.key && <KeyField row={row} onChange={onChange} />}
+        {row.key && (
+          <KeyField
+            value={row.key}
+            label={row.label}
+            optional={row.key_optional}
+            save={async (v) => onChange(await api.setProvider(row.id, { key: v }))}
+            remove={async () => {
+              await api.removeKey(row.id);
+              onChange({ ...row, key: { set: false, hint: null, locked: null }, status: row.status === 'key set' ? 'not configured' : row.status });
+            }}
+          />
+        )}
         <div className="min-w-0 md:col-start-2">
           <div className="flex items-center gap-2">
             <input
