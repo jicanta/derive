@@ -46,8 +46,19 @@ export type TurnContext = {
   turnId: string;
   /** The learner's message, with any pending notices already folded in. */
   prompt: string;
-  /** The whole system prompt: the method, the material, the library and the learner profile. */
+  /**
+   * The whole system prompt: the method, the material, the library and the
+   * learner profile — `instructionsStable + instructionsVolatile`, in that
+   * order and byte-identical to the single string this field has always
+   * carried. A driver that wants the cache split reads the two halves; a
+   * driver that does not reads this one. That is why D-06's split is additive
+   * rather than a migration of three drivers.
+   */
   instructions: string;
+  /** The half that never changes within a lesson — the rendered method text and the tool contract — kept byte-stable across requests so a provider's prompt cache can hit it. */
+  instructionsStable: string;
+  /** The half that does change within a lesson: the material, the library, the learner profile and the lesson state, which is why it is never the cached half. */
+  instructionsVolatile: string;
   /** The model override, or undefined to take the provider's own default. */
   model: string | undefined;
   effort: Effort;

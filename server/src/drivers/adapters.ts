@@ -87,6 +87,18 @@ export type Adapter = {
   /** Passed straight to `streamText` as `providerOptions`; this is where D-08's parallel-tool flag lives. */
   providerOptions?: Record<string, Record<string, JSONValue>>;
   /**
+   * The `providerOptions` to attach to the **stable** system message, or
+   * undefined where there is nothing to attach.
+   *
+   * D-06 splits the system prompt into a byte-stable prefix and a volatile
+   * tail; this is the per-provider half of making the prefix cacheable.
+   * Anthropic needs an explicit breakpoint on it, so its row returns one.
+   * Every other row returns undefined — see each one for why. It takes the
+   * content because a provider that priced or sized a breakpoint would need
+   * it, and passing it now keeps that from widening the type later.
+   */
+  cacheHook?: (content: string) => Record<string, Record<string, JSONValue>> | undefined;
+  /**
    * The provider's own server-side search tool, or null where it has none or
    * where this model must not be offered one.
    *
@@ -241,6 +253,12 @@ export function adapterFor(provider: ProviderId): Adapter {
         // D-08's belt: Anthropic is told not to open two tool calls at once.
         // The braces are the loop's own per-lesson serialisation in api.ts.
         providerOptions: { anthropic: { disableParallelToolUse: true } },
+        // The one row that has to ask. Anthropic caches nothing unless a
+        // breakpoint says where the reusable prefix ends, and the method text
+        // is ~29KB — far above the 1,024-token minimum — so the breakpoint
+        // goes on the stable system message and the material, library and
+        // profile that follow it are never cached.
+        cacheHook: () => ({ anthropic: { cacheControl: { type: 'ephemeral' } } }),
         // Anthropic's own server-side search, which coexists with all fourteen
         // function tools in one `tools` object. It needs web search enabled in
         // the organisation's console privacy settings; where it is not, the
@@ -282,6 +300,8 @@ export function adapterFor(provider: ProviderId): Adapter {
         // CI-validated in plan 03-07, and Phase 4's conformance harness can
         // switch it on and measure what it costs.
         providerOptions: { openai: { parallelToolCalls: false, store: false } },
+        // OpenAI caches a prompt prefix automatically above 1,024 tokens and takes no breakpoint, so the only thing Derive owes it is a prefix that does not move — which the split already guarantees. Nothing to attach is a decision, not an omission.
+        cacheHook: () => undefined,
         // The Responses API pushes function tools and provider tools into one
         // array with no exclusion, so this sits beside the fourteen.
         search: () => openai.tools.webSearch({}),
@@ -294,6 +314,8 @@ export function adapterFor(provider: ProviderId): Adapter {
         // hands the schema to Google verbatim, so a keyword Google rejects is a
         // 400 on the learner's lesson rather than a warning.
         dialect: 'gemini',
+        // Gemini's implicit caching works the same way: it matches a prefix on its own above the model's minimum and has no breakpoint to set, so keeping the prefix byte-stable is the whole contribution. Nothing to attach is a decision, not an omission.
+        cacheHook: () => undefined,
         // No parallel-tool option: @ai-sdk/google has no such flag anywhere in
         // its types or its docs. That absence is why the loop's per-lesson
         // mutex is load-bearing here rather than belt-and-braces — on Gemini it
@@ -319,6 +341,8 @@ export function adapterFor(provider: ProviderId): Adapter {
         // A gateway fronting many models normalises nothing of note of its own, so the registry's own projection is what goes out.
         dialect: 'full',
         providerOptions: { openrouter: { parallelToolCalls: false, usage: { include: true } } },
+        // What a gateway fronts is not knowable from here: an Anthropic model behind it would want a breakpoint and an OpenAI one would refuse it, so Derive sends the stable prefix and lets the gateway decide.
+        cacheHook: () => undefined,
         // D-20 puts OpenRouter on the fallback path: its search is a plugin
         // rather than a tool, and one search implementation the loop can reason
         // about beats a sixth shape.
@@ -343,6 +367,8 @@ export function adapterFor(provider: ProviderId): Adapter {
         // default is the full contract: a dialect guessed on their behalf would
         // narrow what the model is told for no evidence at all.
         dialect: 'full',
+        // Same reason as the gateway row: only the learner knows what their endpoint serves, and a breakpoint it does not understand is a key it may reject the request over.
+        cacheHook: () => undefined,
         model: (key, base, modelId) => {
           // The same base URL the settings page normalised and stored under
           // baseUrlKey('openai-compatible'), handed down by the loop, and the

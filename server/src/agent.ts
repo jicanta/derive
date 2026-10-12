@@ -289,7 +289,15 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   // given, and never offered two ways to search in one turn.
   const web: WebSurface =
     tutor.provider === 'codex' ? { kind: 'codex' } : tutor.provider === 'claude-code' ? { kind: 'claude' } : { kind: 'api', search: searchMode(tutor.provider, tutor.model) };
-  const instructions = systemPrompt(web) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
+  // D-06's split, built here because this is where the whole prompt is
+  // assembled. The stable half is the method text and the tool contract, which
+  // `systemPrompt` renders from `method/` and nothing per-turn goes into; the
+  // volatile half is everything that changes while a lesson runs. The
+  // concatenation order is unchanged, so `ctx.instructions` is byte-identical
+  // to what the Claude and Codex drivers have always received.
+  const instructionsStable = systemPrompt(web);
+  const instructionsVolatile = materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
+  const instructions = instructionsStable + instructionsVolatile;
 
   // The one dispatch, below: everything around it — the bookkeeping above and
   // the teardown after — is the same whichever driver runs.
@@ -298,6 +306,8 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
     turnId,
     prompt,
     instructions,
+    instructionsStable,
+    instructionsVolatile,
     model: tutor.model ?? undefined,
     effort: EFFORT,
     sessionId: getLesson(lessonId)!.session_id ?? null,

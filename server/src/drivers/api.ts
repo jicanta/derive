@@ -416,6 +416,10 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   const asked = ctx.model ?? null;
   const adapter = adapterFor(provider);
   const model = modelOverride()?.(provider, asked) ?? adapter.model(key, base, asked);
+  // Resolved once for the whole turn, including every retry: the options that
+  // mark the stable prefix cacheable must be the same on each request or the
+  // prefix is not stable.
+  const cacheOptions = adapter.cacheHook?.(ctx.instructionsStable);
 
   // Registered before the request, so Stop works from the first millisecond of
   // a turn rather than only once the provider has answered.
@@ -538,10 +542,27 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
     if (native && searchTool) tools[searchTool] = native;
     const r = streamText({
       model,
-      // The array form from the start: it is the shape D-06's stable/volatile
-      // cache split needs, and `allowSystemInMessages` defaults to false, so a
-      // system message inside `messages` would be refused outright.
-      instructions: [{ role: 'system', content: ctx.instructions }],
+      // D-06's cache split, on the wire. Two system entries, stable first: the
+      // method text and the tool contract, carrying whichever breakpoint this
+      // provider needs, then the material, the library, the learner profile
+      // and the lesson state uncached behind it. The order matters and the
+      // bytes of the first entry matter: a provider's prompt cache matches a
+      // prefix, so **the stable entry's byte stability across requests is
+      // load-bearing, not incidental** — interpolating a timestamp, a lesson
+      // id or a turn counter into it would silently turn every request into a
+      // cache miss and roughly double what a lesson costs. `toolOrder` below
+      // is pinned for the same reason: the tool definitions are part of the
+      // prefix a provider hashes.
+      //
+      // They stay in `instructions` and never in `messages`: the SDK's
+      // `allowSystemInMessages` defaults to false, so a system message inside
+      // the message list is refused outright — and keeping `messages` free of
+      // system entries is also what makes the persisted `turn_messages` safe
+      // to replay after the method text changes.
+      instructions: [
+        { role: 'system', content: ctx.instructionsStable, ...(cacheOptions ? { providerOptions: cacheOptions } : {}) },
+        { role: 'system', content: ctx.instructionsVolatile },
+      ],
       messages,
       tools,
       toolOrder: names,

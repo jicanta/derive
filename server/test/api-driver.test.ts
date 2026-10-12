@@ -18,7 +18,10 @@ delete process.env.DERIVE_MODEL;
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.TAVILY_API_KEY;
 
-const { createLesson, deleteSetting, getLesson, lastTurn, listEvents, listNodes, listUsage, loadTurnMessages, recordedToolResult, saveTurnMessages, setSessionId, setSetting } = await import('../src/db.js');
+const { createLesson, deleteSetting, getLesson, lastTurn, learnerProfile, listEvents, listNodes, listUsage, loadTurnMessages, recordedToolResult, saveTurnMessages, setSessionId, setSetting } = await import('../src/db.js');
+const { librarySection } = await import('../src/library.js');
+const { materialsSection } = await import('../src/materials.js');
+const { systemPrompt } = await import('../src/prompt.js');
 const { interrupt, runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
 const { subscribe } = await import('../src/events.js');
@@ -153,10 +156,11 @@ describe("a lesson turn runs on an api key through derive's own loop", () => {
     // The live stream carries the status line and the deltas the log does not.
     assert.deepEqual(types(live), ['turn_start', 'status', 'phase', 'assistant', 'delta', 'delta', 'assistant', 'turn_end']);
 
-    // The loop made one model call per step, and the first carried the method text as a system message.
+    // The loop made one model call per step, and the first carried the method
+    // text and the lesson's own context as the two system messages of D-06's
+    // cache split, with the learner's message after them.
     assert.equal(model.doStreamCalls.length, 2);
-    assert.equal(model.doStreamCalls[0].prompt[0].role, 'system');
-    assert.equal(model.doStreamCalls[0].prompt[1].role, 'user');
+    assert.deepEqual(roles(model), ['system', 'system', 'user']);
 
     for (const ev of [...stored, ...live]) assert.ok(EVENT_TYPES.includes(ev.type), `${ev.type} is not a type the web app knows`);
   });
@@ -678,12 +682,12 @@ describe('a lesson resumes from the history it persisted', () => {
 
     // The history was loaded, not rebuilt: the first turn's prose and the
     // learner's first message are both in the second request.
-    assert.deepEqual(roles(second), ['system', 'user', 'assistant', 'user']);
-    assert.ok(JSON.stringify(second.doStreamCalls[0].prompt[2]).includes('A line is a function.'), 'the first turn’s prose must be in the second request');
-    // Exactly one system message, and it is the one `instructions` supplies:
-    // the method text is rebuilt from method/ every turn, so a persisted system
-    // message would be stale method text.
-    assert.equal(roles(second).filter((r) => r === 'system').length, 1);
+    assert.deepEqual(roles(second), ['system', 'system', 'user', 'assistant', 'user']);
+    assert.ok(JSON.stringify(second.doStreamCalls[0].prompt[3]).includes('A line is a function.'), 'the first turn’s prose must be in the second request');
+    // Exactly two system messages, and they are the pair `instructions`
+    // supplies: the method text is rebuilt from method/ every turn, so a
+    // persisted system message would be stale method text.
+    assert.equal(roles(second).filter((r) => r === 'system').length, 2);
     assert.deepEqual((loadTurnMessages(id, 'anthropic') as { role: string }[]).map((m) => m.role), ['user', 'assistant', 'user', 'assistant']);
   });
 
@@ -707,7 +711,7 @@ describe('a lesson resumes from the history it persisted', () => {
       const second = says('On openai.', 'gpt-6-astra');
       await turnWith(id, second, 'go on', 'openai');
 
-      assert.deepEqual(roles(second), ['system', 'user'], 'the second request carries none of the first turn’s parts');
+      assert.deepEqual(roles(second), ['system', 'system', 'user'], 'the second request carries none of the first turn’s parts');
       assert.ok(!JSON.stringify(second.doStreamCalls[0].prompt).includes('On anthropic.'));
       assert.equal(getLesson(id)!.session_id, null, 'the session id goes with the messages');
       assert.deepEqual(loadTurnMessages(id, 'anthropic'), [], 'the row now belongs to openai');
@@ -1337,5 +1341,124 @@ describe('a narrower dialect does not narrow what derive accepts', () => {
     assert.ok(!schemasOf(gemini!).includes('additionalProperties'), 'gemini was shown additionalProperties, which is not in its keyword set');
     assert.ok(schemasOf(anthropic).includes('minItems'), 'anthropic lost the bounds the tutor is held to');
     assert.ok(schemasOf(anthropic).includes('"additionalProperties":false'), 'anthropic lost additionalProperties: false');
+  });
+});
+
+/**
+ * D-06's cache split, on the wire.
+ *
+ * The saving is invisible from the outside — a cached request looks exactly
+ * like an uncached one except in the bill — so everything here asserts the
+ * bytes the provider actually received: where the split falls, which half
+ * carries the breakpoint, and that the first half does not move between
+ * requests. A prefix that moves is a prefix nothing caches.
+ */
+describe('the system prompt ships as a stable prefix and a volatile tail', () => {
+  after(() => {
+    noFallbackSearch();
+    backToAnthropic();
+  });
+
+  it('sends exactly two system messages, stable first, with the breakpoint only on the half that may be cached', async () => {
+    noFallbackSearch();
+    backToAnthropic();
+    const id = randomUUID();
+    createLesson(id, 'What the cache split sends');
+    const model = says('Split.');
+    await turnWith(id, model, 'teach me');
+    const lesson = getLesson(id)!;
+
+    const prompt = model.doStreamCalls[0].prompt;
+    assert.deepEqual(roles(model), ['system', 'system', 'user']);
+    // Byte-equal to the method text and the tool contract, and to nothing
+    // else: anything per-turn in here would be a cache miss on every request.
+    assert.equal(prompt[0].content, systemPrompt({ kind: 'api', search: 'native' }));
+    // The tail is the three sections that change while a lesson runs — the
+    // material, the library and the learner profile — which is what keeps the
+    // learner's own content out of the cached half (T-03-54).
+    assert.equal(prompt[1].content, materialsSection(id) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, id));
+    // Anthropic caches nothing unless a breakpoint says where the reusable
+    // prefix ends, so the stable entry carries one and the volatile entry
+    // never does.
+    assert.deepEqual(prompt[0].providerOptions, { anthropic: { cacheControl: { type: 'ephemeral' } } });
+    assert.equal(prompt[1].providerOptions, undefined);
+  });
+
+  it('attaches nothing on a provider that caches a prefix by itself', async () => {
+    noFallbackSearch();
+    setSetting('active_provider', 'openai');
+    try {
+      const id = randomUUID();
+      createLesson(id, 'OpenAI caches on its own');
+      const model = says('Split.', 'gpt-6-astra');
+      await turnWith(id, model, 'teach me', 'openai');
+
+      const prompt = model.doStreamCalls[0].prompt;
+      assert.deepEqual(roles(model), ['system', 'system', 'user']);
+      assert.equal(prompt[0].providerOptions, undefined, 'openai takes no breakpoint; keeping the prefix byte-stable is the whole contribution');
+      assert.equal(prompt[1].providerOptions, undefined);
+    } finally {
+      backToAnthropic();
+    }
+  });
+
+  it('sends a byte-identical prefix on every request of a lesson', async () => {
+    noFallbackSearch();
+    backToAnthropic();
+    const id = randomUUID();
+    createLesson(id, 'Two turns, one prefix');
+
+    // Two steps of one turn, and then a second turn resuming the same lesson:
+    // the lesson's own state changed in between and the prefix did not, which
+    // is the whole optimisation in one assertion.
+    const first = twoStep();
+    await turnWith(id, first, 'teach me');
+    const second = says('And so is a plane.');
+    await turnWith(id, second, 'go on');
+
+    const prefix = String(first.doStreamCalls[0].prompt[0].content);
+    assert.equal(String(first.doStreamCalls[1].prompt[0].content), prefix, 'the prefix moved between two steps of one turn');
+    assert.equal(String(second.doStreamCalls[0].prompt[0].content), prefix, 'the prefix moved between two turns of one lesson');
+    // The tail is what carried the change, so the request as a whole did move.
+    assert.notEqual(String(second.doStreamCalls[0].prompt[1].content) + JSON.stringify(second.doStreamCalls[0].prompt.slice(2)), String(first.doStreamCalls[0].prompt[1].content) + JSON.stringify(first.doStreamCalls[0].prompt.slice(2)));
+  });
+
+  it('files a cache read and a cache write in their own columns, leaving input_tokens the uncached count', async () => {
+    noFallbackSearch();
+    backToAnthropic();
+    const id = randomUUID();
+    createLesson(id, 'What a cached request records');
+    const model = new MockLanguageModelV4({
+      modelId: 'claude-opus-5-5',
+      doStream: [
+        step([
+          { type: 'stream-start', warnings: [] },
+          { type: 'text-start', id: 't1' },
+          { type: 'text-delta', id: 't1', delta: 'Cached.' },
+          { type: 'text-end', id: 't1' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'end_turn' },
+            // The total already counts the cache read and the cache write. A
+            // ledger that stored it as input would price a well-cached lesson
+            // at roughly twice what it actually cost.
+            usage: { inputTokens: { total: 9_400, noCache: 400, cacheRead: 8_000, cacheWrite: 1_000 }, outputTokens: { total: 50, text: 50, reasoning: undefined } },
+          },
+        ]),
+      ],
+    });
+    await turnWith(id, model, 'teach me');
+
+    const rows = listUsage({ lesson: id });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].input_tokens, 400, 'the uncached count, never the total that includes the cache read and write');
+    assert.equal(rows[0].cache_read_tokens, 8_000);
+    assert.equal(rows[0].cache_write_tokens, 1_000);
+    assert.equal(rows[0].output_tokens, 50);
+    // The saving is visible in the ledger from the first lesson: a cache read
+    // is priced at its own rate, so the row costs far less than 9,400 input
+    // tokens would have.
+    assert.equal(rows[0].cost_source, 'table');
+    assert.ok(typeof rows[0].cost_usd === 'number' && rows[0].cost_usd > 0, `priced at ${rows[0].cost_usd}`);
   });
 });
