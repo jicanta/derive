@@ -19,7 +19,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { ALL_TOOL_NAMES } from '../src/tools.js';
+import { ALL_TOOL_NAMES, toolsFor } from '../src/tools.js';
 import { startDeriveServer } from './spawn.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -121,11 +121,19 @@ describe('the built mcp server over stdio', () => {
   it('serves the registry in declaration order, and the same tools the pre-phase binary served', async () => {
     tools = (await rpc<{ tools: WireRow[] }>('tools/list')).tools;
     assert.equal(tools.length, 22);
+    // The MCP surface's own projection, not the whole registry: the owned loop's
+    // `fetch_page` and `web_search` are declared `surfaces: ['api']` and are
+    // deliberately not on this wire, which is what keeps it the twenty-two the
+    // plugin has always seen. Order is still the registry's declaration order.
     assert.deepEqual(
       tools.map((t) => t.name),
-      [...ALL_TOOL_NAMES],
-      'tools/list must serve the registry in declaration order',
+      toolsFor('mcp').map((s) => s.name),
+      'tools/list must serve the mcp surface in registry declaration order',
     );
+    for (const ours of ['fetch_page', 'web_search']) {
+      assert.ok(ALL_TOOL_NAMES.includes(ours), `${ours} must be in the registry`);
+      assert.ok(!tools.some((t) => t.name === ours), `${ours} is an api-surface tool and must never reach the plugin's wire`);
+    }
     assert.deepEqual([...tools.map((t) => t.name)].sort(), [...MCP_TOOLS_BEFORE].sort(), 'the set of tools the plugin sees must not have changed');
   });
 

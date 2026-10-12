@@ -24,9 +24,9 @@
  * reads no environment of its own, because `config.ts` is the one module that
  * does.
  */
-import { createAnthropic } from '@ai-sdk/anthropic';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { createOpenAI } from '@ai-sdk/openai';
+import { anthropic, createAnthropic } from '@ai-sdk/anthropic';
+import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
+import { createOpenAI, openai } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { JSONValue, LanguageModel, LanguageModelUsage, ProviderMetadata, Tool } from 'ai';
@@ -35,6 +35,7 @@ import type { CostSource } from '../db.js';
 import { priceTable } from '../prices.js';
 import { v1 } from '../probe.js';
 import { labelOf, type ProviderId } from '../providers.js';
+import { searchReady } from '../search.js';
 
 /**
  * Global `fetch` with redirects refused, as the key-bearing request to a
@@ -160,6 +161,24 @@ const SEARCH_TOOL: Record<ProviderId, string | null> = {
 export const searchCountOf = (provider: ProviderId): string | null => SEARCH_TOOL[provider];
 
 /**
+ * Whether a Gemini model id names the Gemini 3 series or later.
+ *
+ * That is the only case where `@ai-sdk/google` keeps Derive's fourteen function
+ * declarations beside a provider-defined search tool; on anything older
+ * `prepareTools` returns the provider tool alone and discards all of them,
+ * giving a tutor that talks and never draws a graph. The predicate is
+ * deliberately narrow, and wrong in the safe direction: an id it does not
+ * recognise is answered no and gets Derive's own fallback search, which teaches
+ * correctly, where a yes it got wrong would cost the learner the whole method.
+ * The loop's unsupported-combination refusal is the backstop for anything this
+ * still misses. A null id is the catalogue default, which is a Gemini 3 model.
+ */
+const geminiKeepsTools = (modelId: string | null): boolean => {
+  const m = /^(?:models\/)?gemini-(\d+)/.exec((modelId ?? 'gemini-3.8-flash').trim().toLowerCase());
+  return !!m && Number(m[1]) >= 3;
+};
+
+/**
  * The provider's own server-side search tool for this model, or null.
  *
  * The safe way to ask the question: a row with no search of its own is answered
@@ -172,6 +191,25 @@ export const searchCountOf = (provider: ProviderId): string | null => SEARCH_TOO
 export function nativeSearch(provider: ProviderId, modelId: string | null): Tool | null {
   if (!SEARCH_TOOL[provider]) return null;
   return adapterFor(provider).search?.(modelId) ?? null;
+}
+
+/** Which of the three web-search situations a turn is in: the provider's own tool, Derive's configured fallback, or nothing at all. */
+export type SearchMode = 'native' | 'fallback' | 'none';
+
+/**
+ * The one three-way decision, made in one place.
+ *
+ * The loop reads it to decide which search tool to register and the prompt
+ * reads it to decide how `{{WEB_TOOLS}}` renders, and those two must never
+ * disagree: a tutor told to verify with a tool it was not given asserts
+ * instead, and a tutor handed two ways to search in one turn will use both. A
+ * fallback the learner selected but did not finish configuring is `none`, not
+ * `fallback` — it has no way to answer a search, so saying it has one would be
+ * the same lie by a different route.
+ */
+export function searchMode(provider: ProviderId, modelId: string | null): SearchMode {
+  if (nativeSearch(provider, modelId)) return 'native';
+  return searchReady() ? 'fallback' : 'none';
 }
 
 /**
@@ -190,7 +228,11 @@ export function adapterFor(provider: ProviderId): Adapter {
         // D-08's belt: Anthropic is told not to open two tool calls at once.
         // The braces are the loop's own per-lesson serialisation in api.ts.
         providerOptions: { anthropic: { disableParallelToolUse: true } },
-        search: () => null,
+        // Anthropic's own server-side search, which coexists with all fourteen
+        // function tools in one `tools` object. It needs web search enabled in
+        // the organisation's console privacy settings; where it is not, the
+        // provider's own sentence is what the learner reads.
+        search: () => anthropic.tools.webSearch_20260318({}),
         cost: (pm, usage, model, searches) => {
           // Anthropic copies its raw usage object verbatim into
           // providerMetadata.anthropic.usage, so a native search count rides
@@ -219,7 +261,9 @@ export function adapterFor(provider: ProviderId): Adapter {
         // CI-validated in plan 03-07, and Phase 4's conformance harness can
         // switch it on and measure what it costs.
         providerOptions: { openai: { parallelToolCalls: false, store: false } },
-        search: () => null,
+        // The Responses API pushes function tools and provider tools into one
+        // array with no exclusion, so this sits beside the fourteen.
+        search: () => openai.tools.webSearch({}),
         cost: (_pm, usage, model, searches) => tableCost('openai', usage, model, searches),
       };
     case 'gemini':
@@ -229,17 +273,15 @@ export function adapterFor(provider: ProviderId): Adapter {
         // its types or its docs. That absence is why the loop's per-lesson
         // mutex is load-bearing here rather than belt-and-braces — on Gemini it
         // is the only thing keeping two cards off the learner's screen.
-        search: () => {
-          // Null, and plan 03-06 is what makes this a decision. @ai-sdk/google's
-          // prepareTools returns `tools: googleTools` alone — discarding all 14
-          // function declarations — unless the model is a Gemini 3 series model,
-          // and the only signal is a pushed warning of type `unsupported` with
-          // feature "combination of function and provider-defined tools". So the
-          // answer must come from the model id, and the loop refuses the turn
-          // when that warning appears, because a lesson taught with no tools is
-          // not a Derive lesson.
-          return null;
-        },
+        // The one row whose answer genuinely depends on the model id.
+        // @ai-sdk/google's prepareTools returns `tools: googleTools` alone —
+        // discarding all 14 function declarations — unless the model is a
+        // Gemini 3 series model, and the only signal is a pushed warning of
+        // type `unsupported` with feature "combination of function and
+        // provider-defined tools". So the answer comes from the model id, and
+        // the loop's refusal on that warning is the backstop, because a lesson
+        // taught with no tools is not a Derive lesson.
+        search: (modelId) => (geminiKeepsTools(modelId) ? google.tools.googleSearch({}) : null),
         cost: (_pm, usage, model, searches) => tableCost('gemini', usage, model, searches),
       };
     case 'openrouter':
@@ -250,6 +292,9 @@ export function adapterFor(provider: ProviderId): Adapter {
         // it. Without it providerMetadata.openrouter.usage.cost is simply absent.
         model: (key, _base, modelId) => createOpenRouter({ apiKey: key, fetch: noRedirectFetch }).chat(modelId ?? 'anthropic/claude-opus-5.5', { usage: { include: true } }),
         providerOptions: { openrouter: { parallelToolCalls: false, usage: { include: true } } },
+        // D-20 puts OpenRouter on the fallback path: its search is a plugin
+        // rather than a tool, and one search implementation the loop can reason
+        // about beats a sixth shape.
         search: () => null,
         cost: (pm, usage, model) => {
           // Read defensively: the typed narrowing of providerMetadata exists
@@ -285,6 +330,7 @@ export function adapterFor(provider: ProviderId): Adapter {
           // blank, not a bug.
           return createOpenAICompatible({ name: 'openai-compatible', apiKey: key, baseURL: v1(base), includeUsage: true, fetch: noRedirectFetch })(modelId);
         },
+        // A learner's own endpoint has no search of its own to offer; D-20 puts it on the fallback path by construction.
         search: () => null,
         // The model behind a learner's own endpoint is not in the table, and
         // guessing a rate for it is the one thing the four-word label vocabulary

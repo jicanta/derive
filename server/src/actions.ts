@@ -39,8 +39,22 @@ import {
 } from './db.js';
 import type { Confidence } from './schedule.js';
 import { emit } from './events.js';
-import { addResource, describeResource, readResource as readRes, relatedResources, resolveResource, searchLibrary as searchLib, tagsOf } from './library.js';
-import { readMaterial as readMat, searchMaterial as searchMat } from './materials.js';
+import {
+  addResource,
+  assertPublicHost,
+  describeResource,
+  fetchPublic,
+  htmlToText,
+  MAX_HTML_BYTES,
+  readResource as readRes,
+  READ_CHARS,
+  relatedResources,
+  resolveResource,
+  searchLibrary as searchLib,
+  tagsOf,
+} from './library.js';
+import { readMaterial as readMat, searchMaterial as searchMat, titleOf } from './materials.js';
+import { searchWeb } from './search.js';
 import { openPrompt, type PromptKind } from './prompts.js';
 import { takeNotices } from './notices.js';
 
@@ -473,6 +487,61 @@ export async function saveResource(lessonId: string, a: { url?: string | null; t
   };
 }
 
+// ---------- the web, on a provider that brings none ----------
+
+/** What a page's accept header asks for: a document a reader could read, in the order it is useful. */
+const PAGE_ACCEPT = 'text/html,application/xhtml+xml,text/plain;q=0.8,*/*;q=0.5';
+
+/**
+ * Read a page the tutor needs the text of.
+ *
+ * Every guard this needs already exists and is hardened: `fetchPublic` follows
+ * redirects by hand so each hop is checked before it is taken, refuses anything
+ * but http(s), and bounds the download by both the content-length header and
+ * the bytes actually read; `assertPublicHost` resolves the host and refuses
+ * every private address it answers with, which is what stands between a URL the
+ * *model* chose and a request to this machine. So this writes neither a second
+ * fetcher nor a second guard, and a refused URL throws library.ts's own sentence
+ * unchanged.
+ *
+ * Every cross-module call stays inside this function body: `repo.ts ->
+ * library.ts -> materials.ts -> repo.ts` is a real import ring that resolves
+ * only while no module in it reads another's bindings at module-evaluation
+ * time.
+ */
+export async function fetchPage(_lessonId: string, a: { url?: string | null; reason?: string | null }) {
+  const url = String(a.url ?? '').trim();
+  if (!url) throw new Error('a fetch needs a url');
+  const { type, buf, url: finalUrl } = await fetchPublic(url, PAGE_ACCEPT, MAX_HTML_BYTES, assertPublicHost);
+  const raw = buf.toString('utf8');
+  const body = type.includes('text/html') || type.includes('xhtml') || /^\s*<(?:!doctype|html)/i.test(raw) ? htmlToText(raw) : raw;
+  const text = body.trim().slice(0, READ_CHARS);
+  return {
+    ok: true,
+    url: finalUrl,
+    title: titleOf(text) || null,
+    text,
+    truncated: body.trim().length > READ_CHARS,
+    instruction: 'This is an extract, not the whole page. Quote it only for what it actually says, and say so plainly if it changes what you were about to teach.',
+  };
+}
+
+/**
+ * Search the web through whichever fallback the learner configured.
+ *
+ * Only ever registered where the provider has no search of its own — the loop
+ * hands a provider with a native search tool that tool and omits this one, so
+ * the tutor is never offered two ways to search in one turn.
+ */
+export async function webSearch(_lessonId: string, a: { query?: string | null; limit?: number | null }) {
+  const hits = await searchWeb(String(a.query ?? ''), a.limit ?? 5);
+  return {
+    ok: true,
+    hits,
+    instruction: 'A snippet is not a source: read the result that matters with `fetch_page` before you rely on it. If what you find changes what you were about to teach, say so plainly.',
+  };
+}
+
 /**
  * The learner's own account of how they want to be taught. Theirs, not the
  * tutor's: the tutor writes here only what the learner said, in their words.
@@ -609,12 +678,20 @@ export function renderCard(kind: PromptKind, payload: Record<string, unknown>, n
 // ---------- the one tool dispatch map ----------
 
 /**
- * The tutor's fourteen tools, each mapped onto the action it runs.
+ * The tutor's tools, each mapped onto the action it runs.
  *
  * It lives here rather than in a driver because the tutor's tools used to be
  * written out three times and the copies had already drifted — a drifting copy
  * is a drifting tutor. The Claude driver and the owned loop both look a tool up
  * here, so a provider cannot quietly offer a different fourteen.
+ *
+ * `fetch_page` and `web_search` are declared `surfaces: ['api']` in the
+ * registry, so the four-place rule is satisfied by that one declaration:
+ * `agent.ts` `buildTools`, `mcp.ts`'s `registerTool` calls and `index.ts`'s
+ * external-action switch all build from `toolsFor(<their surface>)` and filter
+ * the two out without an edit, and the plugin's `allowed-tools` lists never see
+ * them. They are mapped here because the owned loop reaches every tool through
+ * `runTool` and nothing else.
  */
 export const TUTOR_TOOL_HANDLERS: Record<string, (lessonId: string, a: Record<string, unknown>) => unknown> = {
   quiz: (l, a) => quiz(l, a as unknown as QuizArgs),
@@ -631,6 +708,8 @@ export const TUTOR_TOOL_HANDLERS: Record<string, (lessonId: string, a: Record<st
   read_resource: (l, a) => readResource(l, a as unknown as Parameters<typeof readResource>[1]),
   suggest_resource: (l, a) => suggestResource(l, a as unknown as Parameters<typeof suggestResource>[1]),
   add_resource: (l, a) => saveResource(l, a as unknown as Parameters<typeof saveResource>[1]),
+  fetch_page: (l, a) => fetchPage(l, a as unknown as Parameters<typeof fetchPage>[1]),
+  web_search: (l, a) => webSearch(l, a as unknown as Parameters<typeof webSearch>[1]),
 };
 
 /** Run one tutor tool for a lesson. The one way a driver reaches an action; an unknown name is the driver's bug, not the learner's. */

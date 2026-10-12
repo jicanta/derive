@@ -35,11 +35,13 @@ export { RESOURCE_KINDS };
 export type { ResourceKind, ResourceRow };
 
 const FETCH_TIMEOUT_MS = 20_000;
-const MAX_HTML_BYTES = 6 * 1024 * 1024;
+/** The download bound for a page. Exported because the tutor's own `fetch_page` tool fetches a page through this module and must not invent a second cap. */
+export const MAX_HTML_BYTES = 6 * 1024 * 1024;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 /** Text kept per entry. A long paper fits; a whole book by URL does not need to. */
 const MAX_CHARS = 400_000;
-const READ_CHARS = 14_000;
+/** How much text one read hands the model. Exported for the same reason as the byte cap: `fetch_page` returns an extract of a page, and it should be the same size as a read of a library entry. */
+export const READ_CHARS = 14_000;
 /** How much of the catalog goes into the system prompt. */
 const CATALOG_ENTRIES = 14;
 const USER_AGENT = `Mozilla/5.0 (compatible; Derive/${VERSION}; +https://github.com/jicanta/derive)`;

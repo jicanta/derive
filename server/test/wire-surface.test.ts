@@ -29,17 +29,17 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { ALL_TOOL_NAMES, DERIVE_TOOL_NAMES, descriptionFor, differsOnSurface, jsonSchemaOf, TOOL_LABELS, toolsFor, TOOL_REGISTRY, type ToolSurface } from '../src/tools.js';
 
-const SURFACES: ToolSurface[] = ['agent', 'mcp', 'http'];
+const SURFACES: ToolSurface[] = ['agent', 'api', 'mcp', 'http'];
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'wire-surface.json');
 
-/** The fourteen tutor tools as they stood before the registry existed, copied from the pre-phase server/src/tools.ts. */
-const TUTOR_TOOLS_BEFORE = [
+/** The fourteen tutor tools as they stood before the registry existed, copied from the pre-phase server/src/tools.ts. Renamed rather than edited when the owned loop's two web tools arrived: this list is a record of the pre-registry contract, and the agent surface still names exactly it. */
+const TUTOR_TOOLS_AT_PHASE_1 = [
   'quiz', 'ask', 'set_plan', 'node_status', 'set_phase', 'explain_back', 'remember', 'set_preferences', 'read_material', 'search_material',
   'search_library', 'read_resource', 'suggest_resource', 'add_resource',
 ];
 
-/** The status lines as they stood before the registry existed, copied from the pre-phase server/src/tools.ts. */
-const TOOL_LABELS_BEFORE: Record<string, string> = {
+/** The status lines as they stood before the registry existed, copied from the pre-phase server/src/tools.ts. Renamed for the same reason: every entry is still present with the same string. */
+const TOOL_LABELS_AT_PHASE_1: Record<string, string> = {
   quiz: 'Writing a question',
   ask: 'Asking',
   set_plan: 'Drawing the plan',
@@ -124,15 +124,35 @@ describe('the wire surface', () => {
   });
 
   it('still names the same fourteen tutor tools, in the same order, with the same status lines', () => {
-    assert.deepEqual([...DERIVE_TOOL_NAMES], TUTOR_TOOLS_BEFORE);
-    assert.deepEqual(TOOL_LABELS, TOOL_LABELS_BEFORE);
+    assert.deepEqual([...DERIVE_TOOL_NAMES], TUTOR_TOOLS_AT_PHASE_1);
+    // The label map grew by exactly two: Derive's own loop has no host CLI to
+    // borrow web tools from, so `fetch_page` and `web_search` are registry
+    // tools and need status lines. Their wording is lifted verbatim from what
+    // the Claude and Codex drivers already show for WebFetch and web_search,
+    // so the learner sees no difference between the plugin and the owned loop.
+    for (const [name, label] of Object.entries(TOOL_LABELS_AT_PHASE_1)) {
+      assert.equal(TOOL_LABELS[name], label, `${name}'s status line moved; the learner reads these`);
+    }
+    const added = Object.keys(TOOL_LABELS).filter((n) => !(n in TOOL_LABELS_AT_PHASE_1));
+    assert.deepEqual(added.sort(), ['fetch_page', 'web_search'], 'the only status lines added since the registry are the owned loop’s two web tools');
+    assert.equal(TOOL_LABELS.fetch_page, 'Reading a source');
+    assert.equal(TOOL_LABELS.web_search, 'Verifying with a web search');
   });
 
-  it('covers the whole surface a driver can see: 22 tools, of which 14 are the tutor tools', () => {
-    assert.equal(ALL_TOOL_NAMES.length, 22);
+  it('covers the whole surface a driver can see: 24 tools, of which 14 are the tutor tools', () => {
+    // 22 at phase 1, plus fetch_page and web_search — the owned loop's own two,
+    // registered on the `api` surface and nowhere else.
+    assert.equal(ALL_TOOL_NAMES.length, 24);
     assert.equal(DERIVE_TOOL_NAMES.length, 14);
     assert.equal(live.mcp.length, 22, 'the MCP server is what the Claude Code plugin sees; the snapshot must cover all of it');
     assert.equal(live.http.length, 16, 'the fourteen tutor tools plus answer and answer_in');
+    assert.equal(live.api.length, 16, "the fourteen tutor tools plus Derive's own fetch_page and web_search");
+    for (const ours of ['fetch_page', 'web_search']) {
+      assert.ok(rowOf(live, ours, 'api'), `${ours} is missing from the owned loop's surface`);
+      for (const elsewhere of ['agent', 'mcp', 'http'] as ToolSurface[]) {
+        assert.ok(!rowOf(live, ours, elsewhere), `${ours} leaked onto the ${elsewhere} surface, which must stay byte-unchanged`);
+      }
+    }
     for (const driverTool of ['start_lesson', 'attach_material', 'answer', 'answer_in', 'learner_profile', 'learners', 'end_lesson', 'library']) {
       assert.ok(rowOf(live, driverTool, 'mcp'), `${driverTool} is missing from the MCP surface`);
       assert.ok(!DERIVE_TOOL_NAMES.includes(driverTool), `${driverTool} is a driver tool, not one of the fourteen tutor tools`);

@@ -28,8 +28,14 @@
  */
 import { z } from 'zod';
 
-/** Where a tool is registered: the in-process Claude agent, the stdio MCP server, the HTTP action route. */
-export type ToolSurface = 'agent' | 'mcp' | 'http';
+/** Where a tool is registered: the in-process Claude agent, Derive's own agent loop on an API key, the stdio MCP server, the HTTP action route. */
+// The owned loop is a fourth surface rather than a reuse of `agent` because
+// `DERIVE_TOOL_NAMES` is `toolsFor('agent')` and the plugin's MCP wire is
+// `toolsFor('mcp')`, both of which must stay byte-unchanged: putting fetch_page
+// on the agent surface would hand the Claude Agent SDK a fetch tool it already
+// has as `WebFetch`, and would move the tool set the "plugin and Codex paths
+// proven unchanged" guarantee rests on.
+export type ToolSurface = 'agent' | 'api' | 'mcp' | 'http';
 
 /** How one tool's contract differs on one surface. Absent means the surface reads the registry's own description and shape. */
 export type SurfaceContract = {
@@ -97,7 +103,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
       purpose: z.enum(['probe', 'pretest', 'check', 'cumulative', 'review']).optional().describe('"pretest": the attempt before teaching a node (not recorded against the learner, never locks). "check": the question that locks a node. "cumulative": the end-of-lesson quiz over every node, after the goal locks. "review": a node from an earlier lesson (the warm-up, or a review session). Default: "review" on a copied node, "probe" in the probe phase, else "check".'),
       tests: z.enum(['intuition', 'procedure', 'transfer']).optional().describe('What the question tests. "intuition": why the claim must be so, what breaks if a premise changes, which picture or geometric reading is right, an estimate before any computation. "procedure": carry out the steps. "transfer": a problem of a kind this lesson has not shown. A derived node locks only after a correct intuition or transfer question; always set this in the teach phase.'),
     },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Writing a question',
     per_surface: {
       // The terminal path is the only one that runs the teach gate (`teachingGap`
@@ -124,7 +130,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
     name: 'ask',
     description: 'Ask the learner a question with no right answer (goal, preference, energy, what next). Optionally offer choices; the learner can always type a free answer. Blocks until they answer.',
     shape: { question: z.string(), options: z.array(z.string()).max(4).optional().describe('Optional suggested answers.') },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Asking',
     per_surface: {
       mcp: {
@@ -137,7 +143,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
     name: 'set_plan',
     description: 'Submit the lesson plan as a dependency DAG: unconditional truths at the roots (kind "truth"), derived steps (kind "derived"), exactly one "goal" sink. The app draws it and asks the learner to approve. Blocks until they approve or request changes; if they request changes, revise and call again.',
     shape: { goal: z.string().describe('The learning goal in one sentence, as agreed with the learner.'), nodes: z.array(nodeSchema).min(3).max(12) },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Drawing the plan',
     per_surface: {
       mcp: {
@@ -151,14 +157,14 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
     name: 'node_status',
     description: 'Update the state of a plan node: "teaching" when you start it, "locked" when a confident check confirmed it (the node is then scheduled for review by how well the check went; the reply says in how many days, and which nodes below it earned implicit review credit), "shaky" when it did not land after two checks (the reply names the nodes it rests on and what the checks on each showed, for targeted remediation). Locking a derived node is refused until a correct intuition or transfer question on it exists; locking the goal returns the instructions for the cumulative quiz.',
     shape: { id: z.string(), status: z.enum(['teaching', 'locked', 'shaky']) },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Updating the graph',
   },
   {
     name: 'set_phase',
     description: 'Announce which phase of the lesson you are in.',
     shape: { phase: z.enum(['probe', 'plan', 'teach']) },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Changing phase',
     per_surface: { mcp: { description: 'Announce the lesson phase: probe, plan or teach.' } },
   },
@@ -170,7 +176,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
       rubric: z.string().describe('The 2 or 3 things a correct explanation must contain. Not shown to the learner.'),
       node_id: z.string().optional(),
     },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Preparing a teach-back',
     per_surface: {
       mcp: {
@@ -184,7 +190,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
     name: 'remember',
     description: 'Store one durable fact about this learner for future lessons: a strength, a gap, a preference (Socratic vs narrated), a background detail. One sentence. Use sparingly: 1 to 3 per lesson.',
     shape: { fact: z.string(), kind: z.enum(['learner', 'preference', 'strength', 'gap']).optional() },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Taking a note',
     per_surface: { mcp: { description: 'Store one durable fact about this learner for future lessons (strength, gap, preference). One sentence; use sparingly.' } },
   },
@@ -199,7 +205,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
       how: z.string().optional().describe('What works for them and what does not, in their words.'),
       examples: z.string().optional().describe('Domains to draw examples and analogies from.'),
     },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Updating how you learn',
     per_surface: {
       // The MCP surface can be called outside a lesson, so it takes the learner
@@ -220,7 +226,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
       from: z.number().int().min(1).optional().describe('First page, slide or file, 1-based. Default 1.'),
       to: z.number().int().min(1).optional().describe('Last page, slide or file, inclusive. Default: from + 9 (or the one file, with path).'),
     },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Reading your material',
     per_surface: {
       mcp: {
@@ -241,7 +247,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
       name: z.string().optional().describe('Restrict to one file. Default: all attached material.'),
       limit: z.number().int().min(1).max(20).optional(),
     },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Searching your material',
     per_surface: {
       mcp: {
@@ -259,7 +265,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
       tag: z.string().optional().describe('Restrict to one tag.'),
       limit: z.number().int().min(1).max(20).optional(),
     },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Searching your library',
     per_surface: {
       mcp: {
@@ -278,7 +284,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
       from: z.number().int().min(1).optional().describe('First part, 1-based. Default 1.'),
       to: z.number().int().min(1).optional().describe('Last part, inclusive. Default from + 9.'),
     },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Reading from your library',
     per_surface: {
       mcp: {
@@ -303,7 +309,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
       where: z.string().optional().describe('Where to look: "chapter 3", "from 12:40", "the section on invariants".'),
       node_id: z.string().optional().describe('The plan node it deepens, if any.'),
     },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Picking a resource for you',
     per_surface: {
       mcp: {
@@ -330,7 +336,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
       note: z.string().describe('One sentence, to the learner: why this is worth keeping.'),
       tags: z.array(z.string()).max(8).optional().describe('A few lowercase tags, e.g. ["calculus", "visual"].'),
     },
-    surfaces: ['agent', 'mcp', 'http'],
+    surfaces: ['agent', 'api', 'mcp', 'http'],
     label: 'Saving a source to your library',
     per_surface: {
       mcp: {
@@ -345,6 +351,38 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
         },
       },
     },
+  },
+  // The two tools below reach only Derive's own agent loop. The plugin's host
+  // CLI already carries web tools of its own (`WebSearch` / `WebFetch` on Claude
+  // Code, a built-in `web_search` on Codex), so on those surfaces the method
+  // text names those and the registry adds nothing; on an API key there is no
+  // host to borrow from, which is what these two are. They are `surfaces:
+  // ['api']` and therefore absent from `DERIVE_TOOL_NAMES`, the MCP wire and the
+  // HTTP action surface, which is what keeps those three byte-unchanged.
+  {
+    name: 'fetch_page',
+    description:
+      "Read a page you need the actual text of: the usual input is a URL from a web search result, a link the learner gave you, or a source you are about to cite. Returns the page's title and its readable text, which is an extract and not the whole document. Read a result before you rely on it — a search snippet is not a source. Only http(s) addresses on the public internet; a link is not saved to the library unless you call add_resource for it.",
+    shape: {
+      url: z.string().describe('The page to read, as a full http(s) URL.'),
+      reason: z.string().optional().describe('One short phrase on what you are checking, for the lesson log.'),
+    },
+    surfaces: ['api'],
+    // Today's wording, lifted from the Claude driver's WebFetch line, so the
+    // learner sees no difference between the plugin and the owned loop.
+    label: 'Reading a source',
+  },
+  {
+    name: 'web_search',
+    description:
+      'Search the web to check a fact before you teach it: a date, a name, a formula, a definition, the real first principles a topic rests on. Returns a few results with a title, a URL and a snippet each, in the search engine\'s own order. A snippet is not a source: read the one that matters with `fetch_page` before you rely on it. Use it the moment you are even slightly unsure, and say plainly if a check changes what you were about to say.',
+    shape: {
+      query: z.string().describe('A few words: what you are checking.'),
+      limit: z.number().int().min(1).max(10).optional().describe('How many results to return. Default 5.'),
+    },
+    surfaces: ['api'],
+    // Today's wording, lifted from the Codex driver's search line, for the same reason.
+    label: 'Verifying with a web search',
   },
   // The driver tools below reach only the terminal drivers: they open and close
   // a lesson, attach material to it, carry a terminal reply back to the card
@@ -466,7 +504,7 @@ export function jsonSchemaOf(spec: ToolSpec, surface?: ToolSurface) {
 /** Every tool in the registry, in declaration order: the whole surface a driver can see. */
 export const ALL_TOOL_NAMES: readonly string[] = TOOL_REGISTRY.map((s) => s.name);
 
-/** The fourteen tutor tools: the ones the in-process agent registers, in declaration order. */
+/** The fourteen tutor tools: the ones the in-process agent registers, in declaration order. The owned loop's surface is `toolsFor('api')` and carries two more; this list is the plugin-unchanged guarantee and does not move. */
 export const DERIVE_TOOL_NAMES: readonly string[] = toolsFor('agent').map((s) => s.name);
 
 /** The status line each tool shows the learner while it runs. */

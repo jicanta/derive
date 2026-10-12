@@ -35,7 +35,7 @@ import { labelOf, type ProviderId } from '../providers.js';
 import { safeMessage } from '../secrets.js';
 import { baseUrlKey, currentTutor, effectiveKey } from '../settings.js';
 import { TOOL_LABELS, descriptionFor, jsonSchemaOf, toolsFor } from '../tools.js';
-import { adapterFor, searchCountOf, type CostRead } from './adapters.js';
+import { adapterFor, nativeSearch, searchCountOf, searchMode, type CostRead } from './adapters.js';
 
 /** How the suite hands this loop a model with no network behind it. The provider id is passed through so a stub can still behave per provider. */
 export type ModelFactory = (provider: ProviderId, modelId: string | null) => LanguageModel;
@@ -339,24 +339,35 @@ const DROPS_THE_TOOLS = /combination of function and provider-defined tools/i;
 const NO_TOOLS_WITH_SEARCH = "this model cannot use derive's tools and a web search tool together; pick a newer model, or set web search to tavily or searxng in settings";
 
 /**
- * Every tutor tool, as the SDK takes them: the registry's description, a
- * pre-projected JSON Schema, and an execute that replays, dispatches and
- * records.
+ * Every tool of the owned loop's own surface, as the SDK takes them: the
+ * registry's description, a pre-projected JSON Schema, and an execute that
+ * replays, dispatches and records.
+ *
+ * The surface is `api`, which carries the fourteen tutor tools plus Derive's
+ * own `fetch_page` and `web_search`, and declares no `per_surface` entry for
+ * any of the fourteen — the loop reads the registry's own description and
+ * shape, which is what makes parity with the Claude agent surface structural
+ * rather than asserted.
+ *
+ * `omit` is how the search decision reaches here: the fallback `web_search` row
+ * is left out when the provider has a native search tool of its own, or when
+ * there is no search to be had at all.
  *
  * `answer` is how a result reaches the turn's history. It is called from inside
  * the mutex in the same step as the record, so the replay guard and the history
  * can never disagree about whether a call ran.
  */
-function buildTools(ctx: TurnContext, sink: EventSink, answer: (toolCallId: string, toolName: string, output: ToolResultOutput) => void): ToolSet {
+function buildTools(ctx: TurnContext, sink: EventSink, answer: (toolCallId: string, toolName: string, output: ToolResultOutput) => void, omit: ReadonlySet<string>): ToolSet {
   const set: ToolSet = {};
-  for (const spec of toolsFor('agent')) {
+  for (const spec of toolsFor('api')) {
+    if (omit.has(spec.name)) continue;
     set[spec.name] = tool({
-      description: descriptionFor(spec, 'agent'),
+      description: descriptionFor(spec, 'api'),
       // The projected schema, never the zod schema: handed a zod schema the SDK
       // runs its own conversion and emits draft-07, where `jsonSchemaOf` emits
       // draft-2020-12, so the bytes on the wire would stop matching
       // server/test/wire-surface.json.
-      inputSchema: jsonSchema<Record<string, unknown>>(jsonSchemaOf(spec, 'agent') as JSONSchema7),
+      inputSchema: jsonSchema<Record<string, unknown>>(jsonSchemaOf(spec, 'api') as JSONSchema7),
       execute: async (input: Record<string, unknown>, { toolCallId }) =>
         serialise(ctx.lessonId, async () => {
           // D-07's replay guard, inside the mutex and before anything else.
@@ -393,7 +404,19 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   const controller = new AbortController();
   ctx.onActive({ interrupt: async () => controller.abort() });
 
-  const names = toolsFor('agent').map((s) => s.name);
+  // Exactly one search source for the turn, decided before the request.
+  //
+  // A provider with a server-side search tool is handed its own and Derive's
+  // `web_search` row is left out; a provider without one gets the row where the
+  // learner configured a fallback and nothing where they did not. Never both:
+  // a tutor offered two ways to search in one turn will use both, and the
+  // method text it reads is rendered from `searchMode`, the same decision.
+  // `fetch_page` is registered on every provider — it is one implementation
+  // behind one guard and does not depend on a search being available.
+  const searchTool = searchCountOf(provider);
+  const native = nativeSearch(provider, asked);
+  const omit: ReadonlySet<string> = searchMode(provider, asked) === 'fallback' ? new Set() : new Set(['web_search']);
+  const names = [...toolsFor('api').map((s) => s.name).filter((n) => !omit.has(n)), ...(native && searchTool ? [searchTool] : [])];
   // The lesson's own history, loaded before the request so an interrupted turn
   // costs a turn rather than the lesson. loadTurnMessages answers with nothing
   // when the stored driver is not this one, so D-04's drop on a provider change
@@ -471,8 +494,9 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   // provider-executed tool calls because that path works the same on every
   // provider where the metadata path does not. Reset at each finish-step, so a
   // step is priced for its own searches and not the turn's.
-  const searchTool = searchCountOf(provider);
   let searches = 0;
+  /** Whether a tool call checked a fact against the web: the provider's own search, Derive's fallback, or the page the tutor read. */
+  const verifies = (toolName: string) => toolName === searchTool || toolName === 'web_search' || toolName === 'fetch_page';
   const flushBlock = () => {
     if (blockId && blockSeq !== null) sink.emitUpdate(blockSeq, 'assistant', { id: blockId, text: blockText });
     // The same prose, in the history the next turn resumes from: the learner's
@@ -490,6 +514,10 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   // which is what the settle in the wrapper below guarantees before any error
   // escapes.
   const attempt = async () => {
+    const tools = buildTools(ctx, sink, answer, omit);
+    // Under the provider's own tool name, which is what `searchCountOf` counts
+    // and what the status line above reads.
+    if (native && searchTool) tools[searchTool] = native;
     const r = streamText({
       model,
       // The array form from the start: it is the shape D-06's stable/volatile
@@ -497,7 +525,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
       // system message inside `messages` would be refused outright.
       instructions: [{ role: 'system', content: ctx.instructions }],
       messages,
-      tools: buildTools(ctx, sink, answer),
+      tools,
       toolOrder: names,
       // The unit here is model calls rather than agent turns. Passed explicitly
       // because streamText's own default is a single step; see STEP_CAP for why
@@ -552,6 +580,15 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
           // rather than running it again.
           if (called.has(part.toolCallId)) break;
           called.add(part.toolCallId);
+          // Counted here rather than in a tool's own execute, because the
+          // provider's search runs on its side and has no execute to count in.
+          // A loop that searches without counting makes the lesson footer's
+          // `facts verified on the web` read as a promise forever.
+          if (verifies(part.toolName)) verified += 1;
+          // The provider's own search shows the same status line the plugin
+          // shows for WebSearch; Derive's two tools carry theirs in the
+          // registry, so between them the learner reads the same three strings.
+          if (searchTool && part.providerExecuted && part.toolName === searchTool) sink.emitEphemeral('status', { text: 'Verifying with a web search' });
           messages.push({
             role: 'assistant',
             content: [
