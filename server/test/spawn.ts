@@ -18,9 +18,17 @@
  *
  * Not named `*.test.ts` on purpose — the runner's glob in `server/package.json`
  * is `test/*.test.ts`, so this file is imported by suites and never run as one.
+ *
+ * Two ways out: `startDeriveServer` spawns the built server as a child, which
+ * is what a suite wants for anything about the process itself (its token file,
+ * its boot, a raw socket). `startInProcessServer` runs the same routes inside
+ * the test's own process, which is the only way an in-process override can
+ * reach them — see its own comment.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
+import http, { type Server } from 'node:http';
+import { syncBuiltinESMExports } from 'node:module';
 import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -97,6 +105,70 @@ export async function startDeriveServer(
   }
 
   throw new Error(`the derive server did not start in ${attempts} attempts: ${reason(stderr)}`);
+}
+
+/** What an in-process server gives a suite: the port and base URL to call, and the one way to let the test process exit again. */
+export type InProcessServer = { port: number; base: string; close: () => Promise<void> };
+
+/**
+ * Start the real server inside the test's own process, so an in-process
+ * override — `setModelOverride`, `setDriverOverride` — reaches the routes.
+ *
+ * Why this exists: a stub `LanguageModel` can only be installed by calling
+ * `setModelOverride` in the process that runs the loop, and that is deliberate
+ * (no route, header, environment variable or config file can set it). A suite
+ * that spawns `dist/index.js` as a child therefore cannot drive the owned loop
+ * through HTTP at all. Importing `src/index.js` here runs the real routes, the
+ * real middleware and the real driver dispatch, with the stub in place.
+ *
+ * Why the `createServer` capture: `src/index.ts` calls `serve()` at module
+ * scope and keeps the handle to itself, which is right for a program and fatal
+ * for a test — a listening socket nobody can close means the test file never
+ * exits and the runner hangs (Node's runner does not force-exit by default).
+ * The server is captured from `node:http` instead of changing those startup
+ * side effects to suit a test. `syncBuiltinESMExports` is what makes the patch
+ * visible to `@hono/node-server`, which imports `createServer` as an ESM named
+ * binding; the real function is restored before this returns, so nothing else
+ * in the process sees the patch.
+ *
+ * The caller must set `DERIVE_DATA_DIR` (and anything else `config.ts` reads)
+ * before calling, because `src/db.ts` opens its database at import time.
+ */
+export async function startInProcessServer(): Promise<InProcessServer> {
+  const port = await freePort();
+  process.env.PORT = String(port);
+
+  const real = http.createServer;
+  let captured: Server | null = null;
+  http.createServer = ((...args: Parameters<typeof http.createServer>) => {
+    const server = real(...args);
+    captured = server;
+    return server;
+  }) as typeof http.createServer;
+  syncBuiltinESMExports();
+  try {
+    await import('../src/index.js');
+  } finally {
+    http.createServer = real;
+    syncBuiltinESMExports();
+  }
+
+  const server = captured as Server | null;
+  if (!server) throw new Error('the in-process server never called http.createServer; @hono/node-server may have changed how it listens');
+
+  const base = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch(`${base}/api/health`);
+      if (r.ok) return { port, base, close: () => new Promise<void>((res) => server.close(() => res())) };
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  server.close();
+  throw new Error('the in-process derive server did not answer /api/health');
 }
 
 /** The line of the child's stderr worth reporting. Node ends a crash with its own version banner, so the last line is usually `Node.js v22.x` and says nothing; the first line naming an error is the one that does. Falls back to the last real line, and says so when there was none. */

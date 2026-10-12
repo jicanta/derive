@@ -1,11 +1,31 @@
 /**
- * The learning mechanics, driven over HTTP against the built server with
- * no model behind it. External lessons (the plugin's path) never call a
- * model, and terminal-answered cards return at once, so a test can play
- * both the tutor and the learner: build a graph, teach, check, lock, run
- * the cumulative quiz, then start a second lesson and see the warm-up.
+ * The learning mechanics, driven over HTTP. Two halves, and the division is
+ * the point.
  *
- * Needs `pnpm build` first (it runs server/dist/index.js).
+ * The first half drives the built server as a child process with no model
+ * behind it at all. External lessons (the plugin's path) never call a model,
+ * and terminal-answered cards return at once, so a test can play both the
+ * tutor and the learner: build a graph, teach, check, lock, run the cumulative
+ * quiz, then start a second lesson and see the warm-up. That is the terminal
+ * path, and this phase's compatibility promise rests on those cases staying
+ * exactly as they were.
+ *
+ * The second half drives Derive's own agent loop — the path an API key, a
+ * gateway or a learner's own endpoint takes — through the same routes, with a
+ * stub `LanguageModel` where the provider would be. It is the automated half
+ * of this milestone's first success criterion: that the same tools and the
+ * same method reach the learner on a provider Derive drives itself.
+ *
+ * What no automated test here can show, stated so that this file is not read
+ * as coverage it does not have. This environment has no provider key, so the
+ * real-key halves of Success Criteria 1 and 2 — a whole lesson on an
+ * Anthropic, an OpenAI and a Gemini key, one through OpenRouter with a billed
+ * cost in the usage table, one through a base URL plus key, and one lesson
+ * each through the Claude Code plugin and the Codex skills — are carried as
+ * human checks in the plans of phase 03 (03-09 Task 3) and nowhere in this
+ * suite. A stub model proves the loop; it cannot prove a provider.
+ *
+ * Needs `pnpm build` first (the first half runs server/dist/index.js).
  */
 import assert from 'node:assert/strict';
 import { type ChildProcess } from 'node:child_process';
@@ -15,7 +35,8 @@ import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { startDeriveServer } from './spawn.js';
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
+import { startDeriveServer, startInProcessServer, type InProcessServer } from './spawn.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const entry = resolve(here, '../dist/index.js');
@@ -251,6 +272,206 @@ describe('a lesson, end to end', () => {
       assert.equal(closed.status, 'ok');
       assert.ok(closed.ended_at !== null);
     });
+  });
+});
+
+/**
+ * The owned loop, through the app's own HTTP surface.
+ *
+ * The server runs inside this process (`startInProcessServer`) because
+ * `setModelOverride` is reachable from nowhere else: no route, header,
+ * environment variable or config file can install a model, which is what keeps
+ * the production path honest and what makes a spawned child useless here. The
+ * provider, the key, the lesson, the turn and every answered card go through
+ * the real routes; the only thing standing in for Anthropic is the model
+ * object, so nothing in this block reaches a network.
+ */
+describe("the owned loop, through the app's own routes", () => {
+  let server: InProcessServer | undefined;
+  let scratch = '';
+  let token = '';
+  let lesson = '';
+  let model: MockLanguageModelV4;
+  let revert: () => void = () => undefined;
+
+  const step = (chunks: unknown[]) => ({ stream: simulateReadableStream({ chunks: chunks as never[], initialDelayInMs: 0, chunkDelayInMs: 0 }) });
+  const toolCall = (id: string, name: string, input: string) => ({ type: 'tool-call', toolCallId: id, toolName: name, input });
+  const finish = (unified: string, raw: string) => ({
+    type: 'finish',
+    finishReason: { unified, raw },
+    usage: { inputTokens: { total: 120, noCache: 100, cacheRead: 20, cacheWrite: undefined }, outputTokens: { total: 30, text: 25, reasoning: 5 } },
+  });
+  const says = (id: string, text: string) => [{ type: 'text-start', id }, { type: 'text-delta', id, delta: text }, { type: 'text-end', id }];
+
+  const PLAN = JSON.stringify({
+    goal: 'Understand why the step size is bounded',
+    nodes: [
+      { id: 'slope', label: 'A slope points uphill', kind: 'truth', summary: 'The gradient points where the function grows fastest.' },
+      { id: 'step', label: 'Stepping against the slope descends', kind: 'derived', summary: 'Moving against the gradient lowers the value for a small enough step.', depends_on: ['slope'] },
+      { id: 'goal', label: 'The step must stay below a bound', kind: 'goal', summary: 'Too large a step overshoots and climbs.', depends_on: ['step'] },
+    ],
+  });
+  const quiz = (tests: string) =>
+    JSON.stringify({
+      question: `About stepping against the slope, ${tests}?`,
+      options: ['the right claim', 'a tempting wrong claim'],
+      correct: [0],
+      explanation: 'because the gradient points uphill',
+      node_id: 'step',
+      purpose: 'check',
+      tests,
+    });
+
+  const call = async <T = Record<string, unknown>>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<{ status: number; json: T }> => {
+    const res = await fetch(`${server!.base}${path}`, {
+      method,
+      headers: { 'content-type': 'application/json', 'x-derive-token': token },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: res.status, json: (await res.json()) as T };
+  };
+  type Event = { seq: number; type: string; payload: Record<string, unknown> };
+  const view = () => call<{ busy: boolean; cost: string | null; nodes: { node_id: string; status: string }[]; events: Event[] }>(`/api/lessons/${lesson}`);
+  const poll = async <T>(what: string, f: () => Promise<T | null>, tries = 600): Promise<T> => {
+    for (let i = 0; i < tries; i += 1) {
+      const v = await f();
+      if (v !== null) return v;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error(`${what} never happened`);
+  };
+  /** Answer a card the loop opened, the way the browser does: find the event, post to /answer, and report the seq so the next wait cannot match this card again. */
+  const settleCard = async (kind: 'plan' | 'quiz', after: number, answer: Record<string, unknown>): Promise<number> => {
+    const card = await poll(`a ${kind} card`, async () => (await view()).json.events.find((e) => e.type === kind && e.seq > after) ?? null);
+    const answered = await call(`/api/lessons/${lesson}/answer`, { prompt_id: card.payload.id, ...answer });
+    assert.equal(answered.status, 200, JSON.stringify(answered.json));
+    return card.seq;
+  };
+  const idle = () => poll('the turn ending', async () => ((await view()).json.busy ? null : true));
+  const events = async () => (await view()).json.events;
+
+  before(async () => {
+    scratch = mkdtempSync(join(tmpdir(), 'derive-loop-'));
+    process.env.DERIVE_DATA_DIR = scratch;
+    // Cleared rather than set: the whole point is that the provider, the model
+    // and the key come from the settings this suite writes through the routes.
+    // An inherited ANTHROPIC_API_KEY would lock the key field with a 409.
+    for (const v of ['DERIVE_BACKEND', 'DERIVE_MODEL', 'ANTHROPIC_API_KEY', 'TAVILY_API_KEY']) delete process.env[v];
+    server = await startInProcessServer();
+    token = readFileSync(join(scratch, 'token'), 'utf8').trim();
+
+    const keyed = await call(`/api/settings/anthropic`, { key: 'sk-ant-FIXTURE-not-a-real-key-0000', model: 'claude-opus-5-5' }, 'PUT');
+    assert.equal(keyed.status, 200, JSON.stringify(keyed.json));
+    const active = await call<{ provider: string }>('/api/settings/active', { provider: 'anthropic' });
+    assert.equal(active.json.provider, 'anthropic', JSON.stringify(active.json));
+
+    // Nine steps, two turns, in the order the method would take them: plan,
+    // teach, check on procedure, try to lock, check on intuition, lock.
+    model = new MockLanguageModelV4({
+      modelId: 'claude-opus-5-5',
+      doStream: [
+        step([{ type: 'stream-start', warnings: [] }, toolCall('c1', 'set_plan', PLAN), finish('tool-calls', 'tool_use')]),
+        step([{ type: 'stream-start', warnings: [] }, toolCall('c2', 'set_phase', '{"phase":"teach"}'), finish('tool-calls', 'tool_use')]),
+        step([{ type: 'stream-start', warnings: [] }, ...says('t1', 'The plan is agreed. Say when to begin.'), finish('stop', 'end_turn')]),
+        step([{ type: 'stream-start', warnings: [] }, toolCall('c3', 'node_status', '{"id":"step","status":"teaching"}'), finish('tool-calls', 'tool_use')]),
+        step([
+          { type: 'stream-start', warnings: [] },
+          ...says('t2', `Teaching the second node. ${'The gradient points uphill, so moving against it goes down. '.repeat(5)}`),
+          toolCall('c4', 'quiz', quiz('procedure')),
+          finish('tool-calls', 'tool_use'),
+        ]),
+        step([{ type: 'stream-start', warnings: [] }, toolCall('c5', 'node_status', '{"id":"step","status":"locked"}'), finish('tool-calls', 'tool_use')]),
+        step([{ type: 'stream-start', warnings: [] }, toolCall('c6', 'quiz', quiz('intuition')), finish('tool-calls', 'tool_use')]),
+        step([{ type: 'stream-start', warnings: [] }, toolCall('c7', 'node_status', '{"id":"step","status":"locked"}'), finish('tool-calls', 'tool_use')]),
+        step([{ type: 'stream-start', warnings: [] }, ...says('t3', 'That one is locked.'), finish('stop', 'end_turn')]),
+      ],
+    });
+    const { setModelOverride } = await import('../src/drivers/api.js');
+    setModelOverride(() => model);
+    revert = () => setModelOverride(null);
+  });
+
+  after(async () => {
+    revert();
+    await server?.close();
+    if (scratch) rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it('creates a lesson over HTTP and runs the first turn on the loop, with the plan approved from the browser', async () => {
+    const created = await call<{ id: string }>('/api/lessons', { topic: 'why gradient descent works' });
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    lesson = created.json.id;
+
+    await settleCard('plan', 0, { approved: true });
+    await idle();
+
+    const types = (await events()).map((e) => e.type);
+    assert.deepEqual(types, ['turn_start', 'plan', 'plan_result', 'phase', 'assistant', 'turn_end']);
+    // Three model calls for three steps: the plan, the phase, the prose. The
+    // positive evidence that the loop ran rather than being skipped.
+    assert.equal(model.doStreamCalls.length, 3);
+    assert.deepEqual(
+      model.doStreamCalls[0].prompt.map((m) => m.role),
+      ['system', 'system', 'user'],
+      'the first request did not carry the method text and the lesson context as the two system messages of the cache split',
+    );
+  });
+
+  it('grades the check itself and hands the model a result it was never asked to compute', async () => {
+    const started = await call(`/api/lessons/${lesson}/message`, { text: 'teach me the second node' });
+    assert.equal(started.status, 200, JSON.stringify(started.json));
+
+    // The card the tutor opened on `procedure`, answered in the browser.
+    const first = await settleCard('quiz', 0, { selected: [0], sure: true });
+    const graded = await poll('the graded result', async () => (await events()).find((e) => e.type === 'quiz_result' && e.seq > first) ?? null);
+    assert.equal(graded.payload.result, 'correct');
+    assert.equal(graded.payload.tests, 'procedure');
+    assert.deepEqual(graded.payload.correct, [0]);
+
+    // The model asked the question; the server decided the answer and said what
+    // to do next. Both reach the model as a tool result it did not write.
+    const handed = JSON.stringify(model.doStreamCalls[5].prompt);
+    assert.match(handed, /"result":"correct"/);
+    assert.match(handed, /intuition/, 'the instruction after a procedure pass did not reach the model');
+
+    // The card it opened after the refusal, on `intuition`, so the turn can finish.
+    const second = await settleCard('quiz', first, { selected: [0], sure: true });
+    const held = await poll('the second graded result', async () => (await events()).find((e) => e.type === 'quiz_result' && e.seq > second) ?? null);
+    assert.equal(held.payload.result, 'correct');
+    assert.equal(held.payload.tests, 'intuition');
+    await idle();
+    assert.equal(model.doStreamCalls.length, 9, 'the loop did not take the nine steps the script scheduled');
+  });
+
+  it('refuses the lock with no understanding pass, in the method’s own words, and writes nothing', async () => {
+    const refusal = JSON.stringify(model.doStreamCalls[6].prompt);
+    assert.match(refusal, /"refused":true/, 'the refusal did not reach the model as a refusal');
+    assert.match(refusal, /Not locked\./);
+    assert.match(refusal, /is a derived claim/);
+    assert.match(refusal, /A node locks on understanding/);
+    assert.match(refusal, /tests: \\"intuition\\"/);
+    assert.match(refusal, /tests: \\"transfer\\"/);
+    assert.match(refusal, /This is the method, not an error to investigate\./);
+
+    // A refused lock leaves no record: two node_status events for this node,
+    // the `teaching` and the one that was allowed, never the refused one.
+    const statuses = (await events()).filter((e) => e.type === 'node_status').map((e) => e.payload.status);
+    assert.deepEqual(statuses, ['teaching', 'locked']);
+  });
+
+  it('lets the lock through once an intuition question has passed, so the gate is a gate and not a wall', async () => {
+    const allowed = JSON.stringify(model.doStreamCalls[8].prompt);
+    assert.match(allowed, /next_review_in_days/, 'the successful lock did not answer with a review date');
+    assert.doesNotMatch(allowed.slice(allowed.lastIndexOf('next_review_in_days')), /"refused":true/);
+
+    const v = await view();
+    assert.equal(v.json.nodes.find((n) => n.node_id === 'step')!.status, 'locked');
+  });
+
+  it('filed the turn in the ledger, so the lesson carries a cost the pages can show', async () => {
+    const v = await view();
+    assert.ok(typeof v.json.cost === 'string' && v.json.cost.length > 0, `the lesson carries no cost string: ${v.json.cost}`);
+    assert.notEqual(v.json.cost, 'not reported', 'the stub reported usage, so the lesson must not read as unreported');
   });
 });
 
