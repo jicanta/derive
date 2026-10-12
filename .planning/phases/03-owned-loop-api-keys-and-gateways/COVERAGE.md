@@ -17,7 +17,7 @@
 | `abortSignal` (Stop) | INTEGRATE | |
 | `maxRetries` (set to 0; Derive owns the backoff) | INTEGRATE | |
 | `APICallError` narrowing (`statusCode`, `responseHeaders`, `isRetryable`) | INTEGRATE | |
-| `fullStream` part handling (`text-*`, `tool-call`, `tool-result`, `finish-step`, `abort`, `error`) | INTEGRATE | |
+| `fullStream` part handling | INTEGRATE | parts: `text-*`, `tool-call`, `tool-result`, `finish-step`, `abort`, `error` |
 | `start-step.warnings` / `result.warnings` (`CallWarning`) | INTEGRATE | |
 | per-step `usage` + `inputTokenDetails` / `outputTokenDetails` | INTEGRATE | |
 | `providerMetadata` (OpenRouter cost, Anthropic raw usage) | INTEGRATE | |
@@ -28,7 +28,7 @@
 | OpenAI `parallelToolCalls` | INTEGRATE | |
 | OpenRouter `parallelToolCalls` + `usage: { include: true }` | INTEGRATE | |
 | `createOpenAICompatible` (+ `includeUsage`) | INTEGRATE | |
-| provider-native web search (`anthropic.tools.webSearch_*`, `openai.tools.webSearch`, `google.tools.googleSearch`) | INTEGRATE | |
+| provider-native web search | INTEGRATE | `anthropic.tools.webSearch_*`, `openai.tools.webSearch`, `google.tools.googleSearch` |
 | `fetch:` override on every provider factory (redirect refusal) | INTEGRATE | |
 | OpenAI `strict` per-tool mode (projection built and CI-validated) | INTEGRATE | |
 | `ai/test` doubles (`MockLanguageModelV4`, `simulateReadableStream`) | INTEGRATE | |
@@ -43,7 +43,7 @@
 | `streamRetries` | OPT-OUT | explicitly out of scope — the SDK's own doc warns partial emitted output cannot be retracted, which would persist half a sentence as an `assistant` event |
 | `repairToolCall` | OPT-OUT | not needed yet — a malformed tool call surfaces as a provider sentence; repairing it silently would let a narrower dialect reshape the tool contract |
 | tool approval (`tool-approval-request` / `tool-output-denied`) | OPT-OUT | not needed — Derive's cards already block on the learner; a second approval layer would gate the tutor twice |
-| provider-executed fetch / URL context (`anthropic.tools.webFetch_*`, Gemini URL context) | OPT-OUT | explicitly out of scope — D-21 rejects provider fetch: it bypasses `assertPublicHost` and would be a second code path for one method sentence |
+| provider-executed fetch / URL context | OPT-OUT | `anthropic.tools.webFetch_*`, Gemini URL context — D-21 rejects provider fetch: it bypasses `assertPublicHost` and would be a second code path |
 | `telemetry` (`experimental_telemetry`) | OPT-OUT | not needed — the server logs startup facts and failures only, never per request |
 | AI Gateway (`@ai-sdk/gateway`, `gateway()` model strings) | OPT-OUT | explicitly out of scope — nothing in this milestone may require hosted infrastructure the author runs for others (PROJECT.md constraint) |
 | MCP client (`experimental_createMCPClient`) | OPT-OUT | not needed — Derive **is** the MCP server (`server/src/mcp.ts`); the owned loop's tools are in-process |
