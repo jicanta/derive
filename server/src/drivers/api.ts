@@ -27,7 +27,8 @@ import { randomUUID } from 'node:crypto';
 import { APICallError, isStepCount, jsonSchema, streamText, tool, type JSONSchema7, type LanguageModel, type LanguageModelUsage, type ModelMessage, type ToolSet } from 'ai';
 import * as actions from '../actions.js';
 import { headroomCheck } from '../context.js';
-import { getSetting, loadTurnMessages, recordToolResult, recordedToolResult, saveTurnMessages, type UsageInput } from '../db.js';
+import { costLabel, costOf, type CostRow } from '../cost.js';
+import { getSetting, listUsage, loadTurnMessages, recordToolResult, recordedToolResult, saveTurnMessages, type UsageInput } from '../db.js';
 import { type Driver, type EventSink, type TurnContext } from '../driver.js';
 import { priceTable } from '../prices.js';
 import { hintFor, providerSentence } from '../probe.js';
@@ -36,6 +37,60 @@ import { safeMessage } from '../secrets.js';
 import { baseUrlKey, currentTutor, effectiveKey } from '../settings.js';
 import { TOOL_LABELS, descriptionFor, jsonSchemaOf, toolsFor, validateToolInput, type ToolDialect } from '../tools.js';
 import { adapterFor, nativeSearch, searchCountOf, searchMode, type CostRead } from './adapters.js';
+
+/**
+ * What a lesson has cost, as the learner reads it, or null when the lesson has
+ * no usage rows and there is therefore nothing to say.
+ *
+ * One function behind every reader — the lesson header, the Home row and every
+ * ending of a turn — so the two screens can never show different numbers for
+ * the same lesson. It lives here rather than in `cost.ts` because `cost.ts` is
+ * pure by design (no SQL, no clock) and rather than in `index.ts` because the
+ * loop needs it too and must not import a module that starts a server.
+ *
+ * It is cheap enough for a hot view: `listUsage({ lesson })` is an indexed read
+ * and `priceTable()` is cached for a second, so each caller pays one indexed
+ * query rather than a scan. The null source on an empty lesson is what makes
+ * `costLabel` answer null instead of inventing a `$0.00` nobody measured.
+ */
+export function lessonCost(lessonId: string, extra: readonly CostRow[] = []): string | null {
+  const rows = [...listUsage({ lesson: lessonId }), ...extra];
+  const { usd, source } = costOf(rows, priceTable());
+  return costLabel(usd, rows.length ? source : null);
+}
+
+/**
+ * The blank row `endTurn` is about to write for a turn that reported nothing —
+ * D-16's completeness rule, in `db.ts`'s `closeUsage`.
+ *
+ * An ending's payload is built before `sink.endTurn` runs, and `closeUsage`
+ * runs inside it, so a turn with no usage of its own would report a total one
+ * row short of what the lesson view answers a moment later: a stop before the
+ * first response would read `about $0.40 estimated` on the ending and
+ * `about $0.40 not reported` on both screens. Counting the row here is what
+ * keeps the ending and the two views on one string (T-03-51, T-03-52). Built
+ * field by field rather than cast, the way `adapters.ts` builds its own.
+ */
+const UNREPORTED: CostRow = {
+  id: 0,
+  turn_id: '',
+  lesson_id: '',
+  learner_id: '',
+  ts: 0,
+  driver: '',
+  model: null,
+  input_tokens: null,
+  output_tokens: null,
+  cache_read_tokens: null,
+  cache_write_tokens: null,
+  reasoning_tokens: null,
+  cost_source: 'unknown',
+  cost_usd: null,
+  searches: null,
+};
+
+/** The lesson total to put on an ending: the ledger as it will read once this turn's own row exists. */
+const endingCost = (ctx: TurnContext): string | null => lessonCost(ctx.lessonId, listUsage({ turn: ctx.turnId }).length ? [] : [UNREPORTED]);
 
 /** How the suite hands this loop a model with no network behind it. The provider id is passed through so a stub can still behave per provider. */
 export type ModelFactory = (provider: ProviderId, modelId: string | null) => LanguageModel;
@@ -223,7 +278,7 @@ export async function withRetries(run: () => Promise<void>, sink: EventSink, ctx
         const body = (APICallError.isInstance(e) ? e.responseBody : null) ?? safeMessage(e);
         const sentence = providerSentence(status, body);
         const hint = hintFor(gate.label, status, sentence);
-        sink.endTurn({ ok: false, error: safeMessage(hint ? `${sentence}\n${hint}` : sentence) });
+        sink.endTurn({ ok: false, error: safeMessage(hint ? `${sentence}\n${hint}` : sentence), lesson_cost: endingCost(ctx) });
         throw e;
       }
       // One tick per whole second of the delay, counted down rather than read
@@ -462,7 +517,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
     // which is why it must not be folded into either of the other two. Nothing
     // is compacted or summarised on the way here: the understanding gate would
     // then rest on a summary the model wrote about itself.
-    sink.endTurn({ ok: false, error: headroom.reason });
+    sink.endTurn({ ok: false, error: headroom.reason, lesson_cost: endingCost(ctx) });
     return;
   }
 
@@ -671,7 +726,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
               // than after the abort unwinds is what makes this sentence the one
               // the lesson records.
               refused = true;
-              sink.endTurn({ ok: false, error: NO_TOOLS_WITH_SEARCH });
+              sink.endTurn({ ok: false, error: NO_TOOLS_WITH_SEARCH, lesson_cost: endingCost(ctx) });
               controller.abort();
               break;
             }
@@ -730,13 +785,24 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
     // The step cap is a runaway guard, not a teaching limit: a turn that ran
     // into it ends with the same continuable shape a Stop produces, never an
     // error card and never a lost lesson.
-    if (ctx.isStopping() || steps >= stepCap()) sink.endTurn({ ok: true, interrupted: true });
-    else sink.endTurn({ ok: true, verified });
+    // `lesson_cost` rides every ending — this one, the stopping one, the catch
+    // and the refusals above — because `sinkFor`'s endTurn is idempotent and
+    // only the first call's payload reaches the browser: an ending that forgot
+    // it would leave a stale figure on the screen.
+    //
+    // It is a SEPARATE field beside `cost_usd`, never a replacement.
+    // `cost_usd` is what this one turn cost; `lesson_cost` is the sum over the
+    // lesson's rows with its resolved label. Rendering the per-turn figure in a
+    // pill that promises a lesson total would read `about $0.03 estimated` on a
+    // lesson that has cost $0.40, which is a false number in a contract that
+    // argues for truthfulness everywhere else.
+    if (ctx.isStopping() || steps >= stepCap()) sink.endTurn({ ok: true, interrupted: true, lesson_cost: endingCost(ctx) });
+    else sink.endTurn({ ok: true, verified, lesson_cost: endingCost(ctx) });
   } catch (err) {
     flushBlock();
     patchOrphans(messages, answered);
     persist();
-    sink.endTurn({ ok: false, error: safeMessage(err) });
+    sink.endTurn({ ok: false, error: safeMessage(err), lesson_cost: endingCost(ctx) });
   } finally {
     // The stream can end without a finish (Stop, the provider hanging up). The
     // learner still needs the prose kept and the turn marked finished;
@@ -746,7 +812,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
     flushBlock();
     patchOrphans(messages, answered);
     persist();
-    sink.endTurn({ ok: true, interrupted: true });
+    sink.endTurn({ ok: true, interrupted: true, lesson_cost: endingCost(ctx) });
     chains.delete(ctx.lessonId);
   }
 }

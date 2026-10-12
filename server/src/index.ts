@@ -67,6 +67,7 @@ import { registerSecret, safeMessage } from './secrets.js';
 import { ACTIVE_PROVIDER, baseUrlKey, currentTutor, envKeyFor, lastDetection, localBase, lockedBy, modelKey, normaliseBaseUrl, resetDetection, resolveTutor, type Detection, type Local } from './settings.js';
 import { shapeFor, toolsFor } from './tools.js';
 import { nativeSearch } from './drivers/adapters.js';
+import { lessonCost } from './drivers/api.js';
 
 /**
  * A restart kills in-flight turns without a turn_end. Close them on boot so
@@ -281,7 +282,10 @@ const lessonView = (id: string) => {
   // What the last turn ran on, read off its turns row: the header pill needs
   // it on first paint, and this view is hot, so it never asks a resolver.
   const last = lastTurn(id);
-  return { lesson, nodes: listNodes(id), materials: listMaterials(id), busy: busy(id), pending: hasPending(id), tutor: last ? { provider: providerOfDriver(last.driver), model: last.model } : null };
+  // `cost` seeds the header pill the way `tutor` seeds the provider and the
+  // model: one indexed read of the lesson's usage rows, formatted once by the
+  // shared formatter, so the header and the Home row can never disagree.
+  return { lesson, nodes: listNodes(id), materials: listMaterials(id), busy: busy(id), pending: hasPending(id), tutor: last ? { provider: providerOfDriver(last.driver), model: last.model } : null, cost: lessonCost(id) };
 };
 
 sweepOrphanMaterials();
@@ -627,6 +631,10 @@ app.get('/api/lessons', (c) =>
         locked: nodes.filter((n) => n.status === 'locked').length,
         shaky: nodes.filter((n) => n.status === 'shaky').length,
         busy: busy(l.id),
+        // The same string the lesson view answers for this lesson, from the
+        // same helper: one indexed query per row, beside the per-row listNodes
+        // this route already does.
+        cost: lessonCost(l.id),
       };
     }),
   ),

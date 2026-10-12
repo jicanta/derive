@@ -1,4 +1,4 @@
-import type { Atlas, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, Library, Material, NodeRow, ProviderView, Resource, Settings, Stats, StoredEvent, TestResult, TutorChoice } from './types';
+import type { Atlas, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, LessonView, Library, Material, ProviderView, Resource, Settings, Stats, TestResult, TutorChoice } from './types';
 
 /**
  * The selected learner profile, kept in this browser. Sent on every request
@@ -64,10 +64,7 @@ export const api = {
   profile: () => get('/api/profile').then((r) => j<{ memory: string[]; misconceptions: { topic: string; picked: string; correct: string }[]; learner?: Learner }>(r)),
   deleteLearner: (id: string) => del(`/api/learners/${id}`).then((r) => j<{ ok: true }>(r)),
   lessons: () => get('/api/lessons').then((r) => j<LessonSummary[]>(r)),
-  lesson: (id: string) =>
-    get(`/api/lessons/${id}`).then((r) =>
-      j<{ lesson: Lesson; nodes: NodeRow[]; materials: Material[]; events: StoredEvent[]; busy: boolean; pending: boolean; tutor: { provider: string; model: string | null } | null }>(r),
-    ),
+  lesson: (id: string) => get(`/api/lessons/${id}`).then((r) => j<LessonView>(r)),
   createLesson: (topic: string, materials: string[] = []) => post('/api/lessons', { topic, materials }).then((r) => j<Lesson>(r)),
   /** Upload files; with a lesson id they attach at once, without one they wait for createLesson. */
   uploadMaterials: (files: File[], lessonId?: string) => {

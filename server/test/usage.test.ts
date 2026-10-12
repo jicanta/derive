@@ -198,3 +198,137 @@ describe('a lesson driven from a terminal', () => {
     );
   });
 });
+
+/**
+ * What a lesson has cost, on the two surfaces the learner reads it from.
+ *
+ * Over HTTP with no model, because the point is not the arithmetic —
+ * `cost.test.ts` covers that with literals — but that the lesson view and the
+ * Home list answer the *same string* for the same lesson. They are the two
+ * places a figure is shown, and a figure that disagrees with itself is worse
+ * than no figure at all.
+ *
+ * The rows are written straight into the ledger rather than earned by running
+ * turns: five label outcomes need five cost sources, and a provider that bills
+ * cannot be impersonated by a stub without a key.
+ */
+describe('what a lesson cost, as both screens read it', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const entry = resolve(here, '../dist/index.js');
+  let server: ChildProcess | undefined;
+  let base = '';
+  let dataDir = '';
+  let token = '';
+
+  before(async () => {
+    assert.ok(existsSync(entry), `build first: ${entry} is missing`);
+    ({ child: server, base, dataDir } = await startDeriveServer(entry));
+    token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
+  });
+
+  after(() => {
+    server?.kill();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  /** One lesson on the running server, with no turn behind it. */
+  async function lesson(topic: string): Promise<string> {
+    const res = await fetch(`${base}/api/lessons`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-derive-token': token }, body: JSON.stringify({ topic }) });
+    assert.equal(res.status, 201);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Usage rows written straight into the running server's ledger. WAL makes a second connection's write visible to the next read the server makes. */
+  function bill(lessonId: string, rows: { driver: string; model: string | null; input?: number; output?: number; source: string; usd?: number | null }[]) {
+    const db = new DatabaseSync(join(dataDir, 'derive.db'));
+    const learner = (db.prepare('SELECT learner_id FROM lessons WHERE id = ?').get(lessonId) as { learner_id: string }).learner_id;
+    const insert = db.prepare(
+      'INSERT INTO usage (turn_id, lesson_id, learner_id, driver, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost_source, cost_usd, ts) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)',
+    );
+    for (const r of rows) insert.run(randomUUID(), lessonId, learner, r.driver, r.model, r.input ?? null, r.output ?? null, r.source, r.usd ?? null, Date.now());
+    db.close();
+  }
+
+  /** The cost string each surface answers for one lesson: the view, then the same lesson's row in the list. */
+  async function costs(id: string): Promise<{ view: string | null; row: string | null }> {
+    const headers = { 'x-derive-token': token };
+    const view = (await (await fetch(`${base}/api/lessons/${id}`, { headers })).json()) as { cost: string | null };
+    const list = (await (await fetch(`${base}/api/lessons`, { headers })).json()) as { id: string; cost: string | null }[];
+    const row = list.find((l) => l.id === id);
+    assert.ok(row, 'the lesson is missing from the list');
+    return { view: view.cost, row: row.cost };
+  }
+
+  it('says nothing at all for a lesson that has not run yet', async () => {
+    const id = await lesson('A lesson before its first turn');
+    // Not `$0.00`, not `not reported`, not an empty string: there is nothing to
+    // say, so both surfaces say nothing and neither renders a segment.
+    assert.deepEqual(await costs(id), { view: null, row: null });
+  });
+
+  it('sums what the provider billed and says `billed`', async () => {
+    const id = await lesson('Two metered requests');
+    bill(id, [
+      { driver: 'openrouter', model: 'anthropic/claude-opus-5.5', source: 'provider', usd: 0.12 },
+      { driver: 'openrouter', model: 'anthropic/claude-opus-5.5', source: 'provider', usd: 0.07 },
+    ]);
+
+    const { view, row } = await costs(id);
+    assert.equal(view, 'about $0.19 billed');
+    assert.equal(row, view, 'the header and the Home row must be byte-identical for one lesson');
+  });
+
+  it('falls to `estimated` for a lesson that is part billed and part priced from the table', async () => {
+    const id = await lesson('Half billed, half estimated');
+    bill(id, [
+      { driver: 'openrouter', model: 'anthropic/claude-opus-5.5', source: 'provider', usd: 0.1 },
+      { driver: 'anthropic', model: 'claude-opus-5-5', input: 1_000_000, output: 0, source: 'table' },
+    ]);
+
+    const { view, row } = await costs(id);
+    // The firmest word that overstates neither half: part of the total is a
+    // figure the provider gave and part of it is Derive's own arithmetic.
+    assert.match(String(view), /^about \$\d+\.\d\d estimated$/);
+    assert.equal(row, view);
+  });
+
+  it('says `not billed` for a lesson taught entirely on a subscription', async () => {
+    const id = await lesson('A whole lesson on a login');
+    bill(id, [
+      { driver: 'claude-code', model: 'claude-opus-5-5', source: 'subscription' },
+      { driver: 'claude-code', model: 'claude-opus-5-5', source: 'subscription' },
+    ]);
+
+    const { view, row } = await costs(id);
+    assert.equal(view, 'not billed');
+    assert.equal(row, view);
+  });
+
+  it('says `not reported` as soon as one request reported nothing', async () => {
+    const id = await lesson('One request nobody counted');
+    bill(id, [{ driver: 'claude-code', model: null, source: 'unknown' }]);
+
+    const { view, row } = await costs(id);
+    // The honest blank said out loud. Folding it into `estimated` would assert
+    // something the ledger does not know.
+    assert.equal(view, 'not reported');
+    assert.equal(row, view);
+  });
+
+  it('takes the weakest word even when the lesson is mostly metered', async () => {
+    const id = await lesson('One unreported request among three metered ones');
+    bill(id, [
+      { driver: 'openrouter', model: 'anthropic/claude-opus-5.5', source: 'provider', usd: 0.2 },
+      { driver: 'openrouter', model: 'anthropic/claude-opus-5.5', source: 'provider', usd: 0.2 },
+      { driver: 'claude-code', model: null, source: 'unknown' },
+    ]);
+
+    const { view, row } = await costs(id);
+    // `not reported` alone, with no figure beside it: `costLabel`'s rule is
+    // that an unreported source never carries money, because $0.40 printed
+    // against a lesson that also made a request nobody counted reads as the
+    // whole bill when it is only part of it.
+    assert.equal(view, 'not reported', 'a lesson with an unreported request may not show a partial total as if it were the whole');
+    assert.equal(row, view);
+  });
+});

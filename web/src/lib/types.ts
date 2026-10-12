@@ -89,7 +89,28 @@ export type Settings = {
   rows: ProviderView[];
 };
 
-export type LessonSummary = Lesson & { nodes: number; locked: number; shaky: number; busy: boolean };
+export type LessonSummary = Lesson & {
+  nodes: number;
+  locked: number;
+  shaky: number;
+  busy: boolean;
+  /** The lesson's total as the learner reads it, already formatted server-side, or null when the lesson has no usage rows and there is nothing to show. */
+  cost: string | null;
+};
+
+/** One lesson in full, as the Lesson page reads it: the row, its graph, its material, the whole event log, and what the last turn ran on. */
+export type LessonView = {
+  lesson: Lesson;
+  nodes: NodeRow[];
+  materials: Material[];
+  events: StoredEvent[];
+  busy: boolean;
+  pending: boolean;
+  /** What the last turn ran on, for the header pill. Null before any turn. */
+  tutor: { provider: string; model: string | null } | null;
+  /** The lesson's total as the learner reads it, already formatted server-side, or null when the lesson has no usage rows and there is nothing to show. */
+  cost: string | null;
+};
 
 export type NodeKind = 'truth' | 'derived' | 'goal';
 export type NodeStatus = 'pending' | 'teaching' | 'locked' | 'shaky';

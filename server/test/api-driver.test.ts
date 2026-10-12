@@ -30,7 +30,9 @@ const { windowOf } = await import('../src/pricing.js');
 const { answerPrompt, pendingId } = await import('../src/prompts.js');
 const { SEARCH_BASE_URL, SEARCH_SETTING } = await import('../src/search.js');
 const { baseUrlKey } = await import('../src/settings.js');
-const { RETRY_BASE_MS, RETRY_WINDOW_MS, STEP_CAP, apiDriverFor, patchOrphans, retryAfterMs, retryDelay, setModelOverride, setSleepOverride, setStepCapOverride } = await import('../src/drivers/api.js');
+const { RETRY_BASE_MS, RETRY_WINDOW_MS, STEP_CAP, apiDriverFor, lessonCost, patchOrphans, retryAfterMs, retryDelay, setModelOverride, setSleepOverride, setStepCapOverride } = await import('../src/drivers/api.js');
+const { costLabel, costOf } = await import('../src/cost.js');
+const { priceTable } = await import('../src/prices.js');
 
 // A dynamic import cannot carry types across, and a static one would open the
 // database before the scratch directory above is set; these are type positions
@@ -112,6 +114,22 @@ async function turnOn(model: MockLanguageModelV4, prompt = 'teach me', provider:
 
 const types = (events: StoredEvent[]) => events.map((e) => e.type);
 
+/**
+ * A `turn_end` payload with the lesson total lifted off, so a case can go on
+ * asserting the ending's shape exactly.
+ *
+ * `lesson_cost` rides **every** ending — the success, the stopping, the catch
+ * and the refusals — because `sinkFor`'s endTurn is idempotent and only the
+ * first call's payload reaches the browser, so an ending that forgot it would
+ * leave a stale figure on the screen (T-03-52). Taking it off here asserts it
+ * is there on all of them rather than letting one ending quietly drop it.
+ */
+function ending(payload: unknown): Record<string, unknown> {
+  const { lesson_cost, ...rest } = payload as Record<string, unknown>;
+  assert.ok(lesson_cost === null || typeof lesson_cost === 'string', `an ending carried no lesson total: ${JSON.stringify(payload)}`);
+  return rest;
+}
+
 /** Wait for something a turn in flight is about to do, without racing it. Returns as soon as `f` answers, and throws rather than hanging if it never does. */
 async function settle<T>(f: () => T | null, tries = 200): Promise<T> {
   for (let i = 0; i < tries; i += 1) {
@@ -151,7 +169,7 @@ describe("a lesson turn runs on an api key through derive's own loop", () => {
     assert.deepEqual(types(stored), ['turn_start', 'phase', 'assistant', 'turn_end']);
     assert.deepEqual(stored[2].payload, { id: (stored[2].payload as { id: string }).id, text: 'A line is a function.' });
     assert.equal(types(stored).filter((t) => t === 'turn_end').length, 1);
-    assert.deepEqual(stored[3].payload, { ok: true, verified: 0 });
+    assert.deepEqual(ending(stored[3].payload), { ok: true, verified: 0 });
 
     // The live stream carries the status line and the deltas the log does not.
     assert.deepEqual(types(live), ['turn_start', 'status', 'phase', 'assistant', 'delta', 'delta', 'assistant', 'turn_end']);
@@ -454,7 +472,7 @@ describe('a lesson the model cannot use derive’s tools in is refused, not taug
 
       const ends = stored.filter((e) => e.type === 'turn_end');
       assert.equal(ends.length, 1, 'the turn must end exactly once');
-      assert.deepEqual(ends[0].payload, {
+      assert.deepEqual(ending(ends[0].payload), {
         ok: false,
         error: "this model cannot use derive's tools and a web search tool together; pick a newer model, or set web search to tavily or searxng in settings",
       });
@@ -507,7 +525,7 @@ describe('a stop on a learner-supplied endpoint ends the turn exactly once', () 
 
       const ends = listEvents(id).filter((e) => e.type === 'turn_end');
       assert.equal(ends.length, 1, 'a stopped turn must end exactly once');
-      assert.deepEqual(ends[0].payload, { ok: true, interrupted: true });
+      assert.deepEqual(ending(ends[0].payload), { ok: true, interrupted: true });
       assert.equal(lastTurn(id)!.driver, 'openai-compatible');
       for (const ev of live) assert.ok(EVENT_TYPES.includes(ev.type), `${ev.type} is not a type the web app knows`);
     } finally {
@@ -769,7 +787,7 @@ describe('a stop leaves a history the next turn can be sent', () => {
 
     const ends = listEvents(id).filter((e) => e.type === 'turn_end');
     assert.equal(ends.length, 1, 'a stopped turn must end exactly once');
-    assert.deepEqual(ends[0].payload, { ok: true, interrupted: true }, 'a Stop is interrupted, not failed');
+    assert.deepEqual(ending(ends[0].payload), { ok: true, interrupted: true }, 'a Stop is interrupted, not failed');
     assert.equal(lastTurn(id)!.status, 'interrupted');
 
     const stored = loadTurnMessages(id, 'anthropic') as { role: string; content: unknown }[];
@@ -860,7 +878,7 @@ describe('the step cap is a runaway guard, not a failure', () => {
 
       const ends = stored.filter((e) => e.type === 'turn_end');
       assert.equal(ends.length, 1);
-      assert.deepEqual(ends[0].payload, { ok: true, interrupted: true }, 'the cap is not an error card');
+      assert.deepEqual(ending(ends[0].payload), { ok: true, interrupted: true }, 'the cap is not an error card');
       assert.equal(lastTurn(id)!.status, 'interrupted');
       assert.equal(model.doStreamCalls.length, 2, 'the cap stopped the loop');
       // Resumable: the next message continues from what this turn persisted.
@@ -978,7 +996,7 @@ describe('a busy provider is waited out, visibly, and nothing about the wait is 
       assert.equal(model.doStreamCalls.length, 2, 'the loop retried exactly once');
       const ends = stored.filter((e) => e.type === 'turn_end');
       assert.equal(ends.length, 1);
-      assert.deepEqual(ends[0].payload, { ok: true, verified: 0 }, 'a survived rate limit is an ordinary turn');
+      assert.deepEqual(ending(ends[0].payload), { ok: true, verified: 0 }, 'a survived rate limit is an ordinary turn');
       assert.ok(JSON.stringify(stored).includes('Recovered.'), 'the lesson carried on after the wait');
       assert.equal(listEvents(id).filter((e) => e.type === 'status').length, 0);
       for (const ev of [...stored, ...live]) assert.ok(EVENT_TYPES.includes(ev.type), `${ev.type} is not a type the web app knows`);
@@ -1020,7 +1038,7 @@ describe('a busy provider is waited out, visibly, and nothing about the wait is 
 
     const ends = listEvents(id).filter((e) => e.type === 'turn_end');
     assert.equal(ends.length, 1, 'a stopped turn must end exactly once');
-    assert.deepEqual(ends[0].payload, { ok: true, interrupted: true }, 'a Stop during a backoff is interrupted, not failed');
+    assert.deepEqual(ending(ends[0].payload), { ok: true, interrupted: true }, 'a Stop during a backoff is interrupted, not failed');
     assert.equal(lastTurn(id)!.status, 'interrupted');
   });
 
@@ -1102,7 +1120,7 @@ describe('a lesson that outgrew the model’s window is refused before the reque
     assert.ok(model.doStreamCalls.length === 0, 'the request was made anyway');
     const ends = listEvents(id).filter((e) => e.type === 'turn_end');
     assert.equal(ends.length, 1, 'the refusal must end the turn exactly once');
-    assert.deepEqual(ends[0].payload, { ok: false, error: REFUSAL });
+    assert.deepEqual(ending(ends[0].payload), { ok: false, error: REFUSAL });
     // Failed, not interrupted: a lesson that no longer fits its window cannot
     // continue, which is what separates this from a Stop and from the step cap.
     assert.equal(lastTurn(id)!.status, 'error');
@@ -1140,7 +1158,7 @@ describe('a lesson that outgrew the model’s window is refused before the reque
 
     const refusals = listEvents(id).filter((e) => e.type === 'turn_end' && (e.payload as { ok: boolean }).ok === false);
     assert.equal(refusals.length, 2, 'two attempts must leave two timeline items');
-    for (const r of refusals) assert.deepEqual(r.payload, { ok: false, error: REFUSAL });
+    for (const r of refusals) assert.deepEqual(ending(r.payload), { ok: false, error: REFUSAL });
   });
 });
 
@@ -1214,9 +1232,15 @@ describe('three endings, three shapes', () => {
     await turnWith(refused, says('never asked'), 'go on');
 
     const endOf = (lesson: string) => listEvents(lesson).filter((e) => e.type === 'turn_end').at(-1)!.payload as Record<string, unknown>;
-    assert.deepEqual(endOf(stopped), { ok: true, interrupted: true }, 'a stop stays resumable');
-    assert.deepEqual(endOf(capped), { ok: true, interrupted: true }, 'the cap is a runaway guard, not a failure');
-    assert.deepEqual(endOf(refused), { ok: false, error: REFUSAL }, 'the refusal says the lesson cannot continue');
+    assert.deepEqual(ending(endOf(stopped)), { ok: true, interrupted: true }, 'a stop stays resumable');
+    assert.deepEqual(ending(endOf(capped)), { ok: true, interrupted: true }, 'the cap is a runaway guard, not a failure');
+    assert.deepEqual(ending(endOf(refused)), { ok: false, error: REFUSAL }, 'the refusal says the lesson cannot continue');
+    // The lesson total rides all three endings, and it is the figure the two
+    // screens read. `sinkFor`'s endTurn is idempotent, so an ending that
+    // forgot it would leave the header showing the previous total (T-03-52).
+    for (const [name, lesson] of [['a stop', stopped], ['the step cap', capped], ['the refusal', refused]] as const) {
+      assert.equal((endOf(lesson) as { lesson_cost?: unknown }).lesson_cost, lessonCost(lesson), `${name} carried a lesson total the views do not agree with`);
+    }
     assert.equal(lastTurn(stopped)!.status, 'interrupted');
     assert.equal(lastTurn(capped)!.status, 'interrupted');
     assert.equal(lastTurn(refused)!.status, 'error');
@@ -1274,7 +1298,7 @@ describe('a narrower dialect does not narrow what derive accepts', () => {
     );
 
     // A malformed call is the model's mistake to fix, not a turn to fail.
-    assert.deepEqual(stored.at(-1)!.payload, { ok: true, verified: 0 }, 'a refused tool call must not fail the turn');
+    assert.deepEqual(ending(stored.at(-1)!.payload), { ok: true, verified: 0 }, 'a refused tool call must not fail the turn');
     assert.equal(lastTurn(id)!.status, 'ok');
   });
 
@@ -1311,7 +1335,7 @@ describe('a narrower dialect does not narrow what derive accepts', () => {
       const errors = toolErrorsOf(id, 'gemini');
       assert.equal(errors.length, 1);
       assert.match(errors[0], /^quiz: options: /, 'the refusal must name the field the dialect could not bound');
-      assert.deepEqual(stored.at(-1)!.payload, { ok: true, verified: 0 });
+      assert.deepEqual(ending(stored.at(-1)!.payload), { ok: true, verified: 0 });
     } finally {
       backToAnthropic();
     }
@@ -1460,5 +1484,47 @@ describe('the system prompt ships as a stable prefix and a volatile tail', () =>
     // tokens would have.
     assert.equal(rows[0].cost_source, 'table');
     assert.ok(typeof rows[0].cost_usd === 'number' && rows[0].cost_usd > 0, `priced at ${rows[0].cost_usd}`);
+  });
+});
+
+/**
+ * The figure the header pill and the Home row read.
+ *
+ * It is a LESSON total, not one turn's `cost_usd`, and the two screens read one
+ * server-computed string so they cannot diverge (T-03-51). The byte-identity of
+ * the two HTTP endpoints is asserted in `usage.test.ts`; here it is the ending
+ * of a turn and the sum behind it.
+ */
+describe('a turn ends with what the whole lesson has cost', () => {
+  after(() => backToAnthropic());
+
+  it('carries the sum over the lesson, not the cost of the turn that just ended', async () => {
+    backToAnthropic();
+    const id = randomUUID();
+    createLesson(id, 'What this lesson has cost');
+    await turnWith(id, twoStep(), 'teach me');
+    await turnWith(id, says('And so is a plane.'), 'go on');
+
+    const end = listEvents(id).filter((e) => e.type === 'turn_end').at(-1)!.payload as { lesson_cost: string | null };
+    const all = listUsage({ lesson: id });
+    const thisTurn = listUsage({ turn: lastTurn(id)!.id });
+    assert.ok(all.length > thisTurn.length, 'the first turn must have left rows of its own, or this case proves nothing');
+
+    const whole = costOf(all, priceTable());
+    const justThisTurn = costOf(thisTurn, priceTable());
+    assert.ok(whole.usd !== null && justThisTurn.usd !== null && whole.usd > justThisTurn.usd, 'the lesson total must be more than the last turn alone');
+    assert.equal(end.lesson_cost, costLabel(whole.usd, whole.source), 'the ending carried something other than the lesson total');
+    assert.equal(end.lesson_cost, lessonCost(id), 'the ending and the views must read the same string');
+    // The table is not the invoice, so the word is `estimated` and the figure says `about`.
+    assert.match(String(end.lesson_cost), /^(about \$\d+\.\d\d|under \$0\.01) estimated$/);
+  });
+
+  it('says nothing at all for a lesson with no usage rows', () => {
+    const id = randomUUID();
+    createLesson(id, 'A lesson before its first turn');
+    // Null rather than `$0.00 estimated`: a lesson that has not run yet has
+    // nothing to say, and the caller renders no segment rather than an empty
+    // one.
+    assert.equal(lessonCost(id), null);
   });
 });
