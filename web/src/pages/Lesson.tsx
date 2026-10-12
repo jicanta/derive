@@ -36,6 +36,41 @@ export function LessonPage() {
     api.stats().then((s) => setVault(s.vault)).catch(() => undefined);
   }, []);
 
+  /**
+   * What this lesson has cost, for the pill: the server's own string, seeded on
+   * load and replaced when a turn settles.
+   *
+   * It is kept here rather than on `useLesson`'s state on purpose. A cost value
+   * in the reducer needs an `EVENT_TYPES` entry to arrive, and from there it
+   * would reach the SQLite event log, the SSE replay and the learner's Obsidian
+   * notes — none of which is a record of what they know. `state.lastCost` is
+   * one turn's figure and is deliberately not read here: rendering it where a
+   * lesson total is promised would read `about $0.03` on a lesson that has cost
+   * $0.40.
+   *
+   * There is no timer and no poll: it is read once on load — including when a
+   * turn is already in flight, so opening a busy lesson still shows what it has
+   * cost so far — and again when `busy` goes false, which *is* the turn ending.
+   * A turn in flight therefore shows the previous settled total and holds still
+   * until it finishes, and a failed turn leaves that total standing: the failure
+   * is carried by the error card, not by the pill.
+   */
+  const [cost, setCost] = useState<string | null>(null);
+  const settled = !state.busy;
+  useEffect(() => {
+    if (!id) return;
+    let live = true;
+    api
+      .lesson(id)
+      .then((d) => {
+        if (live) setCost(d.cost);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [id, settled]);
+
   useEffect(() => {
     if (stick && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [state.items, state.status, stick]);
@@ -114,14 +149,25 @@ export function LessonPage() {
         </Link>
         <h1 className="font-serif text-[22px] tracking-[-0.01em] truncate text-ink-50">{state.lesson?.topic ?? '…'}</h1>
         {!external && state.tutor && (
+          // Still md-only, deliberately: below 768px the lesson header carries
+          // no cost figure at all and Home is where a phone learner reads it.
+          // A second, narrower pill would put two elements on the screen where
+          // the decision asked for one, so this is accepted rather than fixed.
           <Link
             to="/settings"
             className="hidden md:inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 hover:text-ink-50 border hairline rounded-full px-2.5 h-6 transition-colors"
             title="Which model is teaching. Change it in Settings; it applies from the next turn."
           >
-            <span className="max-w-[40ch] truncate" title={tutorLabel}>
+            <span className="min-w-0 max-w-[40ch] truncate" title={tutorLabel}>
               {tutorLabel}
             </span>
+            {cost && (
+              <>
+                <span className="text-ink-600">·</span>
+                {/* The model id absorbs every pixel lost and the cost never truncates: four honest words about money are worth more than the tail of a slug. It inherits the pill's grey — gold is for what the learner achieved, not for a price. */}
+                <span className="shrink-0 whitespace-nowrap">{cost}</span>
+              </>
+            )}
           </Link>
         )}
         {external && (

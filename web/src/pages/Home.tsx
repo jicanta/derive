@@ -295,6 +295,8 @@ export function HomePage() {
                     </span>
                   </Link>
                   <span className="flex items-baseline gap-4">
+                    {/* Money sits with the other numbers, outside the clickable topic: a row with no usage rows renders nothing here and gap-4 collapses, so there is no placeholder and no empty child. */}
+                    {l.cost && <span className="font-mono text-[11px] text-ink-400 whitespace-nowrap">{l.cost}</span>}
                     {l.nodes > 0 && (
                       <span className="font-mono text-[11px] text-ink-400">
                         <span className="text-gold-500">{l.locked}</span>/{l.nodes}
