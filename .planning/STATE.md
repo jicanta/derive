@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: "Owned Loop: API Keys and Gateways"
 status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-10-06T23:31:12.255Z"
-last_activity: 2026-10-06
-last_activity_desc: Phase 03 execution started
-state_head: 0a81617a6fe30805fa14b46da424b5e06de99527
+stopped_at: Completed 03-05-PLAN.md (5 of 9 in phase 03)
+last_updated: "2026-10-12T18:30:53.757Z"
+last_activity: 2026-10-12
+last_activity_desc: Closed out 03-05 — the visible retry wait and the context refusal
+state_head: 8ed38ea3d662c5b69f86062f2f44bcc7b7f13ed6
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 38
-  completed_plans: 32
+  completed_plans: 34
   percent: 29
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-10-01)
 ## Current Position
 
 Phase: 03 (Owned Loop: API Keys and Gateways) — EXECUTING
-Plan: 5 of 9
-Status: Ready to execute
-Last activity: 2026-10-06 — Phase 03 execution started
+Plan: 5 of 9 complete — next is 03-06 (wave 5)
+Status: Ready to execute 03-06-PLAN.md
+Last activity: 2026-10-12 — 03-05 closed out: the visible retry wait and the pre-request context refusal
 
 Progress: [███░░░░░░░] 29%
 
@@ -88,6 +88,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 03 P02 | 22 min | 3 tasks | 6 files |
 | Phase 03 P03 | 39 min | 2 tasks | 6 files |
 | Phase 03 P04 | 28 min | 3 tasks | 13 files |
+| Phase 03 P05 | 9 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -179,6 +180,12 @@ Recent decisions affecting current work:
 - [Phase 03]: Per 03-03 the openai-compatible row refuses with 'Choose a model for the endpoint first' when no model id resolves, because it is the one teaching row the catalogue carries no default for and an empty id would come back as somebody else's 400
 - [Phase 03]: Per 03-03 a model that silently lost all fourteen tools is a refusal, not a status line: the @ai-sdk/google unsupported-combination warning ends the turn ok false with a lowercase Derive sentence and persists no prose, because teaching with no tools is not teaching
 - [Phase 03]: Per 03-03 every new gate was seen failing with its mechanism removed before being kept (the refusal short-circuited, the per-lesson chain removed, the dotted OpenRouter slug restored to dashes), following the project's own 01-21 rule
+- [Phase 03]: 03-05: the retry window bounds the waiting the loop chose, not the wall clock — a provider's own latency is slowness, not busyness, and must not be charged against the learner's patience
+- [Phase 03]: 03-05: a Retry-After of zero falls through to the jittered backoff, because 'retry immediately' from a provider that just said it was busy is how a rate limit becomes a tight loop
+- [Phase 03]: 03-05: the countdown ticks once per whole second of the delay rather than polling the clock, so the number the learner reads and the time actually waited are the same number
+- [Phase 03]: 03-05: three endings keep three shapes — a Stop and the step cap are continuable ({ ok: true, interrupted: true }), the context refusal is failed ({ ok: false, error })
+- [Phase 03]: 03-05: the refusal card names Home as a link and adds no button, because api.startReview() builds from the due queue across every lesson rather than from this lesson's nodes
+- [Phase 03]: 03-05: setSleepOverride is the only seam into the wait, in the same posture as setModelOverride — no route, header, environment variable or config file reaches it
 
 ### Pending Todos
 
@@ -207,6 +214,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-06T23:31:12.176Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-10-12T18:30:40.847Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None

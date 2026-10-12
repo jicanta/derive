@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 16
+open_count: 17
 waived_count: 0
 fixed_count: 0
-total_count: 16
-last_updated: 2026-10-06T23:30:48.227Z
+total_count: 17
+last_updated: 2026-10-12T18:30:07.458Z
 ---
 
 # Broken Windows Ledger
@@ -31,6 +31,7 @@ last_updated: 2026-10-06T23:30:48.227Z
 | 14 | 03 | unrun-verify | server/src/drivers/api.ts |  | 03-01 human check unrun: one real Anthropic-key lesson to a locked node (streaming pill, Thinking line with no reasoning in the record or vault, clean Stop) — no provider key exists in this environment | open |  | 2026-10-06T21:40:44.849Z |  |
 | 15 | 03 | unrun-verify | server/src/drivers/adapters.ts |  | 03-03 human check unrun: one real lesson each on an OpenAI key, a Gemini key (graph actually drawn), an OpenRouter key (usage rows read cost_source provider with a non-null cost_usd) and a learner base URL, plus a Stop-and-resume — no provider key exists in this environment | open |  | 2026-10-06T22:51:41.778Z |  |
 | 16 | 03 | unrun-verify | .planning/phases/03-owned-loop-api-keys-and-gateways/03-04-PLAN.md |  | Plan 03-04 human check unrun: a real Stop-and-continue, a mid-card Stop with the quiz_results count unchanged, and a provider switch mid-lesson all need a real provider key, and none exists in this environment | open |  | 2026-10-06T23:30:48.227Z |  |
+| 17 | 03 | unrun-verify | .planning/phases/03-owned-loop-api-keys-and-gateways/03-05-PLAN.md |  | Plan 03-05 human check unrun: a real free-tier rate limit survived with the countdown visible and Stop responsive, a wrong key failing immediately in the provider's own words, the countdown's absence from the Obsidian note after a reload, and the refusal card read at 375px and 1280px all need a real provider key, and none exists in this environment | open |  | 2026-10-12T18:30:07.458Z |  |
 
 ````json
 [
@@ -239,6 +240,19 @@ last_updated: 2026-10-06T23:30:48.227Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-06T23:30:48.227Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 17,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": ".planning/phases/03-owned-loop-api-keys-and-gateways/03-05-PLAN.md",
+    "line": null,
+    "description": "Plan 03-05 human check unrun: a real free-tier rate limit survived with the countdown visible and Stop responsive, a wrong key failing immediately in the provider's own words, the countdown's absence from the Obsidian note after a reload, and the refusal card read at 375px and 1280px all need a real provider key, and none exists in this environment",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-12T18:30:07.458Z",
     "resolved_at": null,
     "milestone": null
   }
