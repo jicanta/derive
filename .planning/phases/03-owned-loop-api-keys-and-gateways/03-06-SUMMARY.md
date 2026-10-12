@@ -30,7 +30,7 @@ affects: [03-07 strict dialect projection, 03-08 cost and prices UI, 03-09 the s
 actuals:
   tokens: 21933   # chars/4 over the realized diff a5e02a7..436a743; 5765 of it is the regenerated wire-surface.json
   tasks: 3
-  commits: 3
+  commits: 3   # measured from the ledger at SUMMARY write: the three production commits. Close-out commits (this file, STATE/ROADMAP) land after and are not counted — see Self-Check.
   plan_head_before: a5e02a7d0877d1bbc188d29ed6d5dc9fb2eedb94
 
 tech-stack:
@@ -314,7 +314,7 @@ None — no external service configuration is required. A learner who wants the 
 ## Self-Check: PASSED
 
 - Files claimed created — `server/src/search.ts` **FOUND**, `server/test/search.test.ts` **FOUND**
-- Commits `809b56f`, `14e8615`, `436a743` — all **FOUND** in `git log`; `git rev-list --count a5e02a7d0877d1bbc188d29ed6d5dc9fb2eedb94..HEAD` → **3**, matching `actuals.commits`, and `git rev-parse 809b56f^` → `a5e02a7`, matching `plan_head_before`
+- Commits `809b56f`, `14e8615`, `436a743` — all **FOUND** in `git log`; `git rev-list --count a5e02a7d0877d1bbc188d29ed6d5dc9fb2eedb94..HEAD` read **3** at the moment this file was written, which is `actuals.commits`, and `git rev-parse 809b56f^` → `a5e02a7`, matching `plan_head_before`. **Re-running that count later reads more than 3**, and by design: the close-out commits (this SUMMARY, then STATE/ROADMAP) can only land after the figure is written. `git log --oneline a5e02a7..HEAD --grep '^feat(03-06)'` → **3** is the form that reproduces; the same arithmetic holds for `03-04` and `03-05`, which recorded 3 and 4 production commits on the same convention.
 - `pnpm method:check` → `method: 6 rendered copies match method/`; `pnpm typecheck` clean in both packages; `pnpm build` exit 0; `pnpm test` → **370 tests, 370 pass, 0 fail** (up from 352 at the dispatch base)
 - Task 1 gates: no `assertPublicHost` in `server/src/search.ts` with comments stripped → **0**; no environment read there → **0**; `settings.yml` → 2; `redirect: 'manual'` → 2 (≥2 required); `providerSentence|hintFor|isLocalUrl` → 6 (≥3 required); `SEARCH_KEY_ID|TAVILY_API_KEY` in `config.ts` → 3 (≥3 required); no `api.tavily.com` in the suite → **no match**; `test/search.test.ts` → **15 pass, 0 fail**
 - Task 2 gates: the `node -e` surfaces script prints `surfaces ok`; the agent-vs-api parity script prints `parity structural` (the fourteen `api` rows are byte-identical to the fourteen `agent` rows); `toolsFor('api')` in `drivers/api.ts` → 2; `Reading a source` in `tools.ts` → 1; `Verifying with a web search` → 1 in `tools.ts` and 1 in `drivers/api.ts`; `fetchPublic(` in `actions.ts` → 1; `verified` in `drivers/api.ts` → 4 (≥3 required); no `fetch_page|web_search` in `mcp.ts` or `agent.ts` with comments stripped → **0**, and none in either `plugin/commands/*.md`; `test/mcp.test.ts` + `test/api.test.ts` + `test/wire-surface.test.ts` → **28 pass, 0 fail**
