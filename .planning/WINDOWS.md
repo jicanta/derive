@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 18
+open_count: 20
 waived_count: 0
 fixed_count: 0
-total_count: 18
-last_updated: 2026-10-12T19:01:18.699Z
+total_count: 20
+last_updated: 2026-10-12T19:26:50.891Z
 ---
 
 # Broken Windows Ledger
@@ -33,6 +33,8 @@ last_updated: 2026-10-12T19:01:18.699Z
 | 16 | 03 | unrun-verify | .planning/phases/03-owned-loop-api-keys-and-gateways/03-04-PLAN.md |  | Plan 03-04 human check unrun: a real Stop-and-continue, a mid-card Stop with the quiz_results count unchanged, and a provider switch mid-lesson all need a real provider key, and none exists in this environment | open |  | 2026-10-06T23:30:48.227Z |  |
 | 17 | 03 | unrun-verify | .planning/phases/03-owned-loop-api-keys-and-gateways/03-05-PLAN.md |  | Plan 03-05 human check unrun: a real free-tier rate limit survived with the countdown visible and Stop responsive, a wrong key failing immediately in the provider's own words, the countdown's absence from the Obsidian note after a reload, and the refusal card read at 375px and 1280px all need a real provider key, and none exists in this environment | open |  | 2026-10-12T18:30:07.458Z |  |
 | 18 | 03 | unrun-verify | .planning/phases/03-owned-loop-api-keys-and-gateways/03-06-PLAN.md |  | 03-06 Task 3 human check unrun: no provider key in this environment, so the native search status line and the rising verified count, the no-search provider admitting uncertainty, the Tavily-configured search, and the SearXNG json-disabled sentence are all unconfirmed on a real key | open |  | 2026-10-12T19:01:18.699Z |  |
+| 19 | 03 | unrun-verify | server/test/wire-surface.json |  | Gemini dialect real-key confirmation unrun: no Gemini key in this environment, so that Google accepts the six-keyword projection of set_plan (03-RESEARCH A3, LOW confidence) is still an assumption; one real lesson that draws its graph settles it | open |  | 2026-10-12T19:26:42.613Z |  |
+| 20 | 03 | unrun-verify | server/src/drivers/adapters.ts |  | OpenAI non-strict bounds confirmation unrun: no OpenAI key, so that a real lesson still plans with 3-12 nodes and quizzes with 2-3 options on the non-strict default is asserted on the wire only | open |  | 2026-10-12T19:26:50.891Z |  |
 
 ````json
 [
@@ -267,6 +269,32 @@ last_updated: 2026-10-12T19:01:18.699Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-12T19:01:18.699Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 19,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": "server/test/wire-surface.json",
+    "line": null,
+    "description": "Gemini dialect real-key confirmation unrun: no Gemini key in this environment, so that Google accepts the six-keyword projection of set_plan (03-RESEARCH A3, LOW confidence) is still an assumption; one real lesson that draws its graph settles it",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-12T19:26:42.613Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 20,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": "server/src/drivers/adapters.ts",
+    "line": null,
+    "description": "OpenAI non-strict bounds confirmation unrun: no OpenAI key, so that a real lesson still plans with 3-12 nodes and quizzes with 2-3 options on the non-strict default is asserted on the wire only",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-12T19:26:50.891Z",
     "resolved_at": null,
     "milestone": null
   }
