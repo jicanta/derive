@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: "Owned Loop: API Keys and Gateways"
 status: executing
-stopped_at: Completed 03-08-PLAN.md
-last_updated: "2026-10-12T20:08:37.717Z"
+stopped_at: Completed 03-09-PLAN.md
+last_updated: "2026-10-12T20:56:22.863Z"
 last_activity: 2026-10-12
-last_activity_desc: Closed out 03-08 — the lesson's cost in the pill and on the Home row, and the cached method prefix
-state_head: b88de1e91c79dc39aa29821288c1f98b8d649253
+last_activity_desc: Closed out 03-09 and the phase — the web-search card, the prices sentence, and the API suite on the owned loop
+state_head: 4ca9f216cce72db0f18d0c47ee2f1be3632ebb7a
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 38
-  completed_plans: 37
+  completed_plans: 38
   percent: 29
 ---
 
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-10-01)
 
 ## Current Position
 
-Phase: 03 (Owned Loop: API Keys and Gateways) — EXECUTING
-Plan: 8 of 9 complete — next is 03-09 (wave 8)
-Status: Ready to execute 03-09-PLAN.md
-Last activity: 2026-10-12 — 03-08 closed out: one server-computed lesson total on both screens and on every ending of a turn, plus D-06's byte-stable cached system prefix
+Phase: 03 (Owned Loop: API Keys and Gateways) — ALL PLANS EXECUTED
+Plan: 9 of 9 complete — 03-09 was the last
+Status: Ready for /gsd-verify-work 03, then Phase 4
+Last activity: 2026-10-12 — 03-09 closed out the phase: one web-search card and one prices sentence in Settings, the two config surfaces that document them, and the API suite running a graded, gated lesson through the owned loop on a stub model
 
 Progress: [███░░░░░░░] 29%
 
@@ -92,6 +92,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 03 P06 | 30 min | 3 tasks | 16 files |
 | Phase 03 P07 | 22 min | 2 tasks | 6 files |
 | Phase 03 P08 | 42 min | 3 tasks | 11 files |
+| Phase 03 P09 | 95 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -202,6 +203,11 @@ Recent decisions affecting current work:
 - [Phase 03]: The lesson's cost is one server-computed string: lessonCost() over the lesson's usage rows, formatted once by cost.ts's costLabel, carried on the lesson view, on every GET /api/lessons row and on every ending of a turn — so the header pill and the Home row can never show different numbers
 - [Phase 03]: D-06's prompt cache split is additive: TurnContext gains instructionsStable and instructionsVolatile beside the unchanged instructions, so the Claude and Codex drivers are untouched; Anthropic's ephemeral breakpoint rides the stable prefix through a per-row Adapter.cacheHook and the other four rows attach nothing on purpose
 - [Phase 03]: An ending's lesson total counts the blank unknown row closeUsage is about to write, because a payload is built before sink.endTurn runs — without it a stop before the provider answered reported 'estimated' while both screens said 'not reported' a moment later
+- [Phase 03]: 03-09: SearchView on the web mirrors what searchView() actually sends (key {set,hint} beside key_locked), and api.setSearch answers that block rather than the whole Settings object — the card composes the two where KeyField needs them instead of reshaping a route 03-06 already smoke-tested
+- [Phase 03]: 03-09: the field vocabulary (field, pill, textButton, tickLine, errLine, noteLine, blurOnEnter, useTick) has one definition in web/src/components/fields.ts, and the one site that needs more composes it (ml-auto gap-1.5 ${textButton}) rather than restating the string
+- [Phase 03]: 03-09: KeyField is exported from ProviderRow.tsx parameterised on its two writes, so the search key reuses the masked write-only machine including the keep button's mouse-down guard; fields.ts stays JSX-free and the component count stays 13 plus one new card
+- [Phase 03]: 03-09: no lock sentence on the SearXNG address field, because no environment variable sets that address — a branch for a variable that does not exist would claim a feature the code does not have
+- [Phase 03]: 03-09: the API suite serves the real routes inside its own process (startInProcessServer in server/test/spawn.ts), capturing the listening socket from node:http with syncBuiltinESMExports so it can be closed — because setModelOverride is reachable from nowhere else and index.ts's startup side effects must not change to suit a test
 
 ### Pending Todos
 
@@ -230,6 +236,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T20:08:36.134Z
-Stopped at: Completed 03-08-PLAN.md
+Last session: 2026-10-12T20:55:45.792Z
+Stopped at: Completed 03-09-PLAN.md
 Resume file: None

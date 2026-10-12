@@ -20,15 +20,15 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Providers
 
-- [ ] **PROV-01**: Learner can run the tutor on an Anthropic API key through Derive's own agent loop; in-app Claude uses the key, the Claude Code plugin remains the subscription route
-- [ ] **PROV-02**: Learner can run the tutor on an OpenAI API key
-- [ ] **PROV-03**: Learner can run the tutor on a Google Gemini API key
+- [x] **PROV-01**: Learner can run the tutor on an Anthropic API key through Derive's own agent loop; in-app Claude uses the key, the Claude Code plugin remains the subscription route
+- [x] **PROV-02**: Learner can run the tutor on an OpenAI API key
+- [x] **PROV-03**: Learner can run the tutor on a Google Gemini API key
 - [x] **PROV-04**: Learner can run the tutor through OpenRouter, with exact per-response cost recorded
-- [ ] **PROV-05**: Learner can run the tutor through any OpenAI-compatible endpoint by entering a base URL and key
+- [x] **PROV-05**: Learner can run the tutor through any OpenAI-compatible endpoint by entering a base URL and key
 - [ ] **PROV-06**: Learner can run the tutor on a local Ollama model, offline, with the context window sized so the method is never silently truncated
 - [ ] **PROV-07**: Learner can run the tutor on LM Studio or llama.cpp, with capability probes that refuse clearly when tool calling is unsupported
 - [ ] **PROV-08**: The owned loop keeps full parity: same tools, same method, sequential tool execution, resume after interruption, retries with a visible "provider busy" status
-- [ ] **PROV-09**: Web search and fetch work on every provider: provider-native tools where they exist, otherwise a pluggable search provider (Tavily, SearXNG, Ollama search) with a fetch that reuses the library fetcher
+- [x] **PROV-09**: Web search and fetch work on every provider: provider-native tools where they exist, otherwise a pluggable search provider (Tavily, SearXNG, Ollama search) with a fetch that reuses the library fetcher
 - [x] **PROV-10**: Tool schemas are projected per provider dialect (OpenAI strict, Gemini, compact for local) and validated in CI; incoming calls are validated against the full schema server-side
 - [ ] **PROV-11**: Learner can run a "test teaching" smoke test from settings: one node, one graded quiz, proving the chosen model can run the method
 - [ ] **PROV-13**: A method-conformance harness replays a scripted lesson per provider and asserts the gate, pretest and cumulative quiz held; runs nightly
@@ -47,7 +47,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **COST-01**: Every turn persists raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
 - [x] **COST-02**: Learner sees the estimated cost of each lesson in the lesson header and on Home, labelled billed, estimated, or not billed
 - [ ] **COST-03**: Learner sees a usage page with a running total per learner, by provider, model and lesson, and tokens-only lines for subscription and local paths
-- [ ] **COST-04**: Prices come from a versioned pricing table with a "prices as of" date the learner can override locally
+- [x] **COST-04**: Prices come from a versioned pricing table with a "prices as of" date the learner can override locally
 
 ### Learning experience
 
@@ -146,15 +146,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUND-04 | Phase 1 | Complete |
 | FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Complete |
-| PROV-01 | Phase 3 | Pending |
-| PROV-02 | Phase 3 | Pending |
-| PROV-03 | Phase 3 | Pending |
+| PROV-01 | Phase 3 | Complete |
+| PROV-02 | Phase 3 | Complete |
+| PROV-03 | Phase 3 | Complete |
 | PROV-04 | Phase 3 | Complete |
-| PROV-05 | Phase 3 | Pending |
+| PROV-05 | Phase 3 | Complete |
 | PROV-06 | Phase 4 | Pending |
 | PROV-07 | Phase 4 | Pending |
 | PROV-08 | Phase 3 | Pending |
-| PROV-09 | Phase 3 | Pending |
+| PROV-09 | Phase 3 | Complete |
 | PROV-10 | Phase 3 | Complete |
 | PROV-11 | Phase 4 | Pending |
 | PROV-13 | Phase 4 | Pending |
@@ -167,7 +167,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | COST-01 | Phase 1 | Complete |
 | COST-02 | Phase 3 | Complete |
 | COST-03 | Phase 4 | Pending |
-| COST-04 | Phase 3 | Pending |
+| COST-04 | Phase 3 | Complete |
 | LEARN-01 | Phase 5 | Pending |
 | LEARN-02 | Phase 5 | Pending |
 | LEARN-03 | Phase 5 | Pending |

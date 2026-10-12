@@ -201,7 +201,7 @@ Plans:
   4. The tutor can search the web and fetch a page on every provider: natively where the provider has a search tool, otherwise through the configured search provider (Tavily, SearXNG) with a fetch that reuses the library fetcher
   5. The lesson header and the Home row show "about $X.XX" labelled billed, estimated or not billed, priced from a versioned pricing table with a "prices as of" date the learner can override locally; CI validates each provider's projected tool schema (OpenAI strict, Gemini, compact) and incoming calls are validated server-side against the full schema
 
-**Plans**: 8/9 plans executed in 8 waves, led by a tracer that proves the owned loop end to end on one Anthropic key before anything expands sideways. Only wave 1 runs in parallel (the tracer beside the pure cost modules, which share no file); waves 2-8 are serialised because `server/src/drivers/api.ts` is the file every later slice extends and each plan runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files.
+**Plans**: 9/9 plans executed in 8 waves, led by a tracer that proves the owned loop end to end on one Anthropic key before anything expands sideways. Only wave 1 runs in parallel (the tracer beside the pure cost modules, which share no file); waves 2-8 are serialised because `server/src/drivers/api.ts` is the file every later slice extends and each plan runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files.
 
 Plans:
 
@@ -236,7 +236,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
-- [ ] 03-09-PLAN.md — The Settings web-search card and the prices sentence, the `.env.example` and doctor lines, and the API suite running through the owned loop on a stub model (wave 8)
+- [x] 03-09-PLAN.md — The Settings web-search card and the prices sentence, the `.env.example` and doctor lines, and the API suite running through the owned loop on a stub model (wave 8)
 
 **UI hint**: yes
 **Research**: `--research-phase` recommended — AI SDK 7 API details are MEDIUM and not yet exercised in this repo; exact `providerMetadata` path for OpenRouter's per-response `cost` (fall back to `cost_source: 'table'` if absent); per-provider JSON Schema dialect rules; `prepareStep`/`pruneMessages` compaction for long lessons (first version refuses with a clear error and "start a review lesson"); search-provider free tiers are LOW. Persist native provider messages per lesson in `turn_messages`; synthesize error `tool_result`s for orphans on abort; stable-prefix prompt split with cache control on Anthropic.
@@ -322,7 +322,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 |-------|----------------|--------|-----------|
 | 1. Foundation | 22/22 | Complete    | 2026-09-20 |
 | 2. Settings and Secrets | 7/7 | Complete    | 2026-10-01 |
-| 3. Owned Loop: API Keys and Gateways | 8/9 | In Progress|  |
+| 3. Owned Loop: API Keys and Gateways | 9/9 | In Progress|  |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |
 | 5. Learning Experience | 0/TBD | Not started | - |
 | 6. Personalization | 0/TBD | Not started | - |

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 22
+open_count: 25
 waived_count: 0
 fixed_count: 0
-total_count: 22
-last_updated: 2026-10-12T20:04:49.634Z
+total_count: 25
+last_updated: 2026-10-12T20:57:32.013Z
 ---
 
 # Broken Windows Ledger
@@ -37,6 +37,9 @@ last_updated: 2026-10-12T20:04:49.634Z
 | 20 | 03 | unrun-verify | server/src/drivers/adapters.ts |  | OpenAI non-strict bounds confirmation unrun: no OpenAI key, so that a real lesson still plans with 3-12 nodes and quizzes with 2-3 options on the non-strict default is asserted on the wire only | open |  | 2026-10-12T19:26:50.891Z |  |
 | 21 | 03 | unrun-verify | web/src/pages/Lesson.tsx |  | 03-08 A1 loading: that the lesson cost holds still for the whole of a live turn on a real metered provider is unobserved — no provider key exists here; proven statically (no timer, no poll, refetch only on mount and on busy going false) | open |  | 2026-10-12T20:04:39.820Z |  |
 | 22 | 03 | unrun-verify | server/src/drivers/adapters.ts |  | 03-08 D-06: that a real Anthropic lesson's second request reports a non-zero cache_read_tokens is unobserved — the breakpoint is asserted on the wire, not against Anthropic's own cache | open |  | 2026-10-12T20:04:49.634Z |  |
+| 23 | 03 | unrun-verify | server/test/api.test.ts |  | The real-key halves of Success Criteria 1 and 2: a whole lesson each on an Anthropic, OpenAI, Gemini, OpenRouter (billed cost in the usage table) and base-URL key, plus one lesson through the Claude Code plugin and one through the Codex skills. No provider key exists in this environment. | open |  | 2026-10-12T20:57:31.595Z |  |
+| 24 | 03 | unrun-verify | web/src/components/WebSearchCard.tsx |  | The SearXNG json-disabled sentence naming settings.yml is asserted at the server (search.test.ts) but not observed rendered on the card: it needs a real SearXNG instance with the json format off. | open |  | 2026-10-12T20:57:31.805Z |  |
+| 25 | 03 | unrun-verify | web/src/components/WebSearchCard.tsx |  | Hover feedback on the card's text buttons is unverified in the browser: Tailwind v4 gates hover: behind @media (hover:hover), which no headless Chrome mode satisfies. Checked statically against the emitted CSS instead. | open |  | 2026-10-12T20:57:32.013Z |  |
 
 ````json
 [
@@ -323,6 +326,45 @@ last_updated: 2026-10-12T20:04:49.634Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-12T20:04:49.634Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 23,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": "server/test/api.test.ts",
+    "line": null,
+    "description": "The real-key halves of Success Criteria 1 and 2: a whole lesson each on an Anthropic, OpenAI, Gemini, OpenRouter (billed cost in the usage table) and base-URL key, plus one lesson through the Claude Code plugin and one through the Codex skills. No provider key exists in this environment.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-12T20:57:31.595Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 24,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": "web/src/components/WebSearchCard.tsx",
+    "line": null,
+    "description": "The SearXNG json-disabled sentence naming settings.yml is asserted at the server (search.test.ts) but not observed rendered on the card: it needs a real SearXNG instance with the json format off.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-12T20:57:31.805Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 25,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": "web/src/components/WebSearchCard.tsx",
+    "line": null,
+    "description": "Hover feedback on the card's text buttons is unverified in the browser: Tailwind v4 gates hover: behind @media (hover:hover), which no headless Chrome mode satisfies. Checked statically against the emitted CSS instead.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-12T20:57:32.013Z",
     "resolved_at": null,
     "milestone": null
   }
