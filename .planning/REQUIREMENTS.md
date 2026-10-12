@@ -23,7 +23,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **PROV-01**: Learner can run the tutor on an Anthropic API key through Derive's own agent loop; in-app Claude uses the key, the Claude Code plugin remains the subscription route
 - [ ] **PROV-02**: Learner can run the tutor on an OpenAI API key
 - [ ] **PROV-03**: Learner can run the tutor on a Google Gemini API key
-- [ ] **PROV-04**: Learner can run the tutor through OpenRouter, with exact per-response cost recorded
+- [x] **PROV-04**: Learner can run the tutor through OpenRouter, with exact per-response cost recorded
 - [ ] **PROV-05**: Learner can run the tutor through any OpenAI-compatible endpoint by entering a base URL and key
 - [ ] **PROV-06**: Learner can run the tutor on a local Ollama model, offline, with the context window sized so the method is never silently truncated
 - [ ] **PROV-07**: Learner can run the tutor on LM Studio or llama.cpp, with capability probes that refuse clearly when tool calling is unsupported
@@ -45,7 +45,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Cost
 
 - [x] **COST-01**: Every turn persists raw usage (input, output, cache read, cache write, reasoning tokens) with the model id at that time and a cost source (provider, table, subscription, unknown)
-- [ ] **COST-02**: Learner sees the estimated cost of each lesson in the lesson header and on Home, labelled billed, estimated, or not billed
+- [x] **COST-02**: Learner sees the estimated cost of each lesson in the lesson header and on Home, labelled billed, estimated, or not billed
 - [ ] **COST-03**: Learner sees a usage page with a running total per learner, by provider, model and lesson, and tokens-only lines for subscription and local paths
 - [ ] **COST-04**: Prices come from a versioned pricing table with a "prices as of" date the learner can override locally
 
@@ -149,7 +149,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROV-01 | Phase 3 | Pending |
 | PROV-02 | Phase 3 | Pending |
 | PROV-03 | Phase 3 | Pending |
-| PROV-04 | Phase 3 | Pending |
+| PROV-04 | Phase 3 | Complete |
 | PROV-05 | Phase 3 | Pending |
 | PROV-06 | Phase 4 | Pending |
 | PROV-07 | Phase 4 | Pending |
@@ -165,7 +165,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SET-05 | Phase 2 | Complete |
 | SET-06 | Phase 2 | Complete |
 | COST-01 | Phase 1 | Complete |
-| COST-02 | Phase 3 | Pending |
+| COST-02 | Phase 3 | Complete |
 | COST-03 | Phase 4 | Pending |
 | COST-04 | Phase 3 | Pending |
 | LEARN-01 | Phase 5 | Pending |

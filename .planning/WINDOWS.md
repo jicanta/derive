@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 20
+open_count: 22
 waived_count: 0
 fixed_count: 0
-total_count: 20
-last_updated: 2026-10-12T19:26:50.891Z
+total_count: 22
+last_updated: 2026-10-12T20:04:49.634Z
 ---
 
 # Broken Windows Ledger
@@ -35,6 +35,8 @@ last_updated: 2026-10-12T19:26:50.891Z
 | 18 | 03 | unrun-verify | .planning/phases/03-owned-loop-api-keys-and-gateways/03-06-PLAN.md |  | 03-06 Task 3 human check unrun: no provider key in this environment, so the native search status line and the rising verified count, the no-search provider admitting uncertainty, the Tavily-configured search, and the SearXNG json-disabled sentence are all unconfirmed on a real key | open |  | 2026-10-12T19:01:18.699Z |  |
 | 19 | 03 | unrun-verify | server/test/wire-surface.json |  | Gemini dialect real-key confirmation unrun: no Gemini key in this environment, so that Google accepts the six-keyword projection of set_plan (03-RESEARCH A3, LOW confidence) is still an assumption; one real lesson that draws its graph settles it | open |  | 2026-10-12T19:26:42.613Z |  |
 | 20 | 03 | unrun-verify | server/src/drivers/adapters.ts |  | OpenAI non-strict bounds confirmation unrun: no OpenAI key, so that a real lesson still plans with 3-12 nodes and quizzes with 2-3 options on the non-strict default is asserted on the wire only | open |  | 2026-10-12T19:26:50.891Z |  |
+| 21 | 03 | unrun-verify | web/src/pages/Lesson.tsx |  | 03-08 A1 loading: that the lesson cost holds still for the whole of a live turn on a real metered provider is unobserved — no provider key exists here; proven statically (no timer, no poll, refetch only on mount and on busy going false) | open |  | 2026-10-12T20:04:39.820Z |  |
+| 22 | 03 | unrun-verify | server/src/drivers/adapters.ts |  | 03-08 D-06: that a real Anthropic lesson's second request reports a non-zero cache_read_tokens is unobserved — the breakpoint is asserted on the wire, not against Anthropic's own cache | open |  | 2026-10-12T20:04:49.634Z |  |
 
 ````json
 [
@@ -295,6 +297,32 @@ last_updated: 2026-10-12T19:26:50.891Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-12T19:26:50.891Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 21,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": "web/src/pages/Lesson.tsx",
+    "line": null,
+    "description": "03-08 A1 loading: that the lesson cost holds still for the whole of a live turn on a real metered provider is unobserved — no provider key exists here; proven statically (no timer, no poll, refetch only on mount and on busy going false)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-12T20:04:39.820Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 22,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": "server/src/drivers/adapters.ts",
+    "line": null,
+    "description": "03-08 D-06: that a real Anthropic lesson's second request reports a non-zero cache_read_tokens is unobserved — the breakpoint is asserted on the wire, not against Anthropic's own cache",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-12T20:04:49.634Z",
     "resolved_at": null,
     "milestone": null
   }
