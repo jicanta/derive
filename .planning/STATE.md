@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: "Owned Loop: API Keys and Gateways"
 status: executing
-stopped_at: Completed 03-06-PLAN.md (6 of 9 in phase 03)
-last_updated: "2026-10-12T19:05:10.529Z"
+stopped_at: Completed 03-07-PLAN.md
+last_updated: "2026-10-12T19:30:32.699Z"
 last_activity: 2026-10-12
 last_activity_desc: Closed out 03-06 — web search and fetch on every provider
-state_head: 4e2854ff7248918b88cbad3c376c7e93a2c56b74
+state_head: 4ab67caf1b44b8d6f229c3d34bc6da07aba32a10
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 38
-  completed_plans: 35
+  completed_plans: 36
   percent: 29
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-01)
 ## Current Position
 
 Phase: 03 (Owned Loop: API Keys and Gateways) — EXECUTING
-Plan: 6 of 9 complete — next is 03-07 (wave 6)
+Plan: 7 of 9 complete — next is 03-07 (wave 6)
 Status: Ready to execute 03-07-PLAN.md
 Last activity: 2026-10-12 — 03-06 closed out: the api tool surface, one guarded fetch tool, the pluggable fallback search, and the third {{WEB_TOOLS}} rendering
 
@@ -90,6 +90,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 03 P04 | 28 min | 3 tasks | 13 files |
 | Phase 03 P05 | 9 min | 3 tasks | 3 files |
 | Phase 03 P06 | 30 min | 3 tasks | 16 files |
+| Phase 03 P07 | 22 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -193,6 +194,10 @@ Recent decisions affecting current work:
 - [Phase 03]: The learner's configured SearXNG address is deliberately NOT run through assertPublicHost (a local instance is the normal case); the guard is applied to the result URLs the tutor then fetches, and the json-disabled failure gets its own sentence naming settings.yml
 - [Phase 03]: searchMode(provider, modelId) is the one three-way decision the tool registration and the {{WEB_TOOLS}} rendering both read, so the method text and the tool set cannot disagree; a selected-but-unconfigured fallback counts as no search at all
 - [Phase 03]: systemPrompt takes a WebSurface rather than a two-value backend; the api/none rendering tells the tutor to admit uncertainty rather than guess, with method/ and method.generated.ts byte-unchanged
+- [Phase 03]: io stays at zod's default 'output' in jsonSchemaOf: io 'input' is semantically right for a tool input schema but drops additionalProperties: false from all 24 tools on all four surfaces, which both moves the frozen fixture and removes the one keyword OpenAI's strict mode requires
+- [Phase 03]: The strict dialect ships built and CI-validated and selected by no adapter row: strict mode is opt-in per tool and would cost the four bounds set_plan (3-12 nodes) and quiz (2-3 options) hold the model to, so Phase 4's conformance harness switches it on and measures rather than inventing it
+- [Phase 03]: The Gemini dialect is an allow-list of six keywords rather than a deny-list, because its exact rejected set is LOW confidence: an allow-list is wrong only in the safe direction and drops a keyword a future registry row introduces automatically
+- [Phase 03]: Validation is against the full zod schema at the boundary that writes, never against the dialect the provider was shown: the SDK's jsonSchema() carries no validator unless the caller supplies one, so before this the registry's bounds were documentation on the api surface rather than enforcement
 
 ### Pending Todos
 
@@ -221,6 +226,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T19:05:08.392Z
-Stopped at: Completed 03-06-PLAN.md (6 of 9 in phase 03)
+Last session: 2026-10-12T19:30:32.588Z
+Stopped at: Completed 03-07-PLAN.md
 Resume file: None
