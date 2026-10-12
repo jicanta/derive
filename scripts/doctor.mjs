@@ -93,6 +93,15 @@ else {
   else fail('Secrets file', `${secretsFile} is mode 0${mode}, not 0600`, `Run \`chmod 600 ${secretsFile}\`. That file holds the provider keys pasted in Settings; anyone who can read it can spend on those accounts.`);
 }
 
+// The learner's own rates, laid over the shipped price table. Absence is the normal state, not a warning: Derive ships a table and says so in Settings.
+// This line reports presence only — the file is never opened or parsed — for the same reason the Secrets file line does not open its own: a doctor that
+// reads a file in the data directory is a doctor that could one day read the wrong one.
+// No line reports whether a web search key is set. That is a key, and Settings already shows whether one is stored; a second place its existence is
+// reported buys nothing and puts one more fact about a secret in a terminal a learner may paste elsewhere.
+const pricesFile = join(dataDir, 'prices.json');
+if (!existsSync(pricesFile)) ok('Price overrides', 'none; Derive uses its shipped price table');
+else ok('Price overrides', `${pricesFile} (merged over the shipped table)`);
+
 if (process.env.DERIVE_VAULT_DIR) {
   const v = resolve(process.env.DERIVE_VAULT_DIR);
   if (existsSync(v)) ok('Obsidian vault', v);
