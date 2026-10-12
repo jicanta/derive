@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: "Owned Loop: API Keys and Gateways"
 status: executing
-stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-10-12T19:30:32.699Z"
+stopped_at: Completed 03-08-PLAN.md
+last_updated: "2026-10-12T20:08:37.717Z"
 last_activity: 2026-10-12
-last_activity_desc: Closed out 03-06 — web search and fetch on every provider
-state_head: 4ab67caf1b44b8d6f229c3d34bc6da07aba32a10
+last_activity_desc: Closed out 03-08 — the lesson's cost in the pill and on the Home row, and the cached method prefix
+state_head: b88de1e91c79dc39aa29821288c1f98b8d649253
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 38
-  completed_plans: 36
+  completed_plans: 37
   percent: 29
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-10-01)
 ## Current Position
 
 Phase: 03 (Owned Loop: API Keys and Gateways) — EXECUTING
-Plan: 7 of 9 complete — next is 03-07 (wave 6)
-Status: Ready to execute 03-07-PLAN.md
-Last activity: 2026-10-12 — 03-06 closed out: the api tool surface, one guarded fetch tool, the pluggable fallback search, and the third {{WEB_TOOLS}} rendering
+Plan: 8 of 9 complete — next is 03-09 (wave 8)
+Status: Ready to execute 03-09-PLAN.md
+Last activity: 2026-10-12 — 03-08 closed out: one server-computed lesson total on both screens and on every ending of a turn, plus D-06's byte-stable cached system prefix
 
 Progress: [███░░░░░░░] 29%
 
@@ -91,6 +91,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 03 P05 | 9 min | 3 tasks | 3 files |
 | Phase 03 P06 | 30 min | 3 tasks | 16 files |
 | Phase 03 P07 | 22 min | 2 tasks | 6 files |
+| Phase 03 P08 | 42 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -198,6 +199,9 @@ Recent decisions affecting current work:
 - [Phase 03]: The strict dialect ships built and CI-validated and selected by no adapter row: strict mode is opt-in per tool and would cost the four bounds set_plan (3-12 nodes) and quiz (2-3 options) hold the model to, so Phase 4's conformance harness switches it on and measures rather than inventing it
 - [Phase 03]: The Gemini dialect is an allow-list of six keywords rather than a deny-list, because its exact rejected set is LOW confidence: an allow-list is wrong only in the safe direction and drops a keyword a future registry row introduces automatically
 - [Phase 03]: Validation is against the full zod schema at the boundary that writes, never against the dialect the provider was shown: the SDK's jsonSchema() carries no validator unless the caller supplies one, so before this the registry's bounds were documentation on the api surface rather than enforcement
+- [Phase 03]: The lesson's cost is one server-computed string: lessonCost() over the lesson's usage rows, formatted once by cost.ts's costLabel, carried on the lesson view, on every GET /api/lessons row and on every ending of a turn — so the header pill and the Home row can never show different numbers
+- [Phase 03]: D-06's prompt cache split is additive: TurnContext gains instructionsStable and instructionsVolatile beside the unchanged instructions, so the Claude and Codex drivers are untouched; Anthropic's ephemeral breakpoint rides the stable prefix through a per-row Adapter.cacheHook and the other four rows attach nothing on purpose
+- [Phase 03]: An ending's lesson total counts the blank unknown row closeUsage is about to write, because a payload is built before sink.endTurn runs — without it a stop before the provider answered reported 'estimated' while both screens said 'not reported' a moment later
 
 ### Pending Todos
 
@@ -226,6 +230,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T19:30:32.588Z
-Stopped at: Completed 03-07-PLAN.md
+Last session: 2026-10-12T20:08:36.134Z
+Stopped at: Completed 03-08-PLAN.md
 Resume file: None
