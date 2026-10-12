@@ -37,6 +37,24 @@ import { z } from 'zod';
 // proven unchanged" guarantee rests on.
 export type ToolSurface = 'agent' | 'api' | 'mcp' | 'http';
 
+/**
+ * The provider dialects the one registry projects into.
+ *
+ * `'full'` is the registry's own projection and the default, so a caller that
+ * names no dialect gets exactly what it got before dialects existed. The other
+ * three exist because a provider's schema dialect is narrower than the contract
+ * — OpenAI's strict mode drops four bounds, Google passes a tool schema through
+ * verbatim and returns a 400 for a keyword it does not know, and a local model
+ * has less room to read a description in. What never happens is the reverse:
+ * the registry is not simplified to the subset they all accept, because a
+ * description is what the model reads and letting the weakest dialect write it
+ * would change the tutor on every provider.
+ */
+export const TOOL_DIALECTS = ['full', 'openai-strict', 'gemini', 'compact'] as const;
+
+/** One provider's schema dialect. `'full'` is the registry's own projection. */
+export type ToolDialect = (typeof TOOL_DIALECTS)[number];
+
 /** How one tool's contract differs on one surface. Absent means the surface reads the registry's own description and shape. */
 export type SurfaceContract = {
   /** Replaces the description on this surface, in full. */
@@ -479,9 +497,39 @@ export function toolsFor(surface: ToolSurface): ToolSpec[] {
   return TOOL_REGISTRY.filter((s) => s.surfaces.includes(surface));
 }
 
-/** What a tool says on one surface: the registry's description, unless the tool declares a different one for that surface. */
-export function descriptionFor(spec: ToolSpec, surface: ToolSurface): string {
-  return spec.per_surface?.[surface]?.description ?? spec.description;
+/** How long a compact description may run before it is cut: enough for one real sentence, short enough that a small-context local model still has room for the lesson. */
+const COMPACT_CHARS = 180;
+
+/** A trailing dot that belongs to an abbreviation ("e.g.", a single initial) rather than ending a sentence. */
+const ABBREVIATION = /(?:^|[\s("])(?:[A-Za-z]|e\.g|i\.e|etc|vs|approx)\.$/;
+
+/**
+ * One description, shortened for a model with a small context window: its first
+ * sentence, cut at a word boundary when that sentence is itself long.
+ *
+ * Always a prefix of the original, never a rewrite: the compact dialect may
+ * give a model less of the description, but it must never give it different
+ * words than the registry wrote.
+ */
+function shortened(text: string): string {
+  const t = text.trim();
+  let end = -1;
+  for (const m of t.matchAll(/[.!?](?=\s|$)/g)) {
+    const at = (m.index ?? 0) + 1;
+    if (ABBREVIATION.test(t.slice(0, at))) continue;
+    end = at;
+    break;
+  }
+  const sentence = end > 0 ? t.slice(0, end) : t;
+  if (sentence.length <= COMPACT_CHARS) return sentence;
+  const cut = sentence.lastIndexOf(' ', COMPACT_CHARS);
+  return sentence.slice(0, cut > 0 ? cut : COMPACT_CHARS).trim();
+}
+
+/** What a tool says on one surface, in one dialect: the registry's description, unless the tool declares a different one for that surface, shortened for the compact dialect. */
+export function descriptionFor(spec: ToolSpec, surface: ToolSurface, dialect: ToolDialect = 'full'): string {
+  const text = spec.per_surface?.[surface]?.description ?? spec.description;
+  return dialect === 'compact' ? shortened(text) : text;
 }
 
 /** A tool's raw input shape on one surface, with any declared per-surface fields laid over the registry's. */
@@ -496,9 +544,126 @@ export function differsOnSurface(spec: ToolSpec, surface: ToolSurface): boolean 
   return !!over && (over.description !== undefined || over.shape !== undefined);
 }
 
-/** A tool's input shape projected to JSON Schema: the form every provider's wire format is derived from. */
-export function jsonSchemaOf(spec: ToolSpec, surface?: ToolSurface) {
-  return z.toJSONSchema(z.object(surface ? shapeFor(spec, surface) : spec.shape));
+/** One node of a generated JSON Schema document, as the per-dialect projection rewrites it. */
+type SchemaNode = Record<string, unknown>;
+
+/**
+ * The four bounds the registry emits that OpenAI's strict mode does not
+ * support and Gemini's own documented subset does not carry.
+ *
+ * Dropping them is the whole cost of the strict dialect, and it is not
+ * abstract: `set_plan` holds the model to 3 to 12 nodes and `quiz` to 2 or 3
+ * options, and those two numbers are the shape of a Derive lesson. That is why
+ * no adapter row selects `'openai-strict'` — see `server/src/drivers/adapters.ts`
+ * — and why `validateToolInput` below re-checks an incoming call against the
+ * full schema whatever dialect the provider was handed.
+ */
+const BOUNDS = ['minItems', 'maxItems', 'minimum', 'maximum'] as const;
+
+/**
+ * Every keyword the Gemini dialect emits.
+ *
+ * Google passes a tool schema straight through (`parametersJsonSchema:
+ * tool.inputSchema`) and runs no sanitiser over it, so a keyword it rejects
+ * comes back as a 400 from Google rather than as a warning Derive could
+ * recover from. That is why this dialect is subtractive rather than clever: it
+ * emits only the six keywords Google's own function-calling guide documents by
+ * example and drops everything else the registry happens to carry.
+ *
+ * The exact rejected set is LOW confidence (`03-RESEARCH.md` A3: the Schema
+ * reference page would not render), so this is the safe subset of the keyword
+ * inventory the registry actually emits rather than a verified exclusion list;
+ * one real Gemini key turns the assumption into a fact, which is the human
+ * check plan 03-07 carries.
+ */
+const GEMINI_KEYWORDS: ReadonlySet<string> = new Set(['type', 'properties', 'required', 'description', 'enum', 'items']);
+
+/** The dialects that drop `$schema`: it is an unknown key to both providers, and tidier gone. The compact dialect keeps it, because it keeps `'full'`'s keyword set exactly. */
+const DROPS_SCHEMA_KEYWORD: ReadonlySet<ToolDialect> = new Set(['openai-strict', 'gemini']);
+
+/** An optional property as strict mode has to express it: `null` added to its type, and to its enum where it has one. */
+function nullable(child: SchemaNode): void {
+  const t = child.type;
+  if (typeof t === 'string' && t !== 'null') child.type = [t, 'null'];
+  else if (Array.isArray(t) && !t.includes('null')) child.type = [...t, 'null'];
+  if (Array.isArray(child.enum) && !child.enum.includes(null)) child.enum = [...child.enum, null];
+}
+
+/** One node, rewritten for one dialect. Called by zod for every schema it generates, innermost first, so a nested object is reached as surely as the root. */
+function project(dialect: ToolDialect, node: SchemaNode): void {
+  if (dialect === 'compact') {
+    if (typeof node.description === 'string') node.description = shortened(node.description);
+    return;
+  }
+  if (dialect === 'gemini') {
+    for (const k of Object.keys(node)) if (!GEMINI_KEYWORDS.has(k)) delete node[k];
+    return;
+  }
+  // openai-strict: the four bounds go, every property becomes required, each
+  // originally-optional one becomes a nullable union, and every object keeps
+  // additionalProperties: false — which the registry already emits.
+  for (const k of BOUNDS) delete node[k];
+  if (node.type !== 'object' || !node.properties || typeof node.properties !== 'object') return;
+  const props = node.properties as Record<string, SchemaNode>;
+  const required = new Set(Array.isArray(node.required) ? (node.required as string[]) : []);
+  for (const [name, child] of Object.entries(props)) if (!required.has(name)) nullable(child);
+  node.required = Object.keys(props);
+  node.additionalProperties = false;
+}
+
+/**
+ * A tool's input shape projected to JSON Schema, in one provider's dialect: the
+ * form every provider's wire format is derived from.
+ *
+ * `'full'` is the registry's own projection and is produced by the same one
+ * line it always was, so the frozen fixture does not move by a byte. The other
+ * three ride zod's own `override` hook rather than a walk over the emitted
+ * document, which is what keeps the registry itself untouched: the rows are
+ * read, never rewritten.
+ *
+ * `io` stays at zod's default `'output'`. `'input'` is the semantically correct
+ * choice for a tool *input* schema, but it drops `additionalProperties: false`
+ * from all 24 tools on all four surfaces — which both moves the frozen fixture
+ * and takes away the one keyword OpenAI's strict mode requires. A semantic
+ * preference is not worth either.
+ */
+export function jsonSchemaOf(spec: ToolSpec, surface?: ToolSurface, dialect: ToolDialect = 'full') {
+  const schema = z.object(surface ? shapeFor(spec, surface) : spec.shape);
+  if (dialect === 'full') return z.toJSONSchema(schema);
+  const out = z.toJSONSchema(schema, { override: ({ jsonSchema }) => project(dialect, jsonSchema as SchemaNode) }) as SchemaNode;
+  // zod writes `$schema` onto the document after the override hook has run, so
+  // it is the one key the hook cannot reach. Every other difference between the
+  // dialects is the hook's.
+  if (DROPS_SCHEMA_KEYWORD.has(dialect)) delete out.$schema;
+  return out;
+}
+
+/** One zod object per tool and surface, built once: this is the full schema, so it is on the path of every incoming tool call. */
+const fullSchemas = new Map<string, z.ZodObject<z.ZodRawShape>>();
+
+/**
+ * An incoming tool call's arguments, checked against the **full** zod schema
+ * for that tool and surface — never against the dialect the provider was
+ * handed.
+ *
+ * This is the half of the dialect story that happens on Derive's side: a bound
+ * the strict projection had to drop or the Gemini projection could not express
+ * is still enforced here, at the boundary that writes FSRS rows and node
+ * statuses. A provider's narrower dialect therefore never narrows what Derive
+ * accepts. Throws a lowercase sentence naming the first failing field, in the
+ * shape `index.ts`'s own action route already answers a malformed body with.
+ */
+export function validateToolInput(spec: ToolSpec, surface: ToolSurface, input: unknown): Record<string, unknown> {
+  const cacheKey = `${spec.name}@${surface}`;
+  let schema = fullSchemas.get(cacheKey);
+  if (!schema) {
+    schema = z.object(shapeFor(spec, surface));
+    fullSchemas.set(cacheKey, schema);
+  }
+  const parsed = schema.safeParse(input);
+  if (parsed.success) return parsed.data as Record<string, unknown>;
+  const issue = parsed.error.issues[0];
+  throw new Error(`${spec.name}: ${issue.path.join('.') || '(input)'}: ${issue.message}`);
 }
 
 /** Every tool in the registry, in declaration order: the whole surface a driver can see. */

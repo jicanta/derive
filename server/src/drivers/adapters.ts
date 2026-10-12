@@ -36,6 +36,7 @@ import { priceTable } from '../prices.js';
 import { v1 } from '../probe.js';
 import { labelOf, type ProviderId } from '../providers.js';
 import { searchReady } from '../search.js';
+import type { ToolDialect } from '../tools.js';
 
 /**
  * Global `fetch` with redirects refused, as the key-bearing request to a
@@ -73,6 +74,16 @@ export type CostRead = { cost_usd: number | null; cost_source: CostSource; searc
 export type Adapter = {
   /** The model object the loop streams from. `modelId` is the learner's override, or null for the catalogue default. */
   model(key: string | undefined, base: string | undefined, modelId: string | null): LanguageModel;
+  /**
+   * The schema dialect this provider's tools are projected into.
+   *
+   * It is a per-row fact because only the row knows what its provider does with
+   * a tool schema: Google passes one through verbatim and 400s on a keyword it
+   * does not know, OpenAI normalises a few things and ignores the rest,
+   * Anthropic touches nothing. The registry is identical on all of them; only
+   * the projection adapts.
+   */
+  dialect: ToolDialect;
   /** Passed straight to `streamText` as `providerOptions`; this is where D-08's parallel-tool flag lives. */
   providerOptions?: Record<string, Record<string, JSONValue>>;
   /**
@@ -225,6 +236,8 @@ export function adapterFor(provider: ProviderId): Adapter {
     case 'anthropic':
       return {
         model: (key, _base, modelId) => createAnthropic({ apiKey: key, fetch: noRedirectFetch })(modelId ?? 'claude-opus-5-5'),
+        // Anthropic does no schema normalisation of note and has no strict mode, so it reads the registry's own projection.
+        dialect: 'full',
         // D-08's belt: Anthropic is told not to open two tool calls at once.
         // The braces are the loop's own per-lesson serialisation in api.ts.
         providerOptions: { anthropic: { disableParallelToolUse: true } },
@@ -249,6 +262,14 @@ export function adapterFor(provider: ProviderId): Adapter {
         // openai(...) is the Responses API by default since AI SDK 5; that
         // default is kept rather than reaching for openai.chat(...).
         model: (key, _base, modelId) => createOpenAI({ apiKey: key, fetch: noRedirectFetch })(modelId ?? 'gpt-6-astra'),
+        // Deliberately the registry's own projection, not the strict dialect:
+        // strict mode is opt-in per tool and off by default, and turning it on
+        // would cost the four bounds `set_plan` (3-12 nodes) and `quiz` (2-3
+        // options) hold the model to, which is the shape of a Derive lesson.
+        // The strict dialect is still built and CI-validated in `tools.ts`, so
+        // Phase 4's conformance harness can switch it on and measure what it
+        // costs rather than having to invent it.
+        dialect: 'full',
         // parallelToolCalls is D-08's belt. store: false keeps a Derive lesson
         // from being retained on OpenAI's side, which is the local-first
         // constraint applied to the one provider that would otherwise keep it.
@@ -269,6 +290,10 @@ export function adapterFor(provider: ProviderId): Adapter {
     case 'gemini':
       return {
         model: (key, _base, modelId) => createGoogleGenerativeAI({ apiKey: key, fetch: noRedirectFetch })(modelId ?? 'gemini-3.8-flash'),
+        // The one row that needs a narrower dialect: `prepareFunctionDeclaration`
+        // hands the schema to Google verbatim, so a keyword Google rejects is a
+        // 400 on the learner's lesson rather than a warning.
+        dialect: 'gemini',
         // No parallel-tool option: @ai-sdk/google has no such flag anywhere in
         // its types or its docs. That absence is why the loop's per-lesson
         // mutex is load-bearing here rather than belt-and-braces — on Gemini it
@@ -291,6 +316,8 @@ export function adapterFor(provider: ProviderId): Adapter {
         // is spread into that body too, so a change to either path still carries
         // it. Without it providerMetadata.openrouter.usage.cost is simply absent.
         model: (key, _base, modelId) => createOpenRouter({ apiKey: key, fetch: noRedirectFetch }).chat(modelId ?? 'anthropic/claude-opus-5.5', { usage: { include: true } }),
+        // A gateway fronting many models normalises nothing of note of its own, so the registry's own projection is what goes out.
+        dialect: 'full',
         providerOptions: { openrouter: { parallelToolCalls: false, usage: { include: true } } },
         // D-20 puts OpenRouter on the fallback path: its search is a plugin
         // rather than a tool, and one search implementation the loop can reason
@@ -312,6 +339,10 @@ export function adapterFor(provider: ProviderId): Adapter {
       };
     case 'openai-compatible':
       return {
+        // Only the learner knows what their endpoint serves, so the honest
+        // default is the full contract: a dialect guessed on their behalf would
+        // narrow what the model is told for no evidence at all.
+        dialect: 'full',
         model: (key, base, modelId) => {
           // The same base URL the settings page normalised and stored under
           // baseUrlKey('openai-compatible'), handed down by the loop, and the

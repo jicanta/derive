@@ -34,7 +34,7 @@ import { hintFor, providerSentence } from '../probe.js';
 import { labelOf, type ProviderId } from '../providers.js';
 import { safeMessage } from '../secrets.js';
 import { baseUrlKey, currentTutor, effectiveKey } from '../settings.js';
-import { TOOL_LABELS, descriptionFor, jsonSchemaOf, toolsFor } from '../tools.js';
+import { TOOL_LABELS, descriptionFor, jsonSchemaOf, toolsFor, validateToolInput, type ToolDialect } from '../tools.js';
 import { adapterFor, nativeSearch, searchCountOf, searchMode, type CostRead } from './adapters.js';
 
 /** How the suite hands this loop a model with no network behind it. The provider id is passed through so a stub can still behave per provider. */
@@ -353,21 +353,31 @@ const NO_TOOLS_WITH_SEARCH = "this model cannot use derive's tools and a web sea
  * is left out when the provider has a native search tool of its own, or when
  * there is no search to be had at all.
  *
+ * `dialect` is the provider's own schema dialect, from its adapter row. It
+ * changes only what the provider is *shown* — what the server accepts is the
+ * full schema, re-checked below on every call.
+ *
  * `answer` is how a result reaches the turn's history. It is called from inside
  * the mutex in the same step as the record, so the replay guard and the history
  * can never disagree about whether a call ran.
  */
-function buildTools(ctx: TurnContext, sink: EventSink, answer: (toolCallId: string, toolName: string, output: ToolResultOutput) => void, omit: ReadonlySet<string>): ToolSet {
+function buildTools(
+  ctx: TurnContext,
+  sink: EventSink,
+  answer: (toolCallId: string, toolName: string, output: ToolResultOutput) => void,
+  omit: ReadonlySet<string>,
+  dialect: ToolDialect,
+): ToolSet {
   const set: ToolSet = {};
   for (const spec of toolsFor('api')) {
     if (omit.has(spec.name)) continue;
     set[spec.name] = tool({
-      description: descriptionFor(spec, 'api'),
+      description: descriptionFor(spec, 'api', dialect),
       // The projected schema, never the zod schema: handed a zod schema the SDK
       // runs its own conversion and emits draft-07, where `jsonSchemaOf` emits
       // draft-2020-12, so the bytes on the wire would stop matching
       // server/test/wire-surface.json.
-      inputSchema: jsonSchema<Record<string, unknown>>(jsonSchemaOf(spec, 'api') as JSONSchema7),
+      inputSchema: jsonSchema<Record<string, unknown>>(jsonSchemaOf(spec, 'api', dialect) as JSONSchema7),
       execute: async (input: Record<string, unknown>, { toolCallId }) =>
         serialise(ctx.lessonId, async () => {
           // D-07's replay guard, inside the mutex and before anything else.
@@ -380,8 +390,16 @@ function buildTools(ctx: TurnContext, sink: EventSink, answer: (toolCallId: stri
             answer(toolCallId, spec.name, { type: 'json', value: recorded.output as never });
             return recorded.output;
           }
+          // Against the full schema, never the dialect the provider was shown:
+          // a bound the strict projection had to drop or the Gemini projection
+          // could not express is still enforced here, before anything writes to
+          // the learner's record. A throw reaches the model as a tool error it
+          // can correct from, which is the right shape — a malformed call is the
+          // model's mistake to fix, not a turn to fail. After the replay guard,
+          // so a call that already succeeded is not re-validated.
+          const args = validateToolInput(spec, 'api', input);
           sink.emitEphemeral('status', { text: TOOL_LABELS[spec.name] ?? `Using ${spec.name}` });
-          const out = await actions.runTool(ctx.lessonId, spec.name, input);
+          const out = await actions.runTool(ctx.lessonId, spec.name, args);
           recordToolResult(ctx.turnId, ctx.lessonId, toolCallId, spec.name, out);
           answer(toolCallId, spec.name, { type: 'json', value: out as never });
           return out;
@@ -514,7 +532,7 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   // which is what the settle in the wrapper below guarantees before any error
   // escapes.
   const attempt = async () => {
-    const tools = buildTools(ctx, sink, answer, omit);
+    const tools = buildTools(ctx, sink, answer, omit, adapter.dialect);
     // Under the provider's own tool name, which is what `searchCountOf` counts
     // and what the status line above reads.
     if (native && searchTool) tools[searchTool] = native;
