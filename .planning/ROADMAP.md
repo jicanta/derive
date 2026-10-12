@@ -201,7 +201,7 @@ Plans:
   4. The tutor can search the web and fetch a page on every provider: natively where the provider has a search tool, otherwise through the configured search provider (Tavily, SearXNG) with a fetch that reuses the library fetcher
   5. The lesson header and the Home row show "about $X.XX" labelled billed, estimated or not billed, priced from a versioned pricing table with a "prices as of" date the learner can override locally; CI validates each provider's projected tool schema (OpenAI strict, Gemini, compact) and incoming calls are validated server-side against the full schema
 
-**Plans**: 5/9 plans executed in 8 waves, led by a tracer that proves the owned loop end to end on one Anthropic key before anything expands sideways. Only wave 1 runs in parallel (the tracer beside the pure cost modules, which share no file); waves 2-8 are serialised because `server/src/drivers/api.ts` is the file every later slice extends and each plan runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files.
+**Plans**: 6/9 plans executed in 8 waves, led by a tracer that proves the owned loop end to end on one Anthropic key before anything expands sideways. Only wave 1 runs in parallel (the tracer beside the pure cost modules, which share no file); waves 2-8 are serialised because `server/src/drivers/api.ts` is the file every later slice extends and each plan runs the whole-tree `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files.
 
 Plans:
 
@@ -224,7 +224,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 03-06-PLAN.md — Web search and fetch on every provider: Tavily and SearXNG behind one service, the guarded `fetch_page` tool on a new `api` tool surface, and the third `{{WEB_TOOLS}}` rendering with its no-search variant (wave 5)
+- [x] 03-06-PLAN.md — Web search and fetch on every provider: Tavily and SearXNG behind one service, the guarded `fetch_page` tool on a new `api` tool surface, and the third `{{WEB_TOOLS}}` rendering with its no-search variant (wave 5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
@@ -322,7 +322,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 |-------|----------------|--------|-----------|
 | 1. Foundation | 22/22 | Complete    | 2026-09-20 |
 | 2. Settings and Secrets | 7/7 | Complete    | 2026-10-01 |
-| 3. Owned Loop: API Keys and Gateways | 5/9 | In Progress|  |
+| 3. Owned Loop: API Keys and Gateways | 6/9 | In Progress|  |
 | 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |
 | 5. Learning Experience | 0/TBD | Not started | - |
 | 6. Personalization | 0/TBD | Not started | - |

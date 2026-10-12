@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: "Owned Loop: API Keys and Gateways"
 status: executing
-stopped_at: Completed 03-05-PLAN.md (5 of 9 in phase 03)
-last_updated: "2026-10-12T18:30:53.757Z"
+stopped_at: Completed 03-06-PLAN.md (6 of 9 in phase 03)
+last_updated: "2026-10-12T19:05:10.529Z"
 last_activity: 2026-10-12
-last_activity_desc: Closed out 03-05 — the visible retry wait and the context refusal
-state_head: 8ed38ea3d662c5b69f86062f2f44bcc7b7f13ed6
+last_activity_desc: Closed out 03-06 — web search and fetch on every provider
+state_head: 4e2854ff7248918b88cbad3c376c7e93a2c56b74
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 38
-  completed_plans: 34
+  completed_plans: 35
   percent: 29
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-10-01)
 ## Current Position
 
 Phase: 03 (Owned Loop: API Keys and Gateways) — EXECUTING
-Plan: 5 of 9 complete — next is 03-06 (wave 5)
-Status: Ready to execute 03-06-PLAN.md
-Last activity: 2026-10-12 — 03-05 closed out: the visible retry wait and the pre-request context refusal
+Plan: 6 of 9 complete — next is 03-07 (wave 6)
+Status: Ready to execute 03-07-PLAN.md
+Last activity: 2026-10-12 — 03-06 closed out: the api tool surface, one guarded fetch tool, the pluggable fallback search, and the third {{WEB_TOOLS}} rendering
 
 Progress: [███░░░░░░░] 29%
 
@@ -89,6 +89,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 03 P03 | 39 min | 2 tasks | 6 files |
 | Phase 03 P04 | 28 min | 3 tasks | 13 files |
 | Phase 03 P05 | 9 min | 3 tasks | 3 files |
+| Phase 03 P06 | 30 min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -186,6 +187,12 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-05: three endings keep three shapes — a Stop and the step cap are continuable ({ ok: true, interrupted: true }), the context refusal is failed ({ ok: false, error })
 - [Phase 03]: 03-05: the refusal card names Home as a link and adds no button, because api.startReview() builds from the due queue across every lesson rather than from this lesson's nodes
 - [Phase 03]: 03-05: setSleepOverride is the only seam into the wait, in the same posture as setModelOverride — no route, header, environment variable or config file reaches it
+- [Phase 03]: Web search is native where the provider has one (Anthropic, OpenAI, Gemini 3+) and a pluggable fallback otherwise (Tavily or SearXNG); exactly one search source is registered per turn, so the tutor is never offered two ways to search
+- [Phase 03]: Derive's own loop is a fourth tool surface, 'api', carrying the fourteen tutor tools plus fetch_page and web_search; the agent (14), mcp (22) and http (16) surfaces are byte-unchanged and the wire-surface fixture gained only the new api key
+- [Phase 03]: fetch_page is one tool on library.ts's fetchPublic plus assertPublicHost — no second fetcher, no second SSRF guard, no second byte cap
+- [Phase 03]: The learner's configured SearXNG address is deliberately NOT run through assertPublicHost (a local instance is the normal case); the guard is applied to the result URLs the tutor then fetches, and the json-disabled failure gets its own sentence naming settings.yml
+- [Phase 03]: searchMode(provider, modelId) is the one three-way decision the tool registration and the {{WEB_TOOLS}} rendering both read, so the method text and the tool set cannot disagree; a selected-but-unconfigured fallback counts as no search at all
+- [Phase 03]: systemPrompt takes a WebSurface rather than a two-value backend; the api/none rendering tells the tutor to admit uncertainty rather than guess, with method/ and method.generated.ts byte-unchanged
 
 ### Pending Todos
 
@@ -214,6 +221,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T18:30:40.847Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-10-12T19:05:08.392Z
+Stopped at: Completed 03-06-PLAN.md (6 of 9 in phase 03)
 Resume file: None
