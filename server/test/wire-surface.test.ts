@@ -1,10 +1,11 @@
 /**
  * The wire surface, frozen.
  *
- * `wire-surface.json` holds what the model actually reads on each of the three
- * surfaces the tutor is exposed on: per tool, its name, its full description
- * text and its input shape projected to JSON Schema. The fixture is regenerated
- * from `server/src/tools.ts` here and compared byte for byte.
+ * `wire-surface.json` holds what the model actually reads on each of the four
+ * surfaces the tutor is exposed on, and on each provider schema dialect the
+ * owned loop's surface is projected into: per tool, its name, its full
+ * description text and its input shape projected to JSON Schema. The fixture is
+ * regenerated from `server/src/tools.ts` here and compared byte for byte.
  *
  * A failing diff means the contract the model reads has changed. That is not a
  * broken test, it is the review: read the diff and decide whether the change is
@@ -20,6 +21,10 @@
  * surface may differ only where a tool declares it does, and a tool may declare a
  * difference only where the snapshot actually shows one. Undeclared drift between
  * two surfaces therefore still fails, which is the whole point of the registry.
+ *
+ * A snapshot on its own would freeze an invalid schema as happily as a valid
+ * one, so the second `describe` asserts each dialect's rules outright. That is
+ * the half that catches a projection which is stable and wrong.
  */
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -27,9 +32,21 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { ALL_TOOL_NAMES, DERIVE_TOOL_NAMES, descriptionFor, differsOnSurface, jsonSchemaOf, TOOL_LABELS, toolsFor, TOOL_REGISTRY, type ToolSurface } from '../src/tools.js';
+import { ALL_TOOL_NAMES, DERIVE_TOOL_NAMES, descriptionFor, differsOnSurface, jsonSchemaOf, TOOL_DIALECTS, TOOL_LABELS, toolsFor, TOOL_REGISTRY, type ToolDialect, type ToolSurface } from '../src/tools.js';
 
 const SURFACES: ToolSurface[] = ['agent', 'api', 'mcp', 'http'];
+
+/**
+ * The dialects that get their own fixture key, over the `api` surface only.
+ *
+ * A dialect is a *provider's* schema format, and the only surface a provider
+ * reads is the owned loop's. The plugin's MCP wire and the HTTP action route are
+ * Derive's own surfaces, so projecting a dialect onto them would freeze bytes
+ * nothing ever sends. `'full'` gets no key of its own either: it is exactly what
+ * the `api` key already holds, and a `dialect:full` would be the same rows twice.
+ */
+const DIALECTS: ToolDialect[] = TOOL_DIALECTS.filter((d) => d !== 'full');
+
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'wire-surface.json');
 
 /** The fourteen tutor tools as they stood before the registry existed, copied from the pre-phase server/src/tools.ts. Renamed rather than edited when the owned loop's two web tools arrived: this list is a record of the pre-registry contract, and the agent surface still names exactly it. */
@@ -58,15 +75,37 @@ const TOOL_LABELS_AT_PHASE_1: Record<string, string> = {
 
 type Row = { name: string; description: string; input_schema: unknown };
 
-/** The registry projected onto every surface, in registry declaration order, exactly as the fixture stores it. */
+/** The registry projected onto every surface and, over the `api` surface, into every non-`full` dialect, in registry declaration order, exactly as the fixture stores it. */
 function wireSurface(): Record<string, Row[]> {
   const out: Record<string, Row[]> = {};
   for (const surface of SURFACES) out[surface] = toolsFor(surface).map((t) => ({ name: t.name, description: descriptionFor(t, surface), input_schema: jsonSchemaOf(t, surface) }));
+  for (const dialect of DIALECTS) out[`dialect:${dialect}`] = toolsFor('api').map((t) => ({ name: t.name, description: descriptionFor(t, 'api', dialect), input_schema: jsonSchemaOf(t, 'api', dialect) }));
   return out;
 }
 
 /** One tool's row on one surface, or undefined when it is not registered there. */
 const rowOf = (surface: Record<string, Row[]>, name: string, on: ToolSurface) => surface[on].find((r) => r.name === name);
+
+/**
+ * Every JSON Schema keyword a projected schema uses, anywhere in it.
+ *
+ * The keys under `properties` are the tutor's own field names rather than
+ * keywords, so they are walked into but never counted — a dialect that allows
+ * only six keywords must not be failed by a field called `goal`.
+ */
+function keywords(node: unknown, acc = new Set<string>()): Set<string> {
+  if (!node || typeof node !== 'object') return acc;
+  if (Array.isArray(node)) {
+    for (const v of node) keywords(v, acc);
+    return acc;
+  }
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    acc.add(k);
+    if (k === 'properties' && v && typeof v === 'object') for (const child of Object.values(v as Record<string, unknown>)) keywords(child, acc);
+    else keywords(v, acc);
+  }
+  return acc;
+}
 
 describe('the wire surface', () => {
   const live = wireSurface();
@@ -181,11 +220,103 @@ describe('the wire surface', () => {
   });
 
   it('keeps the bounds the model is held to when a shape is projected', () => {
-    const nodes = (rowOf(live, 'set_plan', 'agent')!.input_schema as { properties: Record<string, { minItems?: number; maxItems?: number }> }).properties.nodes;
-    assert.equal(nodes.minItems, 3);
-    assert.equal(nodes.maxItems, 12);
-    const options = (rowOf(live, 'quiz', 'agent')!.input_schema as { properties: Record<string, { minItems?: number; maxItems?: number }> }).properties.options;
-    assert.equal(options.minItems, 2);
-    assert.equal(options.maxItems, 3);
+    // On both surfaces a tutor actually runs on: the Claude agent's, and the
+    // owned loop's. The strict dialect legitimately drops all four — they are on
+    // OpenAI's unsupported list — and is asserted separately below, so the two
+    // assertions are not in contradiction: this one is about the projection every
+    // adapter row selects, that one about the projection none of them does.
+    for (const surface of ['agent', 'api'] as ToolSurface[]) {
+      const nodes = (rowOf(live, 'set_plan', surface)!.input_schema as { properties: Record<string, { minItems?: number; maxItems?: number }> }).properties.nodes;
+      assert.equal(nodes.minItems, 3, `set_plan lost its lower node bound on the ${surface} surface`);
+      assert.equal(nodes.maxItems, 12, `set_plan lost its upper node bound on the ${surface} surface`);
+      const options = (rowOf(live, 'quiz', surface)!.input_schema as { properties: Record<string, { minItems?: number; maxItems?: number }> }).properties.options;
+      assert.equal(options.minItems, 2, `quiz lost its lower option bound on the ${surface} surface`);
+      assert.equal(options.maxItems, 3, `quiz lost its upper option bound on the ${surface} surface`);
+    }
+  });
+});
+
+/**
+ * The half a snapshot cannot do.
+ *
+ * The fixture comparison above freezes each dialect so a change to one is a
+ * reviewable diff — but a snapshot will happily freeze a schema that is stable
+ * and wrong. These assert each dialect's rules outright, which is what catches
+ * a projection nobody meant to write and everybody then committed.
+ */
+describe('each dialect obeys its own rules, not just the fixture', () => {
+  const live = wireSurface();
+
+  /** Every keyword OpenAI's strict mode does not support, from OpenAI's own structured-outputs page. */
+  const UNSUPPORTED_BY_STRICT = [
+    'minItems', 'maxItems', 'minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'format', 'oneOf', 'allOf',
+    'if', 'then', 'else', 'propertyNames', 'patternProperties', 'contains', 'dependentSchemas', 'unevaluatedProperties',
+  ];
+
+  /** Every keyword the Gemini dialect is allowed to emit: the six Google's function-calling guide documents by example. */
+  const ALLOWED_BY_GEMINI = ['type', 'properties', 'required', 'description', 'enum', 'items'];
+
+  const schemaOf = (row: Row) => row.input_schema as { type?: string; properties?: Record<string, { type?: unknown; enum?: unknown[] }>; required?: string[]; additionalProperties?: unknown };
+
+  it('strict mode has additionalProperties: false with every key in required', () => {
+    for (const row of live['dialect:openai-strict']) {
+      const schema = schemaOf(row);
+      assert.equal(schema.additionalProperties, false, `${row.name}: strict mode requires additionalProperties: false on every object`);
+      assert.deepEqual(Object.keys(schema.properties ?? {}).sort(), [...(schema.required ?? [])].sort(), `${row.name}: strict mode requires every property to be listed in required`);
+    }
+  });
+
+  it('strict mode emits no unsupported keyword', () => {
+    for (const row of live['dialect:openai-strict']) {
+      const used = keywords(row.input_schema);
+      for (const bad of UNSUPPORTED_BY_STRICT) {
+        assert.ok(!used.has(bad), `${row.name}: the strict dialect emits ${bad}, which OpenAI's strict mode does not support`);
+      }
+      assert.ok(!used.has('$schema'), `${row.name}: the strict dialect keeps $schema, which it drops as an unknown key`);
+    }
+  });
+
+  it('strict mode expresses an originally-optional field as a nullable union', () => {
+    // quiz has seven properties and four required on the registry's own
+    // projection, so its three optionals are what strict mode has to flatten.
+    const api = schemaOf(rowOf(live, 'quiz', 'api')!);
+    const strict = schemaOf(live['dialect:openai-strict'].find((r) => r.name === 'quiz')!);
+    const optional = Object.keys(api.properties ?? {}).filter((k) => !(api.required ?? []).includes(k));
+    assert.deepEqual(optional.sort(), ['node_id', 'purpose', 'tests'], 'quiz no longer has the three optionals this rule is asserted on');
+    for (const name of optional) {
+      const field = strict.properties![name];
+      assert.ok(Array.isArray(field.type) && field.type.includes('null'), `${name}: strict mode must express an optional as a nullable union, not as an absent required entry`);
+      if (field.enum) assert.ok(field.enum.includes(null), `${name}: an enum that gained null in its type must carry null as a value too`);
+    }
+  });
+
+  it('the gemini dialect uses no rejected keyword', () => {
+    const allowed = new Set(ALLOWED_BY_GEMINI);
+    for (const row of live['dialect:gemini']) {
+      for (const used of keywords(row.input_schema)) {
+        assert.ok(allowed.has(used), `${row.name}: the gemini dialect emits ${used}, and Google answers a keyword it rejects with a 400 rather than a warning`);
+      }
+    }
+  });
+
+  it('the compact dialect shortens descriptions and keeps the keyword set', () => {
+    let anyShorter = false;
+    for (const row of live['dialect:compact']) {
+      const api = rowOf(live, row.name, 'api')!;
+      assert.ok(row.description.length <= api.description.length, `${row.name}: the compact dialect made a description longer`);
+      assert.ok(api.description.startsWith(row.description), `${row.name}: a compact description must be a prefix of the registry's, never a rewrite of it`);
+      if (row.description.length < api.description.length) anyShorter = true;
+      assert.deepEqual([...keywords(row.input_schema)].sort(), [...keywords(api.input_schema)].sort(), `${row.name}: the compact dialect changed the keyword set, which it must not`);
+    }
+    assert.ok(anyShorter, 'the compact dialect shortened nothing at all, which means it does nothing');
+  });
+
+  it('every dialect covers the same tools, in the same order', () => {
+    const names = live.api.map((r) => r.name);
+    assert.equal(names.length, 16);
+    for (const dialect of DIALECTS) {
+      assert.deepEqual(live[`dialect:${dialect}`].map((r) => r.name), names, `the ${dialect} dialect does not carry the api surface's tools in the same order — a dialect must not silently drop one`);
+    }
+    assert.ok(!('dialect:full' in live), "the full dialect is what the api key already holds; a dialect:full key would be the same rows twice");
   });
 });

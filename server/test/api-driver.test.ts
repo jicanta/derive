@@ -18,7 +18,7 @@ delete process.env.DERIVE_MODEL;
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.TAVILY_API_KEY;
 
-const { createLesson, deleteSetting, getLesson, lastTurn, listEvents, listUsage, loadTurnMessages, recordedToolResult, saveTurnMessages, setSessionId, setSetting } = await import('../src/db.js');
+const { createLesson, deleteSetting, getLesson, lastTurn, listEvents, listNodes, listUsage, loadTurnMessages, recordedToolResult, saveTurnMessages, setSessionId, setSetting } = await import('../src/db.js');
 const { interrupt, runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
 const { subscribe } = await import('../src/events.js');
@@ -1216,5 +1216,126 @@ describe('three endings, three shapes', () => {
     assert.equal(lastTurn(stopped)!.status, 'interrupted');
     assert.equal(lastTurn(capped)!.status, 'interrupted');
     assert.equal(lastTurn(refused)!.status, 'error');
+  });
+});
+
+/** The error text the model was handed back for one tool call, from the turn's own persisted history. */
+const toolErrorsOf = (lesson: string, provider: ProviderId = 'anthropic') =>
+  (loadTurnMessages(lesson, provider) as { role: string; content: unknown }[])
+    .filter((m) => m.role === 'tool' && Array.isArray(m.content))
+    .flatMap((m) => m.content as { type: string; output?: { type: string; value?: unknown } }[])
+    .filter((p) => p.type === 'tool-result' && p.output?.type === 'error-text')
+    .map((p) => String(p.output!.value));
+
+describe('a narrower dialect does not narrow what derive accepts', () => {
+  it('refuses a set_plan the full schema rejects, without running the tool and without failing the turn', async () => {
+    // A plan of one node: the registry holds the model to 3 to 12, and nothing
+    // below this line may write a graph the method does not allow.
+    const id = randomUUID();
+    createLesson(id, 'One node is not a plan');
+    const model = new MockLanguageModelV4({
+      modelId: 'claude-opus-5-5',
+      doStream: [
+        step([
+          { type: 'stream-start', warnings: [] },
+          toolCall('bad-1', 'set_plan', '{"goal":"Understand lines","nodes":[{"id":"a","label":"A line is a function","kind":"goal","summary":"A line is a function of one variable."}]}'),
+          finish('tool-calls', 'tool_use'),
+        ]),
+        step([
+          { type: 'stream-start', warnings: [] },
+          { type: 'text-start', id: 't1' },
+          { type: 'text-delta', id: 't1', delta: 'Let me try that again with three nodes.' },
+          { type: 'text-end', id: 't1' },
+          finish('stop', 'end_turn'),
+        ]),
+      ],
+    });
+    await turnWith(id, model, 'teach me');
+
+    const stored = listEvents(id);
+    // The tool body never ran: no plan was drawn and no node was written. This
+    // is the assertion that matters — validation that happens after the action
+    // has already written to the learner's record is not validation.
+    assert.ok(!types(stored).includes('plan'), 'the tool body ran: a plan the full schema rejects reached the learner');
+    assert.equal(listNodes(id).length, 0, 'a graph was written from arguments the registry refuses');
+
+    // The model was told what was wrong, by field, and got another step to fix it.
+    const errors = toolErrorsOf(id);
+    assert.equal(errors.length, 1, 'the model was not handed exactly one tool error for the one bad call');
+    assert.match(errors[0], /^set_plan: nodes: /, 'a tool error must name the tool and the field that failed');
+    assert.equal(model.doStreamCalls.length, 2, 'the model was not given a second step to correct itself');
+    assert.ok(
+      JSON.stringify(model.doStreamCalls[1].prompt).includes('set_plan: nodes'),
+      'the correction never reached the model: the next request does not carry the error',
+    );
+
+    // A malformed call is the model's mistake to fix, not a turn to fail.
+    assert.deepEqual(stored.at(-1)!.payload, { ok: true, verified: 0 }, 'a refused tool call must not fail the turn');
+    assert.equal(lastTurn(id)!.status, 'ok');
+  });
+
+  it('enforces a bound on gemini that the gemini dialect could not express', async () => {
+    // This is the whole point of validating against the full schema rather than
+    // the dialect: the schema Gemini was shown carries no minItems at all, so a
+    // quiz of one option is a call Gemini had no way to refuse. Derive refuses
+    // it anyway, at the boundary that writes to the learner's record.
+    setSetting('active_provider', 'gemini');
+    try {
+      const id = randomUUID();
+      createLesson(id, 'One option is not a question');
+      const model = new MockLanguageModelV4({
+        modelId: 'gemini-3.8-flash',
+        doStream: [
+          step([
+            { type: 'stream-start', warnings: [] },
+            toolCall('gem-1', 'quiz', '{"question":"Is a line a function?","options":["Yes"],"correct":[0],"explanation":"It passes the vertical line test."}'),
+            finish('tool-calls', 'tool_use'),
+          ]),
+          step([
+            { type: 'stream-start', warnings: [] },
+            { type: 'text-start', id: 't1' },
+            { type: 'text-delta', id: 't1', delta: 'Two options, then.' },
+            { type: 'text-end', id: 't1' },
+            finish('stop', 'end_turn'),
+          ]),
+        ],
+      });
+      await turnWith(id, model, 'teach me', 'gemini');
+
+      const stored = listEvents(id);
+      assert.ok(!types(stored).includes('quiz'), 'a quiz with one option reached the learner');
+      const errors = toolErrorsOf(id, 'gemini');
+      assert.equal(errors.length, 1);
+      assert.match(errors[0], /^quiz: options: /, 'the refusal must name the field the dialect could not bound');
+      assert.deepEqual(stored.at(-1)!.payload, { ok: true, verified: 0 });
+    } finally {
+      backToAnthropic();
+    }
+  });
+
+  it('shows gemini a schema with no bounds in it, and anthropic one with them', async () => {
+    // Pinned to the wire rather than to the fixture alone: this asserts the
+    // bytes the provider's own adapter actually received for this turn.
+    const onGemini = randomUUID();
+    createLesson(onGemini, 'What gemini is shown');
+    setSetting('active_provider', 'gemini');
+    let gemini: MockLanguageModelV4;
+    try {
+      gemini = says('Checked.', 'gemini-3.8-flash');
+      await turnWith(onGemini, gemini, 'teach me', 'gemini');
+    } finally {
+      backToAnthropic();
+    }
+
+    const onAnthropic = randomUUID();
+    createLesson(onAnthropic, 'What anthropic is shown');
+    const anthropic = says('Checked.');
+    await turnWith(onAnthropic, anthropic, 'teach me');
+
+    const schemasOf = (m: MockLanguageModelV4) => JSON.stringify((m.doStreamCalls[0].tools ?? []).filter((t) => t.type === 'function'));
+    assert.ok(!schemasOf(gemini!).includes('minItems'), 'gemini was shown a keyword its own dialect drops, which is a 400 from Google rather than a warning');
+    assert.ok(!schemasOf(gemini!).includes('additionalProperties'), 'gemini was shown additionalProperties, which is not in its keyword set');
+    assert.ok(schemasOf(anthropic).includes('minItems'), 'anthropic lost the bounds the tutor is held to');
+    assert.ok(schemasOf(anthropic).includes('"additionalProperties":false'), 'anthropic lost additionalProperties: false');
   });
 });
