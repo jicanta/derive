@@ -68,7 +68,7 @@ covered_files:
   - web/src/pages/Lesson.tsx
   - web/src/pages/Settings.tsx
   - web/src/pages/You.tsx
-covered_digest: "v1:sha256:1ace33a92963b9ff3e2f76bab27ecfca184009441e550e85608753a47e2eadba"
+covered_digest: "v1:sha256:b17b710ce373fd3a3231c02fd29d5381c7d3b67b8222e7c2cfc35bc143862c1b"
 behavior_unverified: 2
 insufficient_spec: 10
 overrides_applied: 0
