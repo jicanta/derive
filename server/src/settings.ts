@@ -192,7 +192,7 @@ export function currentTutor(): TutorChoice {
   return { provider, source, ...chooseModel(provider) };
 }
 
-/** The dialect the two login drivers and systemPrompt() speak. Only teaching rows reach a turn in this release. */
+/** The dialect the two login drivers speak. The method text no longer reads it: `systemPrompt` takes a `WebSurface`, because the owned loop's web tools depend on the provider and on what the learner configured, which two values cannot say. */
 export const backendOf = (provider: string): Backend => (provider === 'codex' ? 'codex' : 'claude');
 
 /** The variables a key id reads that is not a catalogue row. Only the fallback web search's key is one: it is stored under `search:tavily` so it rides keys.ts like every provider key, and it still has to be lockable by an environment variable. */

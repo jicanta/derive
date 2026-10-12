@@ -16,14 +16,16 @@ process.env.DERIVE_DATA_DIR = scratch;
 delete process.env.DERIVE_BACKEND;
 delete process.env.DERIVE_MODEL;
 delete process.env.ANTHROPIC_API_KEY;
+delete process.env.TAVILY_API_KEY;
 
-const { createLesson, getLesson, lastTurn, listEvents, listUsage, loadTurnMessages, recordedToolResult, saveTurnMessages, setSessionId, setSetting } = await import('../src/db.js');
+const { createLesson, deleteSetting, getLesson, lastTurn, listEvents, listUsage, loadTurnMessages, recordedToolResult, saveTurnMessages, setSessionId, setSetting } = await import('../src/db.js');
 const { interrupt, runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
 const { subscribe } = await import('../src/events.js');
-const { setKey } = await import('../src/keys.js');
+const { removeKey, setKey } = await import('../src/keys.js');
 const { windowOf } = await import('../src/pricing.js');
 const { answerPrompt, pendingId } = await import('../src/prompts.js');
+const { SEARCH_BASE_URL, SEARCH_SETTING } = await import('../src/search.js');
 const { baseUrlKey } = await import('../src/settings.js');
 const { RETRY_BASE_MS, RETRY_WINDOW_MS, STEP_CAP, apiDriverFor, patchOrphans, retryAfterMs, retryDelay, setModelOverride, setSleepOverride, setStepCapOverride } = await import('../src/drivers/api.js');
 
@@ -560,6 +562,109 @@ function callsOf(messages: { role: string; content: unknown }[]) {
   }
   return called.map((id) => ({ id, answered: answered.has(id) }));
 }
+
+/** The system message the model actually received, which is where the method text's web-tool substitution shows up. */
+const instructionsOf = (model: MockLanguageModelV4, call = 0) => String(model.doStreamCalls[call].prompt[0].content);
+
+/** The tools the model actually received, by name and by whether the provider executes it itself. */
+const toolsOf = (model: MockLanguageModelV4, call = 0) => (model.doStreamCalls[call].tools ?? []).map((t) => ({ name: t.name, provider: t.type !== 'function' }));
+
+/** Put the install back on the provider's own search, which is what a fresh one reads. */
+const noFallbackSearch = () => {
+  deleteSetting(SEARCH_SETTING);
+  deleteSetting(SEARCH_BASE_URL);
+};
+
+describe('the method text names the web tools the turn actually has', () => {
+  after(() => {
+    noFallbackSearch();
+    backToAnthropic();
+  });
+
+  it("names the provider's own search tool where there is one, and registers that tool and not Derive's", async () => {
+    noFallbackSearch();
+    backToAnthropic();
+    const id = randomUUID();
+    createLesson(id, 'Anthropic searches for itself');
+    const model = says('Checked.');
+    await turnWith(id, model, 'teach me');
+
+    const text = instructionsOf(model);
+    assert.match(text, /Web search \(the provider's own search tool\) and `fetch_page`/);
+    assert.ok(!text.includes('{{WEB_TOOLS}}'), 'an unsubstituted placeholder reached the model');
+
+    const tools = toolsOf(model);
+    // Exactly one search, and it is the provider's: Derive's `web_search` row
+    // is omitted, so the tutor is never offered two ways to search in one turn.
+    assert.deepEqual(
+      tools.filter((t) => t.name === 'web_search'),
+      [{ name: 'web_search', provider: true }],
+    );
+    assert.ok(tools.some((t) => t.name === 'fetch_page' && !t.provider), 'fetch_page is Derive’s own and is registered on every provider');
+    assert.equal(tools.length, 16, 'the fourteen tutor tools, fetch_page, and the provider’s search');
+  });
+
+  it("names Derive's own web_search where the learner configured a fallback", async () => {
+    noFallbackSearch();
+    setSetting(SEARCH_SETTING, 'tavily');
+    setKey('search:tavily', 'tvly-test-key-00000000');
+    setSetting('active_provider', 'openrouter');
+    try {
+      const id = randomUUID();
+      createLesson(id, 'OpenRouter with a key of its own');
+      const model = says('Checked.', 'anthropic/claude-opus-5.5');
+      await turnWith(id, model, 'teach me', 'openrouter');
+
+      const text = instructionsOf(model);
+      assert.match(text, /`web_search` \/ `fetch_page`/);
+      assert.ok(!text.includes('{{WEB_TOOLS}}'), 'an unsubstituted placeholder reached the model');
+
+      const tools = toolsOf(model);
+      assert.deepEqual(
+        tools.filter((t) => t.name === 'web_search'),
+        [{ name: 'web_search', provider: false }],
+        'the fallback is Derive’s own function tool, not a provider-executed one',
+      );
+      assert.ok(tools.some((t) => t.name === 'fetch_page'));
+      assert.equal(tools.length, 16, 'the fourteen tutor tools plus Derive’s two');
+    } finally {
+      removeKey('search:tavily');
+      noFallbackSearch();
+      backToAnthropic();
+    }
+  });
+
+  it('tells the tutor to admit uncertainty where there is no search at all, and still gives it fetch_page', async () => {
+    noFallbackSearch();
+    setSetting('active_provider', 'openrouter');
+    try {
+      const id = randomUUID();
+      createLesson(id, 'OpenRouter with nothing configured');
+      const model = says('I am not sure.', 'anthropic/claude-opus-5.5');
+      await turnWith(id, model, 'teach me', 'openrouter');
+
+      const text = instructionsOf(model);
+      assert.match(text, /there is no web search on this provider/);
+      assert.match(text, /say plainly when you are unsure of a fact rather than guess or assert it/);
+      assert.match(text, /`fetch_page` still reads any page you are given a URL for/);
+      // Silent and total: an unsubstituted placeholder would read to the model
+      // as the literal characters, which is the failure this rendering exists
+      // to prevent.
+      assert.ok(!text.includes('{{WEB_TOOLS}}'), 'an unsubstituted placeholder reached the model');
+
+      const tools = toolsOf(model);
+      assert.deepEqual(
+        tools.filter((t) => /search/.test(t.name)),
+        [{ name: 'search_material', provider: false }, { name: 'search_library', provider: false }],
+        'no search tool of any kind may be registered when the prompt says there is none',
+      );
+      assert.ok(tools.some((t) => t.name === 'fetch_page'), 'fetch_page does not depend on a search being available');
+      assert.equal(tools.length, 15, 'the fourteen tutor tools plus fetch_page');
+    } finally {
+      backToAnthropic();
+    }
+  });
+});
 
 describe('a lesson resumes from the history it persisted', () => {
   it("carries the first turn's messages into the second request, with no system message among them", async () => {

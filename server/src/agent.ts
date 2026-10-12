@@ -5,13 +5,14 @@ import { codexDriver, type Active } from './codex.js';
 import { DATA_DIR, EFFORT, VERSION } from './config.js';
 import { clearSessionId, clearTurnMessages, getLesson, lastTurn, learnerProfile, startTurn } from './db.js';
 import { driverOverride, sinkFor, type Driver, type EventSink, type TurnContext } from './driver.js';
+import { searchMode } from './drivers/adapters.js';
 import { apiDriverFor } from './drivers/api.js';
 import { emit } from './events.js';
 import { librarySection } from './library.js';
 import { materialsSection } from './materials.js';
 import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
-import { systemPrompt } from './prompt.js';
+import { systemPrompt, type WebSurface } from './prompt.js';
 import { safeMessage } from './secrets.js';
 import { backendOf, resolveTutor } from './settings.js';
 import { DERIVE_TOOL_NAMES, TOOL_LABELS, descriptionFor, shapeFor, toolsFor } from './tools.js';
@@ -281,7 +282,14 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   const pendingNotices = takeNotices(lessonId);
   if (pendingNotices.length) prompt = `${pendingNotices.join('\n\n')}\n\nThen, the learner's message:\n${prompt}`;
 
-  const instructions = systemPrompt(backendOf(tutor.provider)) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
+  // The method text names the web tools this turn actually has. The two login
+  // rows borrow their host CLI's; every other row is Derive's own loop, where
+  // the answer comes from `searchMode` — the same call the loop registers its
+  // tools from, so the tutor is never told to verify with a tool it was not
+  // given, and never offered two ways to search in one turn.
+  const web: WebSurface =
+    tutor.provider === 'codex' ? { kind: 'codex' } : tutor.provider === 'claude-code' ? { kind: 'claude' } : { kind: 'api', search: searchMode(tutor.provider, tutor.model) };
+  const instructions = systemPrompt(web) + materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
 
   // The one dispatch, below: everything around it — the bookkeeping above and
   // the teardown after — is the same whichever driver runs.

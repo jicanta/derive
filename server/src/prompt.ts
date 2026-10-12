@@ -18,10 +18,53 @@ const PROMPT = `${METHOD_PREAMBLE}
 ${METHOD_BODY}
 `;
 
-/** The teaching system prompt for a backend: the same method, naming that backend's own web tools. */
-export function systemPrompt(backend: 'claude' | 'codex'): string {
-  const web = backend === 'codex' ? 'Web search (your built-in `web_search`)' : '`WebSearch` / `WebFetch`';
-  return PROMPT.replaceAll('{{WEB_TOOLS}}', web);
+/**
+ * Which web tools the turn actually has, which is the only thing the method
+ * text varies on.
+ *
+ * The two login surfaces borrow their host CLI's own tools and have nothing to
+ * decide. Derive's own loop has three cases, because on an API key the answer
+ * genuinely depends on the provider and on what the learner configured: the
+ * provider's own search tool, Derive's fallback, or neither. The value is
+ * computed by `searchMode` in `drivers/adapters.ts` and the loop registers its
+ * tools from the same call, so the method text and the tool set cannot disagree.
+ */
+export type WebSurface = { kind: 'claude' } | { kind: 'codex' } | { kind: 'api'; search: 'native' | 'fallback' | 'none' };
+
+/**
+ * What `{{WEB_TOOLS}}` becomes on each surface.
+ *
+ * `{{WEB_TOOLS}}` is substituted into five sentences of the method text that
+ * all read it as a name — "verify it with X before you say it", "when X turns
+ * up a source worth keeping" — so every rendering has to be a phrase that
+ * closes. That is why the no-search case opens with the one tool there still
+ * is and carries its instruction in a parenthesis rather than replacing the
+ * name with a sentence: the rule the method asks for is restated as an
+ * admission requirement, which is exactly what a tutor with no way to check
+ * can honestly do. A model told to verify with a tool that is not there
+ * asserts instead, and that is the failure this case exists to prevent.
+ */
+function webTools(surface: WebSurface): string {
+  switch (surface.kind) {
+    case 'codex':
+      return 'Web search (your built-in `web_search`)';
+    case 'claude':
+      return '`WebSearch` / `WebFetch`';
+    case 'api':
+      switch (surface.search) {
+        case 'native':
+          return "Web search (the provider's own search tool) and `fetch_page`";
+        case 'fallback':
+          return '`web_search` / `fetch_page`';
+        case 'none':
+          return '`fetch_page` only (there is no web search on this provider: say plainly when you are unsure of a fact rather than guess or assert it, and name what you could not check; `fetch_page` still reads any page you are given a URL for)';
+      }
+  }
+}
+
+/** The teaching system prompt for a surface: the same method, naming that surface's own web tools. */
+export function systemPrompt(surface: WebSurface): string {
+  return PROMPT.replaceAll('{{WEB_TOOLS}}', webTools(surface));
 }
 
 /**
