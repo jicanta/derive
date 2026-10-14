@@ -1,8 +1,8 @@
 ---
 phase: 03-owned-loop-api-keys-and-gateways
 verified: 2026-10-12T21:30:00Z
-status: human_needed
-score: 3/5 success criteria fully verified (7/9 clauses); 2 criteria present-but-behaviour-unverified on their live-key half
+status: passed
+score: 5/5 success criteria verified (9/9 clauses) — 3/5 autonomously, the 2 live-key halves closed by the 03-UAT run
 covered_files:
   - .env.example
   - .planning/REQUIREMENTS.md
@@ -68,7 +68,7 @@ covered_files:
   - web/src/pages/Lesson.tsx
   - web/src/pages/Settings.tsx
   - web/src/pages/You.tsx
-covered_digest: "v1:sha256:b17b710ce373fd3a3231c02fd29d5381c7d3b67b8222e7c2cfc35bc143862c1b"
+covered_digest: "v1:sha256:f673635ba20c90d2bb75ca4453d7a01d3475ff5f6204bb32ae18b56367fa9d3b"
 behavior_unverified: 2
 insufficient_spec: 10
 overrides_applied: 0
@@ -354,3 +354,25 @@ The phase goal is achieved in the codebase to the limit of what this environment
 
 _Verified: 2026-10-12T21:30:00Z_
 _Verifier: Claude (gsd-verifier)_
+
+---
+
+### Human Verification — Discharged (2026-10-12)
+
+All eight `human_verification` items were run by the owner and recorded in
+`03-UAT.md`: **8 tests, 8 passed, 0 issues, 0 gaps**, UAT `status: complete`. The two
+success-criteria clauses this report held open as present-but-behaviour-unverified —
+a lesson on a real Anthropic/OpenAI/Gemini key (SC1) and a lesson through OpenRouter
+plus a base-URL endpoint with its usage row (SC2) — were both observed live, which is
+what moves the headline score from 3/5 to 5/5. Item 8, the one owner judgement in the
+set, was decided in favour of completion: PROV-08 is flipped to Complete in
+`.planning/REQUIREMENTS.md` on the strength of the live-key parity run in test 1, not
+on the stub proof alone.
+
+The ten `insufficient_spec_items` are unchanged — they are backstop statements about
+vendor behaviour and rendered layout, not open work. `03-REVIEW.md`
+(`status: issues_found`) and `03-UI-REVIEW.md` (15/24) remain advisory and are carried
+forward as findings, not as gaps against this phase's must-haves.
+
+_Status flipped human_needed → passed on 2026-10-14; `pnpm test` green at HEAD (396/396),
+no source file changed since the verification commit._
