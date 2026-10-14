@@ -20,11 +20,11 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-01)
+See: .planning/PROJECT.md (updated 2026-10-14)
 
 **Core value:** A learner can sit down with any model they have access to and be taught the Derive way: the dependency graph, the understanding gate, the review loop, with nothing lost between providers.
 **Simplicity rule (binding):** one screen, one next step. The default UI shows the lesson and what to do next; everything else lives behind Settings. No feature ships without a one-sentence reason tied to learning better.
-**Current focus:** Phase 03 — Owned Loop: API Keys and Gateways
+**Current focus:** Phase 4 — Local Models, Parity Proof and Usage
 
 ## Current Position
 
@@ -216,9 +216,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 2]: Anthropic consumer-OAuth policy and Gemini CLI third-party terms are MEDIUM confidence; re-verify before the settings page ships
-- [Phase 3]: AI SDK 7 API shapes, OpenRouter per-response cost field path, and context compaction strategy are unverified in this repo
+- [Phase 2]: Gemini CLI third-party terms are MEDIUM confidence; re-verify if that driver ever leaves v2 (the Anthropic half is settled — in-app Claude runs on an API key, the plugin keeps the subscription)
+- [Phase 3]: Two advisory reports are open and carried forward, not closed: `03-REVIEW.md` (`issues_found`) and `03-UI-REVIEW.md` (15/24 — chiefly the cost segment squeezing the lesson topic to 0px in the header at 1024px, Home's rows overlapping at 375px, the web-search card telling a default Claude Code install it has no search, and a 23px radio hit area against the 32px rule)
 - [Phase 4]: No measurement yet of which local models pass the understanding gate; the harness produces the answer
+- [Phase 4]: Two Phase 3 deferrals are owed here, both named with their seam in `03/deferred-items.md`: the Ollama search backend (`SEARCH_PROVIDERS` in `server/src/search.ts`, one entry plus one function — PROV-09's third backend) and lifting `/you`'s field string onto the shared `fields.ts` vocabulary
 - [Phase 7]: npm package name not yet reserved (`derive` is taken)
 
 ### Quick Tasks Completed
@@ -237,6 +238,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T20:55:45.792Z
-Stopped at: Phase 03 complete, ready to plan Phase 4
+Last session: 2026-10-14
+Stopped at: Phase 03 verified and marked complete (9/9 plans, UAT 8/8, security 0 open); ready to plan Phase 4
 Resume file: None

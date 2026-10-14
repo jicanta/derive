@@ -36,18 +36,19 @@ Inferred from the codebase map (`.planning/codebase/`, mapped at commit 7d7db1f)
 - ✓ A per-turn token/cost ledger (`turns`, `usage`) written by the sink on every driver, never estimated — Phase 1
 - ✓ The local server binds loopback, checks Host and Origin, requires a per-install token, and redacts secrets from every error, log, event and export before any key is stored — Phase 1
 - ✓ Learner picks provider and model on a settings page in the app: ten rows in three groups, logins and local servers detected on open and on rescan, one masked key per provider in a 0600 file the API never echoes, model list fetched with a manual fallback, connection tested with the provider's real failure sentence, and the active provider visible in the lesson header and the plugin start message — Phase 2 (SET-01..06)
+- ✓ Learner can run the tutor on a pay-per-use API key — Anthropic, OpenAI or Google Gemini — through Derive's own agent loop; the Claude Code plugin stays the Anthropic subscription route — Phase 3 (PROV-01..03)
+- ✓ Learner can run the tutor through OpenRouter, with the gateway's own per-response cost recorded, or through any OpenAI-compatible endpoint by entering a base URL and key — Phase 3 (PROV-04, PROV-05)
+- ✓ Parity on the owned loop: the same tutor tools, the same method text, sequential tool execution, resume after an interruption, retries behind a visible "provider busy" status, web search on every path (provider-native where it exists, else Tavily or SearXNG), and tool schemas projected per provider dialect and validated in CI — Phase 3 (PROV-08..10). The local paths and the nightly conformance harness that *proves* parity are Phase 4 (PROV-06/07, PROV-13)
+- ✓ Learner sees what each lesson cost in the lesson header and on Home, labelled billed, estimated or not billed, priced from a dated table the learner can override locally — Phase 3 (COST-02, COST-04)
+- ✓ A learner's model override is stored per provider, so switching providers no longer hands one provider's model id to another — Phase 3, closing Phase 2's 02-REVIEW WR-01
 
 ### Active
 
 Provider layer
 
-- [ ] Learner can run the tutor on a pay-per-use API key: Anthropic, OpenAI, Google Gemini
-- [ ] Learner can run the tutor through OpenRouter or any OpenAI-compatible endpoint (one base URL + key)
 - [ ] Learner can run the tutor on a local model (Ollama, LM Studio, llama.cpp) with no cost and offline
 - [ ] Learner can run the tutor on additional CLI subscriptions they already pay for (Gemini CLI, GitHub Copilot, other agent CLIs)
-- [ ] Full parity across providers: the same tutor tools, the same method, web search via a pluggable search provider, on every path (Derive runs its own agent loop where the provider gives none)
-- [ ] Learner sees per-lesson token counts and estimated cost, plus a running total on a usage page, on pay-per-use providers; nothing more elaborate than that
-- [ ] A learner's own model override names the provider it belongs to, not just a bare model id — surfaced by Phase 2 verification (02-REVIEW WR-01): the override is stored as a plain string and resolved against whichever provider is active, so switching providers can hand a learner's id to a provider that has never heard of it
+- [ ] A running total on a usage page, by provider, model and lesson, with tokens-only lines for the subscription and local paths — the per-lesson half shipped in Phase 3; this is the remaining half (COST-03)
 
 Learning experience
 
@@ -82,8 +83,8 @@ Adoption
 ## Context
 
 - **Existing system**: TypeScript throughout. Hono server (`server/src`) with node:sqlite storage; React web app (`web/src`); Claude Code plugin (`plugin/`); Codex skills (`codex/`). Full map in `.planning/codebase/` (ARCHITECTURE, STACK, STRUCTURE, CONVENTIONS, TESTING, INTEGRATIONS, CONCERNS).
-- **How turns run today**: `server/src/agent.ts` runs a lesson turn as an Agent SDK `query()` with the tutor tools registered as an in-process MCP server; `server/src/codex.ts` runs it as a Codex thread with Derive's stdio MCP server attached. Both depend on the host CLI for the agent loop and for web tools. API-key, gateway and local providers need Derive's own loop.
-- **Known debt on the path**: the tool contract is written three times (`agent.ts`, `mcp.ts`, the HTTP action switch in `index.ts`) and the method text twice (`prompt.ts`, `plugin/skills/teach/SKILL.md`); pending and held cards vanish on restart; `replaceGraph` and `deleteLesson` are not transactional; no linter. See `.planning/codebase/CONCERNS.md`.
+- **How turns run today**: three paths behind one driver seam. `server/src/agent.ts` runs a turn as an Agent SDK `query()` on a Claude Code login; `server/src/codex.ts` runs it as a Codex thread on a ChatGPT login; and since Phase 3 `server/src/drivers/api.ts` runs Derive's *own* agent loop over the AI SDK for API keys and gateways (Anthropic, OpenAI, Gemini, OpenRouter, any OpenAI-compatible base URL), with per-dialect tool schemas, retries, orphan-patched resume and a cost ledger. Local models reuse that same loop in Phase 4.
+- **Known debt on the path**: pending and held cards vanish on restart (Phase 5); `replaceGraph` and `deleteLesson` are not transactional; no linter. The tool contract and method text were consolidated in Phase 1 and are each defined once. Phase 3 left two advisory reports open — `03-REVIEW.md` (`issues_found`) and `03-UI-REVIEW.md` (15/24, chiefly the cost segment squeezing the lesson topic in the header and Home's rows overlapping at 375px). See `.planning/codebase/CONCERNS.md`.
 - **Learning science**: the Math Academy-style mechanics (warm-up on the forgetting curve, understanding gate, cumulative quiz, FIRe credit, targeted remediation) live in `server/src/actions.ts`, `schedule.ts`, `db.ts` and are covered by the pnpm test suite.
 - **Who it is for**: learners beyond the author, on providers the author does not use, in the browser and in the terminal. The essence, tips and workflow Derive has now must survive every change.
 
@@ -100,16 +101,19 @@ Adoption
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Providers first, then learning UX, then style, then adoption | More providers unlocks more users immediately; the rest lands on a stable layer | — Pending |
-| Full parity across providers (Derive owns its agent loop) | The method is the product; degrading it per provider would fork the experience | — Pending |
+| Full parity across providers (Derive owns its agent loop) | The method is the product; degrading it per provider would fork the experience | ✓ Shipped Phase 3 on the API-key and gateway paths — same tutor tools, same method text, sequential execution, resume, retries; the conformance harness that proves it is Phase 4 |
 | Settings page in the app for provider/model choice | Env-only is fine for the author, not for adoption; per-lesson choice is premature | ✓ Shipped Phase 2 — one page, ten rows, install-wide with a per-learner model override on /you |
-| Per-lesson cost plus running total on pay-per-use | Learners paying per token must see what a lesson costs | — Pending |
+| Per-lesson cost plus running total on pay-per-use | Learners paying per token must see what a lesson costs | ◆ Half shipped Phase 3 — the per-lesson figure is in the header and on Home; the usage page total is Phase 4 (COST-03) |
 | Consolidate the tool contract and method text as part of the provider work | Every new driver would otherwise add a fourth copy | — Pending |
 | Clone-and-run install, no desktop app, no hosted version | Author's call: what they can clone is fine for now | — Pending |
 | Success = other people using it | Adoption is the measure, not the author's own use | — Pending |
-| In-app Claude runs on an API key; the plugin is the subscription route | Anthropic's terms forbid Pro/Max login tokens in third-party tools including the Agent SDK | — Pending |
+| In-app Claude runs on an API key; the plugin is the subscription route | Anthropic's terms forbid Pro/Max login tokens in third-party tools including the Agent SDK | ✓ Shipped Phase 3 — the `anthropic` row teaches on a key, `claude-code` still teaches on the login |
 | Copilot and Gemini CLI drivers deferred to v2 | Riskiest drivers; the owned loop plus OpenAI-compatible covers most of their value | — Pending |
 | Simplicity rule: one screen, one next step; eight "just because" requirements moved to v2 | Owner's call on 2026-09-17: Derive must stay simple to use and understand | — Pending |
 | A long model id scrolls inside its field rather than widening the page | Owner's call on 2026-10-01 closing Phase 2 UAT: /settings already behaved this way and was accepted there, so /you matches it instead of re-rhythming the form | ✓ Applied Phase 2 |
+| Prices come from a dated table, and a table-priced lesson reads `estimated`, never `billed` | The five vendors' list prices were cross-checked against their own pages on 2026-10-06, but two of them are tiered or promotional, so a table figure is an estimate by construction; only a gateway's own per-response cost earns `billed` | ✓ Applied Phase 3 (COST-04) |
+| A half-configured search fallback behaves as no search at all, not as the provider's own | A learner who picked Tavily and left the key empty must not be silently served a different search; the selection has to mean what it says | ✓ Applied Phase 3 (PROV-09) |
+| PROV-08 ("full parity") earns its checkbox on the live-key run, not on the stub proof | Owner's call on 2026-10-12 closing Phase 3 UAT: the substance was stub-tested all through the phase, but "full parity" is a claim about real providers, so the marking waited for the three live-key lessons in UAT test 1 | ✓ Decided Phase 3 — flipped to Complete |
 
 ## Evolution
 
@@ -129,4 +133,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-01 after Phase 2*
+*Last updated: 2026-10-14 after Phase 3*
