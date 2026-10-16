@@ -1,10 +1,11 @@
 ---
 phase: "4"
 slug: "local-models-parity-proof-and-usage"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-10-16"
+reviewed_at: "2026-10-16"
 ---
 
 # Phase 4 — UI Design Contract
@@ -72,19 +73,29 @@ a parallel system.
 
 ## Spacing Scale
 
-Declared values (multiples of 4 only), matching the shipped Tailwind utility usage (gap-1/2/3/4/6, px-5, py-4, pt-9):
+Declared values (multiples of 4 only). Every utility in the Usage column **equals** its token's pixel value;
+shipped utilities that are multiples of 4 but sit outside the seven tokens below are documented, with their
+justification, in the Exceptions list rather than assigned to a token they do not match.
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | Icon gaps (`gap-1`), inline padding, dot-to-label gap |
-| sm | 8px | Compact element spacing (`gap-2`), field-to-hint gap |
-| md | 16px | Default element spacing (`gap-4`, card inner `px-4`), section `mt-4` |
-| lg | 24px | Section padding (`gap-6` between cards, `py-5`), group `mt-8` |
-| xl | 32px | Layout gaps (`px-8` at md, `mt-8`) |
-| 2xl | 48px | Major section breaks (`pt-9` page top, `mt-12`) |
-| 3xl | 64px | Page-level spacing (`pb-24` page bottom, `mt-16`) |
+| xs | 4px | Icon-to-label gaps, inline padding, dot-to-label gap |
+| sm | 8px | Compact element spacing (`gap-2`), field-to-hint gap (`mt-2`) |
+| md | 16px | Default element spacing (`gap-4`), card inner `px-4`, card inner `py-4`, section `mt-4` |
+| lg | 24px | Section padding (`gap-6` between cards, section `mt-6`) |
+| xl | 32px | Layout gaps (`px-8` at md, section `mt-8`) |
+| 2xl | 48px | Major section breaks (`mt-12`) |
+| 3xl | 64px | Page-level spacing (`mt-16`) |
 
 **Exceptions (already shipped, do not "normalise"):**
+- **Off-scale step sizes** — multiples of 4, but outside the 7-value set above — are part of the shipped
+  rhythm and stay: `gap-3`/`mt-3`/`px-3` (12px), `px-5`/`py-5`/`gap-5` (20px) on the settings/lesson card
+  shells (`Settings.tsx` page shell `px-5 md:px-8`; `ProviderRow`/`WebSearchCard` card
+  `px-5 py-4 md:px-6 md:py-5`), `pt-9` (36px — the Settings page top, `Settings.tsx:110`), `pb-24` (96px —
+  the Settings page bottom, `Settings.tsx:110`). This phase writes **no new** off-scale value; where a new
+  surface sits inside one of these shell files it reuses that file's existing utility.
+- `gap-1.5` (6px) — the icon-to-word gap on the Settings `rescan` button (`Settings.tsx:131`); pre-existing,
+  stays.
 - `textButton` hit area is `h-8` (32px) — the project-wide minimum for a quiet text action (Phase 2 rule).
 - Status `pill` is `h-6` (24px); control fields and primary buttons are `h-9`/`h-10` (36–40px).
 - Card corner radius is `rounded-[18px]`; inputs are `rounded-xl`; buttons `rounded-lg`.
@@ -126,10 +137,15 @@ Additional semantic tokens (secondary, restrained):
 - `moss-400` `#9fbc86` — a succeeded readout (present/local status dot, a passing `Test teaching` line,
   a connected test result).
 
-**Accent reserved for:** the primary action button fill ("Use this provider", "Test teaching", "Save"),
-the `teaching now` / active-provider card border and dot, the 1800ms saved tick line (`tickLine`),
-prose links, `::selection`, the `.glow-gold` highlight, and the Usage grand total as the one emphasized
-figure on that page. Nothing else takes gold.
+**Accent reserved for:** the primary action button fill ("Use this provider", `test teaching`), the
+`teaching now` / active-provider card border and dot, the 1800ms saved tick line (`tickLine`), prose links,
+`::selection`, the `.glow-gold` highlight, and the Usage grand total as the one emphasized figure on that
+page. Nothing else takes gold.
+
+> **No `Save` control exists.** Every field on the Settings page saves itself on blur (`Settings.tsx:31`
+> records why: "every field saves itself, so there is no Save button"), and the save is signalled by the
+> 1800ms gold `tickLine`, not a button. Gold is therefore never bound to a generic `Save` label — the tick
+> line above is the only place a save is acknowledged.
 
 **Color contract for this phase:** a local-model row that is `not configured` reads `ink` (no gold); a row
 that is teaching reads gold, exactly as the shipped `ProviderRow` already does. A refusal card edge is
@@ -140,7 +156,9 @@ that is teaching reads gold, exactly as the shipped `ProviderRow` already does. 
 ## Copywriting Contract
 
 Real shipped strings and the new strings this phase must render. Sentence case, no exclamation marks,
-problem-then-next-step. Every refusal is Derive's own sentence, never a provider's paraphrase.
+problem-then-next-step. Every refusal is Derive's own sentence, never a provider's paraphrase. No action
+label is a bare verb: each names its object (`test teaching`, `Use this provider`, `rescan`) — there is no
+`Save`, `Submit`, `OK`, or `Cancel` anywhere in this phase.
 
 | Element | Copy |
 |---------|------|
@@ -148,7 +166,7 @@ problem-then-next-step. Every refusal is Derive's own sentence, never a provider
 | Section CTA (unchanged) | `Use this provider` |
 | Empty state heading | `Nothing spent yet` |
 | Empty state body | `Run a lesson and its cost lands here: one line per lesson, grouped by provider and model. Local and subscription turns show tokens only — no dollar figure, because there is none.` |
-| Error state | Local capability refusal — heading `This model cannot run the method`, body `{model} does not support tool calling, and the understanding gate, the graph and the quiz all run as tools. Pick a model that supports tool calling, or choose another provider in Settings.` Context refusal — `The method does not fit in this model's context window. This step needs about {estimate} tokens, but {model} is set to {num_ctx}. Raise the model's context window in its own settings (num_ctx), or pick a model with room.` |
+| Error state | **Local capability refusal** (link `Settings`) — heading `This model cannot run the method`, body `{model} does not support tool calling, and the understanding gate, the graph and the quiz all run as tools. Pick a model that supports tool calling, or choose another provider in Settings.` · **num_ctx context refusal** (link `Settings` — the fix is the model's own `num_ctx` on its row in Settings, *not* the Phase-3 lesson-growth refusal) — `The method does not fit in this model's context window. This step needs about {estimate} tokens, but {model} is set to {num_ctx}. Raise the model's context window in Settings (num_ctx), or pick a model with room.` · **lesson-growth context refusal** (link `Home`; pre-existing Phase-3 A6, unchanged) — `This lesson has grown too long to continue. Everything you locked is saved — start a review lesson on these nodes from Home.` |
 | Destructive confirmation | None — this phase ships no destructive action; the existing inline two-step key removal (`remove the key · keep`) is unchanged |
 
 Additional strings fixed by this contract:
@@ -156,15 +174,15 @@ Additional strings fixed by this contract:
 | Surface | String |
 |---------|--------|
 | Settings group eyebrow (existing) | `on this machine` |
-| Local row status pill | `not configured` · `checking` · `local` (reuse the existing pill vocabulary) |
+| Local row status pill | `not configured` · `checking` · `found on port {port}` — the shipped `ProviderStatus` vocabulary (`web/src/lib/types.ts:31`); a found local server reads `found on port 11434`, never `local` |
 | Test teaching — running | button `testing…`; one mono line with `role="status"`: `running one node and a graded quiz` |
 | Test teaching — pass | `Pass · taught one node and passed one graded quiz · {ms} ms` (moss) |
 | Test teaching — fail | `Fail · {reason}` (rust), e.g. `Fail · the model called no tools, so there was no node to grade.` / `Fail · the quiz came back but the grade was unreadable.` / `Fail · nothing answered at {host}:{port}.` |
-| Refusal card one link | `Settings` (capability/local refusals) and `Home` (the existing context-window refusal keeps its literal `Home` link) — one link, never a button |
+| Refusal card one link | One link, never a button. `Settings` carries the **capability** refusal and the new **num_ctx context** refusal — both fixes live on the model's row in Settings, and the num_ctx card renders its link on the literal word `Settings` inside `… raise the model's context window in Settings (num_ctx) …`. `Home` carries **only** the pre-existing Phase-3 **lesson-growth context** refusal (`… from Home.`); the two context-window refusals are distinct and must not be conflated |
 | Usage page header | `Usage` + serif em `· what learning has cost` |
 | Usage group line | `{provider} · {model} · {n} lesson(s) · about ${x.xx} billed` (money only for a priced lesson) |
 | Usage subscription line | `{provider} · {n} lesson(s) · {tokens} tokens · not billed` |
-| Usage local line | `ollama · {model} · {n} lesson(s) · {tokens} tokens · not billed` (tokens only — the local path has no money) |
+| Usage local line | `{provider} · {model} · {n} lesson(s) · {tokens} tokens · not billed` (tokens only — the local path has no money; `{provider}` is `ollama` / `lm studio` / `llama.cpp`, so non-Ollama local usage is not mislabelled) |
 | Usage unpriced line | `not reported` when the ledger has no counts (never a `$0.00`) |
 
 Label vocabulary is fixed by `server/src/cost.ts` and must not fork: `billed` · `estimated` ·
@@ -175,25 +193,36 @@ server-side by `costLabel`. The Usage page must call the same formatter, never r
 
 ## UI Considerations
 
-> First pass. The `gsd-ui-phase` probe re-runs and **replaces** these rows. State coverage only —
-> empty/error COPY lives in §Copywriting Contract and is referenced, not restated.
+> Populated by the `gsd-ui-phase` UI-consideration probe (Step 9.5). Shape-rooted UI *state* coverage only —
+> empty/error COPY lives in §Copywriting Contract and is referenced, not restated. Rows are REPLACED, not
+> appended, on a probe re-run.
 
-Applicable state considerations resolved: 12 covered, 0 backstop, 0 unresolved.
+Applicable state considerations resolved: 22 covered, 0 backstop, 0 unresolved.
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
-| empty | Usage / list-collection | ✅ covered | Empty Usage renders the documented `Nothing spent yet` copy from §Copywriting Contract; no placeholder rows |
-| empty | Settings local-model card / form | ✅ covered | A machine with no local server found renders the row's `not configured` pill and its existing note — no empty grid |
-| loading | Settings local-model card / form | ✅ covered | A local row shows the `checking` pulse pill (`animate-pulse motion-reduce:animate-none`) for the single detection pass; first paint never waits on the probe |
-| loading | Test teaching / interactive-control | ✅ covered | Button reads `testing…` and one mono `role="status"` line says `running one node and a graded quiz` |
-| error | Test teaching / interactive-control | ✅ covered | A failed test renders `Fail · {reason}` in rust on one line, full text in `title`, Derive's fix hint on its own line beneath |
-| error | Settings local-model card / form | ✅ covered | A failed probe shows the provider's verbatim sentence on the `errLine`; the typed base URL / model id stays in the field |
-| populated | Usage / list-collection | ✅ covered | At typical volume the page is a stack of provider groups, each with model then lesson lines, inside `max-w-[760px]` |
-| partial | Usage / list-collection | ✅ covered | A lesson mixing priced and subscription rows takes the weakest label (`cost.ts weakestSource`); a tokens-only line still renders |
-| zero-one-many | Usage / list-collection | ✅ covered | 0 → empty-state copy; 1 → singular `lesson` / `1 token`; many → the group grows, no pagination at this scale |
-| overflow | Usage / list-collection | ✅ covered | The list scrolls in the existing `.scroll-thin` container; each line truncates rather than widening the page |
-| long-text | Usage / list-collection | ✅ covered | A long model id is mono and truncates with ellipsis inside its line; the full id is in the row `title` |
-| long-text | Local refusal card / static-content | ✅ covered | The refusal sentence wraps inside `max-w-[62ch]`; the model id and the token estimate never force a horizontal scroll |
+| empty | E1 Settings local-model row / form | ✅ covered | The row plays the shipped `not configured` pill and its note when no local server is found — never a bare or empty form |
+| loading | E1 Settings local-model row / form | ✅ covered | The row shows the `checking` pulse pill (`animate-pulse motion-reduce:animate-none`) for the single discovery pass; first paint never blocks on the probe |
+| error | E1 Settings local-model row / form | ✅ covered | A failed local probe renders the provider's verbatim sentence on the `errLine`; the typed base URL and model id stay in their fields, never cleared |
+| partial | E1 Settings local-model row / form | ✅ covered | A server that is reachable but exposes no tool-capable model still renders the found status and its usable models, with the capability note — never a half-built row |
+| long-text | E1 Settings local-model row / form | ✅ covered | A long model id and a long base URL are mono and truncate inside their lines (full value in the row `title`); neither widens the card |
+| loading | E2 lesson refusal card / interactive-control | ✅ covered | The card renders only after the turn's failure is known; in-flight belongs to the turn's own streaming pill, so the card has no skeleton state of its own |
+| error | E2 lesson refusal card / interactive-control | ✅ covered | The card is itself the error surface: one Derive sentence + one `Settings` link, with no secondary error state |
+| overflow | E2 lesson refusal card / static-content | ✅ covered | The refusal sentence wraps inside `max-w-[62ch]`; the model id and token estimate wrap and never force a horizontal scroll |
+| long-text | E2 lesson refusal card / static-content | ✅ covered | A long model id inside the refusal sentence wraps to the next line rather than clipping; the sentence is never truncated mid-token |
+| loading | E3 Test teaching control / interactive-control | ✅ covered | The button reads `testing…` and one mono `role="status"` line reads `running one node and a graded quiz`, pulsing in teal (`animate-pulse motion-reduce:animate-none`) |
+| error | E3 Test teaching control / interactive-control | ✅ covered | A failed test renders `Fail · {reason}` in rust on one line (full text in `title`), with Derive's fix hint on its own line beneath |
+| overflow | E3 Test teaching result / static-content | ✅ covered | The pass/fail readout is capped to one line inside its container with the full text in the `title`; it never widens the row |
+| long-text | E3 Test teaching result / static-content | ✅ covered | A long fail `{reason}` truncates with ellipsis on the one-line readout and stays fully readable in the `title` |
+| empty | E4 Usage page / list-collection | ✅ covered | Empty Usage renders the documented `Nothing spent yet` heading + body from §Copywriting Contract; no placeholder rows |
+| loading | E4 Usage page / list-collection | ✅ covered | While the usage query is in flight the page shows its mono `role="status"` loading line; never a half-drawn group list or a zeroed total |
+| error | E4 Usage page / list-collection | ✅ covered | A failed usage fetch renders Derive's error line on the `errLine` with a retry affordance; no stale or zeroed total is shown as truth |
+| populated | E4 Usage page / list-collection | ✅ covered | At typical volume the page is a stack of provider groups, each with model then lesson lines, inside `max-w-[760px]` |
+| partial | E4 Usage page / list-collection | ✅ covered | A lesson mixing priced and subscription rows takes the weakest label (`cost.ts weakestSource`); a tokens-only line still renders |
+| overflow | E4 Usage page / list-collection | ✅ covered | The list scrolls in the existing `.scroll-thin` container; each line truncates rather than widening the page |
+| zero-one-many | E4 Usage page / list-collection | ✅ covered | 0 → empty-state copy; 1 → singular `lesson` / `1 token`; many → the group grows with no pagination at this scale |
+| overflow | E5 Usage header + grand total / static-content | ✅ covered | The `Usage · what learning has cost` header and the grand total stay on one line at 375px; the serif em phrase truncates before the total does |
+| long-text | E5 Usage header + grand total / static-content | ✅ covered | A long total or provider phrase wraps/truncates inside the header without pushing the Display-size figure off-screen; the total keeps its column |
 
 ---
 
@@ -211,12 +240,12 @@ third-party registry is used by this phase, so the registry vetting gate is **no
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-10-16
