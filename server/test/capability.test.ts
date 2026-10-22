@@ -19,7 +19,8 @@ import { describe, it } from 'node:test';
 const scratch = mkdtempSync(join(tmpdir(), 'derive-test-'));
 process.env.DERIVE_DATA_DIR = scratch;
 
-const { capabilityRefusalFor, ollamaCapability, verdictOf } = await import('../src/capability.js');
+const { capabilityRefusal, capabilityRefusalFor, forgetCapabilities, knownCapability, llamaCppCapability, lmStudioCapability, ollamaCapability, rememberCapability, verdictOf } =
+  await import('../src/capability.js');
 const { NUM_CTX_FLOOR } = await import('../src/settings.js');
 
 /**
@@ -149,5 +150,202 @@ describe('the capability ladder', () => {
     const v = verdictOf('a-model', { tools: 'unknown', maxWindow: 4_096, servedWindow: null });
     assert.equal(v.selectable, true);
     assert.equal(v.refusal, null);
+  });
+});
+
+describe('llama.cpp capability metadata', () => {
+  /** /props, as the server emits it. The caps map's nine keys are read from caps.cpp; only supports_tools is read here. */
+  const props = (over: Record<string, unknown> = {}): unknown => ({
+    default_generation_settings: { n_ctx: 32_768 },
+    chat_template_caps: {
+      supports_string_content: true,
+      supports_typed_content: true,
+      supports_tools: true,
+      supports_tool_calls: true,
+      supports_parallel_tool_calls: true,
+      supports_system_role: true,
+      supports_preserve_reasoning: false,
+      supports_reasoning_effort: false,
+      supports_object_arguments: true,
+    },
+    ...over,
+  });
+  /** /v1/models, whose id defaults to the model file path unless --alias was passed. */
+  const models = (meta: unknown = { n_ctx_train: 262_144 }): unknown => ({ object: 'list', data: [{ id: '/models/a.gguf', meta }] });
+
+  it('reads a positive supports_tools and the served window', () => {
+    assert.deepEqual(llamaCppCapability(props(), models(), '/models/a.gguf'), { tools: 'yes', maxWindow: 262_144, servedWindow: 32_768 });
+  });
+
+  it('refuses on a false, because a false is a detection and not an absence', () => {
+    // caps.h initialises supports_tools to true and the server only turns it
+    // off when it has found that the template cannot — so this is the server
+    // reporting a finding.
+    const cap = llamaCppCapability({ default_generation_settings: { n_ctx: 32_768 }, chat_template_caps: { supports_tools: false } }, undefined);
+    assert.equal(cap.tools, 'no');
+    assert.equal(cap.servedWindow, 32_768);
+    assert.equal(verdictOf('a-model', cap).selectable, false);
+  });
+
+  it('is silence when chat_template_caps is absent, and does not refuse', () => {
+    // An older build emits no caps map at all. The served window is still read.
+    const cap = llamaCppCapability({ default_generation_settings: { n_ctx: 32_768 } }, undefined);
+    assert.equal(cap.tools, 'unknown');
+    assert.equal(cap.servedWindow, 32_768);
+    assert.equal(verdictOf('a-model', cap).refusal, null);
+  });
+
+  it('is silence when supports_tools is present but not a boolean', () => {
+    assert.equal(llamaCppCapability(props({ chat_template_caps: { supports_tools: 'true' } }), undefined).tools, 'unknown');
+  });
+
+  it('produces no verdict at all without a numeric n_ctx', () => {
+    // The port-8080 guard, at the parser rather than at the status code: the
+    // body has to prove it is llama.cpp's before any field in it is believed.
+    // A caps map in a body that cannot be llama.cpp's is not evidence.
+    for (const body of [{ chat_template_caps: { supports_tools: false } }, { default_generation_settings: {} }, { default_generation_settings: { n_ctx: '32768' } }]) {
+      assert.deepEqual(llamaCppCapability(body, models()), { tools: 'unknown', maxWindow: null, servedWindow: null });
+    }
+  });
+
+  it('throws nothing on the dashboard that answers HTML on /props', () => {
+    // Reproduced live on this machine: 200 text/html on both /health and /props.
+    const cap = llamaCppCapability('<!DOCTYPE html><html lang="en"><head><title>FreqUI</title></head></html>', undefined);
+    assert.deepEqual(cap, { tools: 'unknown', maxWindow: null, servedWindow: null });
+  });
+
+  it('has a null maximum when n_ctx_train is absent, and still does not refuse', () => {
+    // Older servers omit sibling fields; the project's own docs tell clients to
+    // fall back rather than conclude.
+    const cap = llamaCppCapability(props(), models({}), '/models/a.gguf');
+    assert.equal(cap.maxWindow, null);
+    const v = verdictOf('a-model', cap);
+    assert.equal(v.selectable, true);
+    assert.equal(v.refusal, null);
+  });
+
+  it('has a null maximum when no entry matches the model asked about', () => {
+    assert.equal(llamaCppCapability(props(), models(), '/models/something-else.gguf').maxWindow, null);
+  });
+});
+
+describe('LM Studio capability metadata', () => {
+  /** /api/v1/models entry. The identifier here is `key`, not `id`. */
+  const v1 = (toolUse: unknown, over: Record<string, unknown> = {}): unknown => ({
+    key: 'a-publisher/a-model',
+    type: 'llm',
+    max_context_length: 131_072,
+    capabilities: { vision: false, trained_for_tool_use: toolUse },
+    loaded_instances: [{ id: 'a-publisher/a-model', config: { context_length: 32_768 } }],
+    ...over,
+  });
+  /** /api/v0/models entry: a window and no tool-use indicator whatsoever. */
+  const v0 = { id: 'a-publisher/a-model', object: 'model', type: 'llm', state: 'loaded', max_context_length: 65_536 };
+
+  it('reads a positive trained_for_tool_use, the maximum and the loaded window', () => {
+    assert.deepEqual(lmStudioCapability(v1(true), undefined), { tools: 'yes', maxWindow: 131_072, servedWindow: 32_768 });
+  });
+
+  it('reads a negative trained_for_tool_use as a refusal', () => {
+    const cap = lmStudioCapability(v1(false), undefined);
+    assert.equal(cap.tools, 'no');
+    assert.equal(verdictOf('a-model', cap).selectable, false);
+  });
+
+  it('is silence when the flag is there but not a boolean', () => {
+    assert.equal(lmStudioCapability(v1('yes'), undefined).tools, 'unknown');
+  });
+
+  it('falls back to the v0 window when there is no v1 entry at all', () => {
+    // The older-build chain: /api/v1/models 404s, /api/v0/models answers.
+    const cap = lmStudioCapability(undefined, v0);
+    assert.equal(cap.maxWindow, 65_536);
+    assert.equal(cap.servedWindow, null);
+  });
+
+  it('leaves a v0-only server at silence, so the round-trip is what decides', () => {
+    // v0 carries no tool-use indicator, which is exactly the case D-06's
+    // round-trip exists for. It must not read as a no.
+    const cap = lmStudioCapability(undefined, v0);
+    assert.equal(cap.tools, 'unknown');
+    const v = verdictOf('a-model', cap);
+    assert.equal(v.selectable, true);
+    assert.equal(v.definitive, false);
+    assert.equal(v.refusal, null);
+  });
+
+  it('prefers the v1 maximum over the v0 one when both are there', () => {
+    assert.equal(lmStudioCapability(v1(true), v0).maxWindow, 131_072);
+  });
+
+  it('has no served window when nothing is loaded', () => {
+    assert.equal(lmStudioCapability(v1(true, { loaded_instances: [] }), undefined).servedWindow, null);
+  });
+});
+
+describe('the remembered verdict, and what it refuses', () => {
+  const ROW = 'lmstudio';
+
+  it('answers the approved sentence for a verdict that is positively non-selectable', () => {
+    const cap = { tools: 'no' as const, maxWindow: 131_072, servedWindow: 32_768 };
+    rememberCapability(ROW, 'a-model', { ...cap, ...verdictOf('a-model', cap) });
+    const refusal = capabilityRefusal(ROW, 'a-model');
+    assert.equal(refusal, capabilityRefusalFor('a-model'));
+    assert.match(String(refusal), /a-model/);
+    forgetCapabilities(ROW);
+  });
+
+  it('answers null for a pair nothing has been read for', () => {
+    forgetCapabilities(ROW);
+    assert.equal(knownCapability(ROW, 'never-read'), null);
+    assert.equal(capabilityRefusal(ROW, 'never-read'), null);
+    // And for no model at all, which is a row with nothing chosen on it.
+    assert.equal(capabilityRefusal(ROW, null), null);
+  });
+
+  it('answers null for silence and for a null maximum window', () => {
+    const quiet = { tools: 'unknown' as const, maxWindow: null, servedWindow: 32_768 };
+    rememberCapability(ROW, 'quiet-model', { ...quiet, ...verdictOf('quiet-model', quiet) });
+    assert.equal(capabilityRefusal(ROW, 'quiet-model'), null);
+    const noMax = { tools: 'yes' as const, maxWindow: null, servedWindow: null };
+    rememberCapability(ROW, 'no-max-model', { ...noMax, ...verdictOf('no-max-model', noMax) });
+    assert.equal(capabilityRefusal(ROW, 'no-max-model'), null);
+    forgetCapabilities(ROW);
+  });
+
+  it('keeps the served window where the refusals and the estimator can read it', () => {
+    const cap = { tools: 'yes' as const, maxWindow: 131_072, servedWindow: 32_768 };
+    rememberCapability(ROW, 'a-model', { ...cap, ...verdictOf('a-model', cap) });
+    assert.equal(knownCapability(ROW, 'a-model')?.servedWindow, 32_768);
+    forgetCapabilities(ROW);
+  });
+
+  it('is replaced by any newer read for the same provider and model', () => {
+    const no = { tools: 'no' as const, maxWindow: null, servedWindow: null };
+    rememberCapability(ROW, 'a-model', { ...no, ...verdictOf('a-model', no) });
+    assert.equal(capabilityRefusal(ROW, 'a-model'), capabilityRefusalFor('a-model'));
+    const yes = { tools: 'yes' as const, maxWindow: 131_072, servedWindow: null };
+    rememberCapability(ROW, 'a-model', { ...yes, ...verdictOf('a-model', yes) });
+    assert.equal(capabilityRefusal(ROW, 'a-model'), null, 'a stale no outlived the read that replaced it');
+    forgetCapabilities(ROW);
+  });
+
+  it('returns a forgotten row to silence rather than to a no', () => {
+    const no = { tools: 'no' as const, maxWindow: null, servedWindow: null };
+    rememberCapability(ROW, 'a-model', { ...no, ...verdictOf('a-model', no) });
+    rememberCapability('ollama', 'other-model', { ...no, ...verdictOf('other-model', no) });
+    forgetCapabilities(ROW);
+    assert.equal(knownCapability(ROW, 'a-model'), null, 'forgetting must leave nothing, not a negative');
+    assert.equal(capabilityRefusal(ROW, 'a-model'), null);
+    // One row at a time: forgetting a row must not forget its neighbours.
+    assert.equal(capabilityRefusal('ollama', 'other-model'), capabilityRefusalFor('other-model'));
+    forgetCapabilities('ollama');
+  });
+
+  it('does not confuse two rows whose model ids are the same', () => {
+    const no = { tools: 'no' as const, maxWindow: null, servedWindow: null };
+    rememberCapability('lmstudio', 'same-id', { ...no, ...verdictOf('same-id', no) });
+    assert.equal(capabilityRefusal('llamacpp', 'same-id'), null);
+    forgetCapabilities('lmstudio');
   });
 });

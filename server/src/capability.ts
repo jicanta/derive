@@ -35,16 +35,31 @@
  * body, and never a raw `e.message`, because a local server started with a
  * bearer token can echo it in an error.
  *
+ * A verdict is remembered in module state rather than written to the
+ * `settings` table, and that is a decision rather than a shortcut. A learner
+ * can reload the same model under a different chat template, raise the window
+ * their server was started with, or swap the file behind an alias, all without
+ * Derive hearing about it. A verdict persisted across restarts would come back
+ * as a confident claim about a server that has since changed — and the one
+ * direction this module must never be wrong in is claiming a `no`. Memory can
+ * only ever be *silent* after a restart, and silence never refuses. It is the
+ * same posture `settings.ts` already takes with detection: `lastDetection()`
+ * reports its observation whatever its age, `resetDetection()` forgets it, and
+ * nothing expires on a clock.
+ *
  * Nothing here runs unasked: the whole-list pass is what the settings page's
  * one detection pass awaits when it opens and when the learner presses rescan,
  * and the per-model read runs when the learner selects a model. Nothing runs
  * on a timer. The environment is read only through `config.ts`, by way of the
  * modules this one imports.
  */
-import { providerOf } from './providers.js';
-import { field, hintFor, LOCAL_MS, postJson, statusOf } from './probe.js';
+import { generateText, jsonSchema, tool, type JSONSchema7 } from 'ai';
+import { providerOf, type ProviderId } from './providers.js';
+import { bearer, field, getJson, hintFor, LOCAL_MS, postJson, statusOf } from './probe.js';
 import { safeMessage } from './secrets.js';
-import { localBase, NUM_CTX_FLOOR } from './settings.js';
+import { effectiveKey, localBase, NUM_CTX_FLOOR } from './settings.js';
+import { descriptionFor, jsonSchemaOf, toolsFor } from './tools.js';
+import { adapterFor } from './drivers/adapters.js';
 
 /**
  * What a metadata read could establish about one model.
@@ -142,6 +157,82 @@ export function ollamaCapability(show: unknown): Capability {
 /** Nothing established: the shape a row whose metadata could not be read falls back to, and the one verdict that never refuses. */
 const silence = (): Capability => ({ tools: 'unknown', maxWindow: null, servedWindow: null });
 
+/** One entry out of an OpenAI-shaped `data` array, matched on the key that names the model on that endpoint. Nothing matching is nothing established — never the first entry as a guess. */
+function entryFor(body: unknown, idKey: string, model: string): unknown {
+  const data = field(body, 'data');
+  if (!Array.isArray(data)) return undefined;
+  return data.find((e) => field(e, idKey) === model);
+}
+
+/**
+ * llama.cpp's `GET /props`, with `GET /v1/models` beside it for the trained
+ * maximum.
+ *
+ * The body must carry `default_generation_settings.n_ctx` as a *number* before
+ * any of it is read as llama.cpp's. That is not belt-and-braces: on the
+ * machine this was written on, port 8080 — llama.cpp's own default — is an
+ * unrelated dashboard that answers 200 `text/html` on both `/health` and
+ * `/props`, which was reproduced during research. A check on the status code
+ * would read that dashboard as llama.cpp and then parse a web page as
+ * capability metadata. Requiring a parsed number is what makes the read about
+ * llama.cpp rather than about something having answered.
+ *
+ * A `false` on `supports_tools` is a positive finding, and this is the one
+ * place in the phase where that needs saying out loud: llama.cpp's caps struct
+ * initialises `supports_tools`, `supports_tool_calls`, `supports_system_role`
+ * and `supports_parallel_tool_calls` to `true`, and only turns a field off
+ * when it has detected that the template cannot. So a `false` is the server
+ * reporting a detection, while an absent `chat_template_caps` — which older
+ * builds simply do not emit — is the server saying nothing at all. That
+ * asymmetry is why a `false` may refuse and an absence may not.
+ *
+ * `servedWindow` is what `llama-server` was started with (D-05: read-only,
+ * Derive never fights a server's own configuration). `maxWindow` is
+ * `meta.n_ctx_train`, null when absent — older builds omit sibling fields, and
+ * the project's own documentation tells clients to fall back rather than
+ * conclude.
+ */
+export function llamaCppCapability(props: unknown, models: unknown, model?: string): Capability {
+  const served = field(field(props, 'default_generation_settings'), 'n_ctx');
+  if (typeof served !== 'number') return silence();
+  const supports = field(field(props, 'chat_template_caps'), 'supports_tools');
+  // The entry for the model when one is named, else the only thing a
+  // single-model server can be asked about: its first row.
+  const entry = model !== undefined ? entryFor(models, 'id', model) : (Array.isArray(field(models, 'data')) ? (field(models, 'data') as unknown[])[0] : undefined);
+  const trained = field(field(entry, 'meta'), 'n_ctx_train');
+  return {
+    tools: typeof supports === 'boolean' ? (supports ? 'yes' : 'no') : 'unknown',
+    maxWindow: typeof trained === 'number' ? trained : null,
+    servedWindow: served,
+  };
+}
+
+/**
+ * LM Studio's `GET /api/v1/models`, with `GET /api/v0/models` as the
+ * older-build fallback.
+ *
+ * `capabilities.trained_for_tool_use` is the only tool-use indicator either
+ * endpoint has, and only v1 carries it: a v0-only server says nothing about
+ * tool calling at all, which is precisely the case the round-trip exists for.
+ *
+ * The model identifier on v1 is `key`, not `id`, so `probe.ts`'s `idsOf` — which
+ * reads `data[].id` off v0 — does not apply to a v1 read and this module
+ * matches on its own key. `servedWindow` comes from the loaded instance's own
+ * `config.context_length`, which is what that instance will actually serve.
+ */
+export function lmStudioCapability(v1Entry: unknown, v0Entry: unknown): Capability {
+  const flag = field(field(v1Entry, 'capabilities'), 'trained_for_tool_use');
+  const v1Max = field(v1Entry, 'max_context_length');
+  const v0Max = field(v0Entry, 'max_context_length');
+  const instances = field(v1Entry, 'loaded_instances');
+  const loaded = Array.isArray(instances) ? field(field(instances[0], 'config'), 'context_length') : undefined;
+  return {
+    tools: typeof flag === 'boolean' ? (flag ? 'yes' : 'no') : 'unknown',
+    maxWindow: typeof v1Max === 'number' ? v1Max : typeof v0Max === 'number' ? v0Max : null,
+    servedWindow: typeof loaded === 'number' ? loaded : null,
+  };
+}
+
 /**
  * The D-04/D-06 ladder over one metadata reading.
  *
@@ -161,35 +252,192 @@ export function verdictOf(model: string, cap: Capability): { selectable: boolean
   return { selectable: true, definitive: cap.tools === 'yes', refusal: null };
 }
 
-/** The metadata read for one model on one local row. Throws the server's own sentence, or Derive's, the way `listModels` does. */
+/** A read whose failure or wrong shape is silence rather than a throw. The one-word reason is on the catch, in this codebase's own style. */
+const orNothing = async (read: () => Promise<unknown>): Promise<unknown> => {
+  try {
+    return await read();
+  } catch {
+    /* not answering */
+    return undefined;
+  }
+};
+
+/**
+ * The metadata read for one model on one local row. Throws the server's own
+ * sentence, or Derive's, the way `listModels` does — but only for the read a
+ * row cannot do without; a second read that fails leaves its own field unset
+ * rather than losing the first read's answer.
+ */
 async function readCapability(id: string, model: string): Promise<Capability> {
   const spec = providerOf(id);
   if (!spec) throw new Error('unknown provider');
   const base = localBase(spec);
   if (!base) throw new Error(`${spec.label} has no address to ask`);
+  const headers = spec.id === 'ollama' ? {} : bearer(effectiveKey(spec.id));
   switch (spec.id) {
     case 'ollama':
       // The one metadata read in this phase that is not a GET. Ollama takes no key.
-      return ollamaCapability(await postJson(`${base}/api/show`, {}, { model }, LOCAL_MS));
+      return ollamaCapability(await postJson(`${base}/api/show`, headers, { model }, LOCAL_MS));
+    case 'llamacpp': {
+      // /props is the read that decides whether this is llama.cpp at all, so it
+      // is the one allowed to throw; the trained maximum beside it is a bonus,
+      // and an older build that omits it must not cost the served window.
+      const props = await getJson(`${base}/props`, headers, LOCAL_MS);
+      const models = await orNothing(() => getJson(`${base}/v1/models`, headers, LOCAL_MS));
+      return llamaCppCapability(props, models, model);
+    }
+    case 'lmstudio': {
+      // v1 first, because it is the only endpoint that says anything about tool
+      // use. v0 is read only when v1 gave nothing — an older build has no v1 at
+      // all, and then the window is all there is to learn.
+      const v1Entry = entryFor(await orNothing(() => getJson(`${base}/api/v1/models`, headers, LOCAL_MS)), 'key', model);
+      const v0Entry = v1Entry === undefined ? entryFor(await orNothing(() => getJson(`${base}/api/v0/models`, headers, LOCAL_MS)), 'id', model) : undefined;
+      if (v1Entry === undefined && v0Entry === undefined) return silence();
+      return lmStudioCapability(v1Entry, v0Entry);
+    }
     default:
+      // Not a row the ladder covers — D-01 keeps the generic OpenAI-compatible
+      // row remote-and-proxied-only, and nothing else reaches here.
       return silence();
   }
 }
 
+// ---------- the remembered verdict ----------
+
+/** A reading plus the ladder's decision on it: what one pass established about one model, which is what the refusals read. */
+export type Remembered = Capability & { selectable: boolean; definitive: boolean; refusal: string | null };
+
+// Deliberate module state, in `settings.ts`'s detection posture: reported
+// whatever its age, forgotten on demand, and never persisted. See the module
+// header for why a verdict must not outlive the process.
+const observed = new Map<string, Remembered>();
+
+// A unit separator, so a model id carrying the character this joins on cannot
+// be confused for a different provider's row. Same separator discipline as
+// materials.ts's segments.
+const SEP = '\u001f';
+const verdictKey = (id: string, model: string): string => `${id}${SEP}${model}`;
+
+/** Keep what a read established about one model. Any newer read for the same provider and model replaces it; nothing accumulates and nothing expires on a clock. */
+export function rememberCapability(id: string, model: string, v: Remembered): void {
+  observed.set(verdictKey(id, model), v);
+}
+
+/** What is known about one model, or null when nothing has been read. Null is silence, and silence never refuses. */
+export function knownCapability(id: string, model: string): Remembered | null {
+  return observed.get(verdictKey(id, model)) ?? null;
+}
+
+/** Forget every verdict on one row. Its address changed, or a pass is about to re-read it: either way the old facts are about a server that may no longer be there, and returning the row to silence is the only safe direction. */
+export function forgetCapabilities(id: string): void {
+  const prefix = `${id}${SEP}`;
+  for (const key of observed.keys()) if (key.startsWith(prefix)) observed.delete(key);
+}
+
 /**
- * Whether one model on one local row can run the method, read now. Always
- * answers and never throws, like `testConnection`: the verdict with its
- * latency, or the server's sentence with Derive's hint beside it. A read that
- * fails leaves the model at silence rather than at a refusal, so a server
- * Derive could not reach never costs the learner their model.
+ * The sentence that refuses one model, or null.
+ *
+ * Null is the answer that lets the learner proceed, so it is the answer for
+ * every absence: nothing read, silence about tool calling, a window the server
+ * did not state, a row the ladder does not cover. Only a verdict that is
+ * positively non-selectable produces a sentence, which is what keeps "we do
+ * not know" from ever reaching the learner as "your model cannot do this".
+ */
+export function capabilityRefusal(id: string, model: string | null): string | null {
+  if (!model) return null;
+  const known = knownCapability(id, model);
+  return known && !known.selectable ? known.refusal : null;
+}
+
+// ---------- the definitive tier ----------
+
+/** The one existing tool the round-trip asks for: the smallest schema in the registry — one enum field — and no effect on the learner's record even if a model called it twice. */
+const PROBE_TOOL = 'set_phase';
+
+/**
+ * One real generation on the learner's own hardware, which is slower than a
+ * metadata read by orders of magnitude. The alternative to waiting is refusing
+ * a capable model for being slow, so this bound is generous where `LOCAL_MS`
+ * is strict: a metadata endpoint that does not answer in four seconds is
+ * broken, while a model thinking for half a minute on a CPU is ordinary.
+ */
+const ROUND_TRIP_MS = 60_000;
+
+/**
+ * D-06's definitive tier: ask the model to make one tool call and see whether
+ * one comes back.
+ *
+ * It uses a tool the registry already has. No tool is added — the tool set has
+ * to match in four places plus the plugin command files, and a probe-only
+ * fourteenth-and-a-half tool would be a permanent exception in all of them.
+ * The tool is registered with no `execute`, so the call comes back as a call
+ * and is read rather than run: nothing in the learner's record moves because
+ * Derive asked a question about a model.
+ *
+ * The window comes from the row's own adapter, which resolves it through the
+ * same `numCtxFor` a real turn uses. Probing at a smaller window "to be quick"
+ * would be the expensive choice, not the cheap one: `num_ctx` is a load-time
+ * parameter, so a different value is a different loaded instance and the
+ * learner would pay a reload before their first real turn.
+ *
+ * A clean answer with no tool call in it is a `no`. That is the one negative
+ * in this module not taken from a server's own statement, and it is sound
+ * precisely because of where it sits: the metadata tier already said nothing,
+ * the model was handed one tool and asked plainly for one call, and a model
+ * that answers prose to that cannot run a method which is nothing but tool
+ * calls. Any failure — a refused request, a timeout, an endpoint that rejects
+ * tools outright — is `'unknown'` instead, because that is a fact about the
+ * request rather than about the model.
+ */
+async function roundTrip(id: string, model: string): Promise<'yes' | 'no' | 'unknown'> {
+  const spec = providerOf(id);
+  const probe = toolsFor('api').find((s) => s.name === PROBE_TOOL);
+  if (!spec || !probe) return 'unknown';
+  try {
+    const adapter = adapterFor(spec.id as ProviderId);
+    const { toolCalls } = await generateText({
+      model: adapter.model(effectiveKey(spec.id), localBase(spec) ?? undefined, model),
+      system: 'You are answering a one-step capability check, not teaching. Call the single tool you have been given and write no prose.',
+      prompt: `Call the ${PROBE_TOOL} tool with phase "probe". Make the tool call and nothing else.`,
+      tools: {
+        [probe.name]: tool({
+          description: descriptionFor(probe, 'api', adapter.dialect),
+          inputSchema: jsonSchema(jsonSchemaOf(probe, 'api', adapter.dialect) as JSONSchema7),
+        }),
+      },
+      ...(adapter.providerOptions ? { providerOptions: adapter.providerOptions } : {}),
+      abortSignal: AbortSignal.timeout(ROUND_TRIP_MS),
+    });
+    return toolCalls.length > 0 ? 'yes' : 'no';
+  } catch {
+    /* not answerable */
+    return 'unknown';
+  }
+}
+
+/**
+ * Whether one model on one local row can run the method, read now, and
+ * remembered. Always answers and never throws, like `testConnection`: the
+ * verdict with its latency, or the server's sentence with Derive's hint beside
+ * it. A read that fails leaves the model at silence rather than at a refusal,
+ * so a server Derive could not reach never costs the learner their model.
+ *
+ * This is the per-model tier D-07 calls "the model the learner selects", so it
+ * is also where the round-trip is spent: when the metadata said nothing, one
+ * real request settles it and the ladder runs again with the answer. Both
+ * refusals read the verdict this function remembered rather than computing one
+ * of their own, so the row, the write, the activation and the lesson cannot
+ * disagree about the same model.
  */
 export async function capabilityOf(id: string, model: string): Promise<CapabilityVerdict> {
   const t0 = Date.now();
   const ms = () => Date.now() - t0;
   try {
-    const cap = await readCapability(id, model);
-    const { selectable, definitive, refusal } = verdictOf(model, cap);
-    return { ok: true, model, tools: cap.tools, max_window: cap.maxWindow, served_window: cap.servedWindow, selectable, definitive, refusal, ms: ms() };
+    const read = await readCapability(id, model);
+    const cap = read.tools === 'unknown' ? { ...read, tools: await roundTrip(id, model) } : read;
+    const ladder = verdictOf(model, cap);
+    rememberCapability(id, model, { ...cap, ...ladder });
+    return { ok: true, model, tools: cap.tools, max_window: cap.maxWindow, served_window: cap.servedWindow, ...ladder, ms: ms() };
   } catch (e) {
     const error = safeMessage(e);
     const spec = providerOf(id);

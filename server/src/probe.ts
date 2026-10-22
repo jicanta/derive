@@ -147,8 +147,8 @@ export type ModelsRequest = { url: string; headers: Record<string, string> };
 /** A base that already ends in /v1 is used as it is; any other has /v1 appended, so both `https://host` and `https://host/v1` reach `/v1/models`. Exported because the owned loop's OpenAI-compatible adapter joins the same learner-stored base and a second normaliser would be a second answer. */
 export const v1 = (base: string): string => (/\/v1$/.test(base) ? base : `${base}/v1`);
 
-/** The bearer header when a key is set, nothing when none is: a local server without a token must not see an empty Authorization line. */
-const bearer = (key: string | undefined): Record<string, string> => (key ? { authorization: `Bearer ${key}` } : {});
+/** The bearer header when a key is set, nothing when none is: a local server without a token must not see an empty Authorization line. Exported so the capability reads attach a token the same way the model list does, rather than deciding again. */
+export const bearer = (key: string | undefined): Record<string, string> => (key ? { authorization: `Bearer ${key}` } : {});
 
 /**
  * Whether a URL names this machine or a private network, judged on the

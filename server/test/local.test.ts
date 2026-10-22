@@ -38,6 +38,7 @@ const { setDriverOverride } = await import('../src/driver.js');
 const { SEP, materialsSection } = await import('../src/materials.js');
 const { PROVIDERS, providerOf } = await import('../src/providers.js');
 const { NUM_CTX_DEFAULT, NUM_CTX_FLOOR, numCtxFor, numCtxKey } = await import('../src/settings.js');
+const { capabilityRefusalFor, forgetCapabilities, rememberCapability, verdictOf } = await import('../src/capability.js');
 const { adapterFor } = await import('../src/drivers/adapters.js');
 const { apiDriverFor, setModelOverride } = await import('../src/drivers/api.js');
 const { descriptionFor, toolSpec, toolsFor } = await import('../src/tools.js');
@@ -223,6 +224,68 @@ describe('a local turn that will not fit the window', () => {
     assert.equal(lastTurn(id)!.status, 'error');
 
     deleteSetting(numCtxKey('ollama'));
+    deleteSetting('model:ollama');
+    deleteSetting('active_provider');
+  });
+});
+
+describe('a local turn on a model the ladder has refused', () => {
+  it('is refused before the request, with the capability sentence whose one link is Settings', async () => {
+    // The lesson-time backstop. Settings refuses such a model at the write and
+    // at the activation, so what this covers is the one that got onto the row
+    // before any verdict existed — stored by an older build, or by the
+    // environment. The verdict is seeded directly rather than read off a
+    // server, because what is under test is the refusal and not the read.
+    setSetting('active_provider', 'ollama');
+    setSetting('model:ollama', 'a-model-the-learner-pulled');
+    const cap = { tools: 'no' as const, maxWindow: 262_144, servedWindow: null };
+    rememberCapability('ollama', 'a-model-the-learner-pulled', { ...cap, ...verdictOf('a-model-the-learner-pulled', cap) });
+
+    const id = randomUUID();
+    createLesson(id, 'A lesson on a model that cannot call tools');
+    const model = neverAsked();
+    setModelOverride(() => model);
+    setDriverOverride(apiDriverFor('ollama'));
+    try {
+      await runTurn(id, 'Teach me this.');
+    } finally {
+      setDriverOverride(null);
+      setModelOverride(null);
+    }
+
+    assert.equal(model.doStreamCalls.length, 0, 'the prompt went out to a model that cannot act on it');
+    const end = ending(listEvents(id));
+    assert.equal(end.ok, false, 'a model that cannot call tools cannot teach, so the turn failed rather than being continuable');
+    const reason = end.error ?? '';
+    assert.equal(reason, capabilityRefusalFor('a-model-the-learner-pulled'), 'the backstop must carry the same approved sentence the row shows');
+    assert.ok(reason.includes('Settings'), 'the capability card’s one link is Settings');
+    assert.ok(!reason.includes('Home'), 'this is not the lesson-growth refusal');
+    assert.equal(lastTurn(id)!.status, 'error');
+
+    forgetCapabilities('ollama');
+    deleteSetting('model:ollama');
+    deleteSetting('active_provider');
+  });
+
+  it('lets a turn through when nothing is known about the model', async () => {
+    // The narrowness, which matters as much as the refusal: silence must never
+    // stop a lesson. With the row forgotten, the same setup reaches the model.
+    forgetCapabilities('ollama');
+    setSetting('active_provider', 'ollama');
+    setSetting('model:ollama', 'a-model-the-learner-pulled');
+    const id = randomUUID();
+    createLesson(id, 'A lesson on a model nothing is known about');
+    const model = neverAsked();
+    setModelOverride(() => model);
+    setDriverOverride(apiDriverFor('ollama'));
+    try {
+      await runTurn(id, 'Teach me this.');
+    } finally {
+      setDriverOverride(null);
+      setModelOverride(null);
+    }
+    assert.equal(model.doStreamCalls.length, 1, 'an unread verdict refused a turn, which is the one thing the three-valued verdict exists to prevent');
+
     deleteSetting('model:ollama');
     deleteSetting('active_provider');
   });

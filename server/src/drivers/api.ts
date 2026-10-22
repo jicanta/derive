@@ -26,6 +26,7 @@
 import { randomUUID } from 'node:crypto';
 import { APICallError, isStepCount, jsonSchema, streamText, tool, type JSONSchema7, type LanguageModel, type LanguageModelUsage, type ModelMessage, type ToolSet } from 'ai';
 import * as actions from '../actions.js';
+import { capabilityRefusal, knownCapability } from '../capability.js';
 import { headroomCheck } from '../context.js';
 import { costLabel, costOf, type CostRow } from '../cost.js';
 import { getSetting, listUsage, loadTurnMessages, recordToolResult, recordedToolResult, saveTurnMessages, type UsageInput } from '../db.js';
@@ -520,9 +521,28 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   );
   // One resolver, so a reader can see there is exactly one and not a per-row
   // guess. Ollama is the only row Derive sets the window on: D-05 leaves LM
-  // Studio and llama.cpp serving whatever they were started with, and plan
-  // 04-02's capability read is what supplies their window here.
-  const window = provider === 'ollama' ? numCtxFor(provider) : undefined;
+  // Studio and llama.cpp serving whatever they were started with, so for those
+  // two the window comes from what the capability read observed on the server
+  // itself — an observation, never a literal, and `undefined` where nothing has
+  // been observed, which leaves the check abstaining exactly as before.
+  const served = asked ? knownCapability(provider, asked)?.servedWindow : null;
+  const window = provider === 'ollama' ? numCtxFor(provider) : (served ?? undefined);
+
+  // The lesson-time backstop for a model the ladder has already refused.
+  //
+  // Settings refuses such a model at the write and at the activation, so this
+  // covers the one that slipped through before any verdict existed — a model
+  // stored on a row by an older build, or by the environment. Sending a prompt
+  // the model cannot act on would spend the learner's time to produce a lesson
+  // with no graph in it. The sentence is the same one the row shows and it
+  // carries the word `Settings`, which the card's link splitter already
+  // handles; this adds no event type, so the browser's EVENT_TYPES is untouched.
+  const cannotTeach = capabilityRefusal(provider, asked);
+  if (cannotTeach) {
+    sink.endTurn({ ok: false, error: cannotTeach, lesson_cost: endingCost(ctx) });
+    return;
+  }
+
   const headroom = headroomCheck({ provider, model: ctx.model ?? null, instructions: ctx.instructions, messages: JSON.stringify(prior), prompt: ctx.prompt, tools: toolText, window }, priceTable());
   if (headroom.refuse) {
     // Three endings, three shapes. A Stop and the step cap are *continuable*
