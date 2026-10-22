@@ -140,7 +140,7 @@ const q = {
   insertMemory: db.prepare('INSERT INTO memory (fact, kind, lesson_id, ts) VALUES (?, ?, ?, ?)'),
   listMemory: db.prepare(`
     SELECT m.* FROM memory m JOIN lessons l ON l.id = m.lesson_id
-    WHERE l.learner_id = ? ORDER BY m.ts DESC LIMIT 60
+    WHERE l.learner_id = ? AND l.scratch = 0 ORDER BY m.ts DESC LIMIT 60
   `),
   insertMisconception: db.prepare(
     'INSERT INTO misconceptions (lesson_id, node_id, question, picked, correct, explanation, confidence, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -148,18 +148,27 @@ const q = {
   resolveMisconceptions: db.prepare('UPDATE misconceptions SET resolved = 1 WHERE lesson_id = ? AND node_id = ?'),
   listMisconceptions: db.prepare(`
     SELECT m.*, l.topic FROM misconceptions m JOIN lessons l ON l.id = m.lesson_id
-    WHERE l.learner_id = ? ORDER BY m.resolved ASC, m.ts DESC LIMIT 40
+    WHERE l.learner_id = ? AND l.scratch = 0 ORDER BY m.resolved ASC, m.ts DESC LIMIT 40
   `),
   allNodes: db.prepare(`
     SELECT n.*, l.topic, l.goal FROM nodes n JOIN lessons l ON l.id = n.lesson_id
-    WHERE l.learner_id = ? AND n.source_lesson IS NULL ORDER BY l.created_at, n.rowid
+    WHERE l.learner_id = ? AND l.scratch = 0 AND n.source_lesson IS NULL ORDER BY l.created_at, n.rowid
   `),
   deleteMemoryByLesson: db.prepare('DELETE FROM memory WHERE lesson_id = ?'),
   deleteMisByLesson: db.prepare('DELETE FROM misconceptions WHERE lesson_id = ?'),
   getLesson: db.prepare('SELECT * FROM lessons WHERE id = ?'),
-  // Both listings exclude scratch rows: a lesson that exists only to prove a
-  // model can teach must never reach Home, the Atlas or a lesson count, not
-  // even for the second it is alive.
+  // Every read that joins `lessons` excludes scratch rows — these two listings,
+  // and `listMemory`, `listMisconceptions`, `allNodes`, `dueNodes` and `stats`
+  // above and below: a lesson that exists only to prove a model can teach must
+  // never reach Home, the Atlas, a lesson count or the learner profile the
+  // tutor is given before every turn, not even for the second it is alive.
+  //
+  // The filter belongs at the join rather than in a caller, because
+  // `learnerProfile` reads three of those statements and only filters the
+  // lesson it was asked about, and `sweepScratchLessons` runs on the boot pass
+  // alone — so a proof the process died in the middle of would otherwise sit in
+  // every other lesson's system prompt until the next restart, which is exactly
+  // the trace the proof is built to leave none of.
   listLessons: db.prepare('SELECT * FROM lessons WHERE learner_id = ? AND scratch = 0 ORDER BY updated_at DESC'),
   listAllLessons: db.prepare('SELECT * FROM lessons WHERE scratch = 0 ORDER BY updated_at DESC'),
   scratchLessons: db.prepare('SELECT id FROM lessons WHERE scratch = 1'),
@@ -263,15 +272,15 @@ const q = {
   quizzesOn: db.prepare('SELECT * FROM quiz_results WHERE lesson_id = ? AND node_id = ? ORDER BY ts, id'),
   dueNodes: db.prepare(`
     SELECT n.*, l.topic FROM nodes n JOIN lessons l ON l.id = n.lesson_id
-    WHERE l.learner_id = ? AND n.source_lesson IS NULL AND n.status = 'locked' AND n.review_at IS NOT NULL AND n.review_at <= ?
+    WHERE l.learner_id = ? AND l.scratch = 0 AND n.source_lesson IS NULL AND n.status = 'locked' AND n.review_at IS NOT NULL AND n.review_at <= ?
     ORDER BY n.review_at
   `),
   stats: db.prepare(`
     SELECT
-      (SELECT COUNT(*) FROM lessons WHERE learner_id = $l) AS lessons,
-      (SELECT COUNT(*) FROM nodes n JOIN lessons l ON l.id = n.lesson_id WHERE l.learner_id = $l AND n.status = 'locked') AS locked,
-      (SELECT COUNT(*) FROM quiz_results q JOIN lessons l ON l.id = q.lesson_id WHERE l.learner_id = $l) AS quizzes,
-      (SELECT COUNT(*) FROM quiz_results q JOIN lessons l ON l.id = q.lesson_id WHERE l.learner_id = $l AND q.correct = 1) AS correct
+      (SELECT COUNT(*) FROM lessons WHERE learner_id = $l AND scratch = 0) AS lessons,
+      (SELECT COUNT(*) FROM nodes n JOIN lessons l ON l.id = n.lesson_id WHERE l.learner_id = $l AND l.scratch = 0 AND n.status = 'locked') AS locked,
+      (SELECT COUNT(*) FROM quiz_results q JOIN lessons l ON l.id = q.lesson_id WHERE l.learner_id = $l AND l.scratch = 0) AS quizzes,
+      (SELECT COUNT(*) FROM quiz_results q JOIN lessons l ON l.id = q.lesson_id WHERE l.learner_id = $l AND l.scratch = 0 AND q.correct = 1) AS correct
   `),
 };
 

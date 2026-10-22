@@ -509,11 +509,24 @@ describe("the owned loop, through the app's own routes", () => {
         doStream: [step([{ type: 'stream-start', warnings: [] }, ...says('p1', 'What a nice topic. Even numbers are everywhere.'), finish('stop', 'end_turn')])],
       });
 
-    /** What the lesson list, the ledger and the lessons table say right now; the proof must leave all three exactly as it found them. */
+    /**
+     * Every read a scratch lesson could reach, as it reads right now; the proof
+     * must leave all of them exactly as it found them.
+     *
+     * The lesson list, the ledger and the `scratch` column are not enough on
+     * their own: `stats` is the lesson count and the quiz figures on Home,
+     * `allNodes` is the Atlas, and `allNodes`, `listMisconceptions` and
+     * `listMemory` are the three reads `learnerProfile` concatenates into the
+     * system prompt of every turn of every other lesson.
+     */
     const counts = () => ({
       lessons: database.listLessons('default').length,
       usage: database.listUsage({ learner: 'default' }).length,
       scratch: (database.db.prepare('SELECT count(*) AS n FROM lessons WHERE scratch = 1').get() as { n: number }).n,
+      stats: database.stats('default'),
+      nodes: database.allNodes('default').length,
+      memory: database.listMemory('default').length,
+      misconceptions: database.listMisconceptions('default').length,
     });
 
     before(async () => {
@@ -583,23 +596,52 @@ describe("the owned loop, through the app's own routes", () => {
       assert.deepEqual(counts(), was, 'the proof left something behind');
     });
 
-    it('sweeps a scratch lesson a crash left behind, and its usage rows with it', () => {
+    it('sweeps a scratch lesson a crash left behind, and its usage rows with it, and leaks none of it into the record while it is alive', () => {
       // The one case the delete inside the request cannot cover (T-04-05): a
       // crash between the turn and the delete. Left behind deliberately, with a
       // turn and a usage row, because the row is what would inflate the Usage
       // total if the sweep were not there.
+      //
+      // And `sweepScratchLessons` runs on the boot pass alone, so between the
+      // crash and the next restart this lesson is a live row in the learner's
+      // file. Everything the probe itself writes is therefore built here too —
+      // a locked node with a review date, a graded quiz, a remembered fact and
+      // a misconception — because the assertion that matters is not only that
+      // the sweep cleans up but that nothing reads any of it in the meantime.
+      const was = counts();
+      const everAfter = Date.now() + 365 * 86_400_000;
+      const dueBefore = database.dueNodes('default', everAfter).length;
+
       const id = 'a-proof-that-crashed';
       database.createLesson(id, 'a proof that crashed', { scratch: true });
       const turn = database.startTurn(id, 'ollama', 'a-local-model');
       database.recordUsage(turn, { model: 'a-local-model', input_tokens: 900, output_tokens: 40, cost_source: 'unknown' });
+      database.replaceGraph(id, [{ id: 'even', label: 'An even number is twice a whole number', kind: 'truth' }]);
+      database.setNodeStatus(id, 'even', 'locked');
+      database.recordQuiz(id, 'even', true, { confidence: 'sure', purpose: 'check', tests: 'intuition' });
+      database.addMemory('the learner likes worked examples', 'preference', id);
+      database.addMisconception({ lessonId: id, nodeId: 'even', question: 'Is 7 even?', picked: 'yes', correct: 'no', explanation: '7 is not twice a whole number.' });
 
       assert.equal(database.listLessons('default').some((l) => l.id === id), false, 'a scratch lesson must never be listed, not even while it exists');
       assert.equal(database.listUsage({ lesson: id }).length, 1, 'the case has to start from a ledger row, or the sweep proves nothing');
+      // The consequential one: `allNodes`, `listMisconceptions` and
+      // `listMemory` are what `learnerProfile` concatenates into every other
+      // lesson's system prompt, so a leak here tells a real lesson the learner
+      // is working on the probe's throwaway node.
+      //
+      // The two figures that do move are the `scratch` column, which is the
+      // marker itself, and the ledger row: `usage` is keyed on the learner
+      // directly with no lessons join, so a crashed proof's row is removed by
+      // the sweep rather than filtered out of the read — which is the remedy
+      // migration 8's own comment names.
+      assert.deepEqual(counts(), { ...was, scratch: was.scratch + 1, usage: was.usage + 1 }, 'a live scratch lesson reached the learner’s record');
+      assert.equal(database.dueNodes('default', everAfter).length, dueBefore, 'the probe’s node joined the review queue');
 
       assert.deepEqual(database.sweepScratchLessons(), [id]);
       assert.equal(database.getLesson(id), undefined);
       assert.equal(database.listUsage({ lesson: id }).length, 0, 'the lesson went and its usage rows stayed, so the Usage total would still count the proof');
       assert.equal((database.db.prepare('SELECT count(*) AS n FROM lessons WHERE scratch = 1').get() as { n: number }).n, 0);
+      assert.deepEqual(counts(), was, 'the sweep left part of the proof behind');
     });
 
     it('resolves a driver from the row it was handed and from nothing else', async () => {
