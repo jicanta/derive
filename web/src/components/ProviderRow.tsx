@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
-import type { CapabilityResult, ProviderStatus, ProviderView, TestResult } from '../lib/types';
+import type { CapabilityResult, ProviderStatus, ProviderView, TeachingTest, TestResult } from '../lib/types';
 import { blurOnEnter, errLine, field, noteLine, pill, resultLine, textButton, tickLine, useTick } from './fields';
 
 /** The dot before a status pill: moss where something is there, ink where nothing is, and a pulse only while the pass is still looking. */
@@ -34,6 +34,13 @@ const capabilityText = (r: CapabilityResult): string => {
   if (!r.selectable) return r.refusal ?? `${r.model} cannot run the method`;
   return r.definitive ? `${r.model} can run the method · ${r.ms} ms` : `${r.model} · the server does not say whether it can call tools`;
 };
+
+/**
+ * The one line the teaching proof answers with. The prefix and the latency are
+ * the composition; the reason is the server's sentence verbatim, whether it is
+ * one of Derive's three or the learner's own server's words.
+ */
+const teachingText = (r: TeachingTest): string => (r.ok ? `Pass · taught one node and passed one graded quiz · ${r.ms} ms` : `Fail · ${r.reason}`);
 
 /**
  * The key field of one row. The value goes one way: typed here, sent on blur
@@ -384,6 +391,8 @@ export function ProviderRow({
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
   const [capability, setCapability] = useState<CapabilityResult | null>(null);
+  const [teachTesting, setTeachTesting] = useState(false);
+  const [teaching, setTeaching] = useState<TeachingTest | null>(null);
 
   useEffect(() => setModel(effective), [effective]);
   useEffect(
@@ -467,6 +476,24 @@ export function ProviderRow({
       setResult({ ok: false, error: (e as Error).message, ms: 0 });
     } finally {
       setTesting(false);
+    }
+  };
+
+  /**
+   * PROV-11: one node and one graded quiz on this row's own model, before a
+   * session is spent on it. The route always answers, so a fail is a result and
+   * not a thrown error; a route that could not answer at all shows Derive's
+   * sentence where the server's would be, exactly as the connection test does.
+   */
+  const testTeaching = async () => {
+    setTeachTesting(true);
+    setTeaching(null);
+    try {
+      setTeaching(await api.testTeaching(row.id));
+    } catch (e) {
+      setTeaching({ ok: false, reason: (e as Error).message, ms: 0 });
+    } finally {
+      setTeachTesting(false);
     }
   };
 
@@ -579,6 +606,21 @@ export function ProviderRow({
         <button type="button" onClick={() => void test()} disabled={testing} className={textButton}>
           {testing ? 'testing…' : 'test connection'}
         </button>
+        {/* Every row that teaches, the two login rows included (amendment A-03): both login backends run a turn through the same driver seam, so the same one-node-one-graded-quiz proof works on them unchanged, and a learner on a login row must not be left without it. */}
+        {row.teaches && (
+          <>
+            <span className="font-mono text-[10px] text-ink-600">·</span>
+            <button
+              type="button"
+              onClick={() => void testTeaching()}
+              disabled={teachTesting || unusable}
+              title={unusable ? 'Nothing to test yet: log in or paste a key first' : undefined}
+              className={textButton}
+            >
+              {teachTesting ? 'testing…' : 'test teaching'}
+            </button>
+          </>
+        )}
         {result && (
           <span role="status" title={resultText(result)} className={`ml-auto ${resultLine} ${result.ok ? 'text-moss-400' : 'text-rust-400'}`}>
             {resultText(result)}
@@ -593,6 +635,17 @@ export function ProviderRow({
         </p>
       )}
       {capability && !capability.ok && capability.hint && <p className="mt-2 text-[14px] leading-relaxed text-ink-300">{capability.hint}</p>}
+      {/* The proof's own line: the in-flight sentence while the run is out, then the pass in moss or the fail in rust. One line, truncated, with the whole sentence in the title, so a long reason from a learner's own server never widens the card. */}
+      {teachTesting ? (
+        <p role="status" className={`mt-2 ${resultLine} text-teal-400 animate-pulse motion-reduce:animate-none`}>
+          running one node and a graded quiz
+        </p>
+      ) : teaching ? (
+        <p role="status" title={teachingText(teaching)} className={`mt-2 ${resultLine} ${teaching.ok ? 'text-moss-400' : 'text-rust-400'}`}>
+          {teachingText(teaching)}
+        </p>
+      ) : null}
+      {teaching && !teaching.ok && teaching.hint && <p className="mt-2 text-[14px] leading-relaxed text-ink-300">{teaching.hint}</p>}
     </div>
   );
 }

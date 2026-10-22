@@ -107,6 +107,17 @@ export type CapabilityResult =
   | { ok: false; error: string; hint?: string; ms: number };
 
 /**
+ * What the teaching proof answers for one row: a pass with its latency, or a
+ * fail with the reason to show and Derive's fix hint beside it.
+ *
+ * Every sentence comes from the server — the three approved fail reasons and,
+ * where a provider or a local server said something of its own, its words
+ * verbatim. The browser composes the `Pass ·` and `Fail ·` prefix and picks the
+ * colour; it never writes a reason or rewrites one.
+ */
+export type TeachingTest = { ok: true; ms: number } | { ok: false; reason: string; hint?: string; ms: number };
+
+/**
  * The web-search block as GET /api/settings paints it: the learner's choice,
  * the key as the page may know it, the SearXNG address, and whether the
  * provider the next turn would run on searches with its own tool.
