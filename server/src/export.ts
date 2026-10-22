@@ -209,7 +209,12 @@ export function mirrorToVault(lessonId: string, delayMs = 600) {
     setTimeout(() => {
       mirrorTimers.delete(lessonId);
       const lesson = getLesson(lessonId);
-      if (!lesson) return;
+      // A lesson that is gone writes nothing, and neither does a scratch one:
+      // the proof that a model can teach leaves no trace, and a note in the
+      // learner's vault would outlive the lesson it was mirrored from, since
+      // this timer can fire during the probe turn and the delete only comes
+      // after it.
+      if (!lesson || lesson.scratch) return;
       try {
         exportToVault(lesson);
       } catch (e) {

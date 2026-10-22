@@ -13,9 +13,9 @@ import { materialsSection } from './materials.js';
 import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
 import { systemPrompt, type WebSurface } from './prompt.js';
-import { providerOf } from './providers.js';
+import { providerOf, type ProviderId } from './providers.js';
 import { safeMessage } from './secrets.js';
-import { backendOf, resolveTutor } from './settings.js';
+import { backendOf, resolveTutor, type TutorChoice } from './settings.js';
 import { DERIVE_TOOL_NAMES, TOOL_LABELS, descriptionFor, shapeFor, toolsFor } from './tools.js';
 
 export { DERIVE_TOOL_NAMES } from './tools.js';
@@ -248,7 +248,31 @@ export const claudeDriver: Driver = {
 
 // ---------- running a turn ----------
 
-export async function runTurn(lessonId: string, prompt: string, opts: { echoUser?: string } = {}) {
+/**
+ * Which driver runs a turn on one provider row.
+ *
+ * This is the same decision `runTurn` used to make inline, named so that a
+ * turn can be run on the row a learner *pressed* rather than only on the row
+ * that happens to be active — which is what the Settings teaching proof needs,
+ * on every teachable row. It reads the id it was handed and nothing else: no
+ * setting, no detection, no active provider.
+ *
+ * Deliberately a `function` declaration rather than a `const`. `capability.ts`
+ * imports this module, `drivers/api.ts` imports `capability.ts`, and this
+ * module imports `drivers/api.ts`, so the three form a ring — safe on the same
+ * condition as the ring `repo.ts`/`library.ts`/`materials.ts` already lives
+ * with: no module in it reads another's bindings at module-evaluation time. A
+ * hoisted declaration called from inside a function body guarantees that; a
+ * `const` arrow would be in temporal dead zone for whichever module evaluates
+ * first.
+ */
+export function driverFor(provider: ProviderId): Driver {
+  if (backendOf(provider) === 'codex') return codexDriver;
+  if (provider === 'claude-code') return claudeDriver;
+  return apiDriverFor(provider);
+}
+
+export async function runTurn(lessonId: string, prompt: string, opts: { echoUser?: string; tutor?: Pick<TutorChoice, 'provider' | 'model'> } = {}) {
   const lesson = getLesson(lessonId);
   if (!lesson) throw new Error('lesson not found');
   if (active.has(lessonId)) throw new Error('lesson is busy');
@@ -260,8 +284,15 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   // in two places at once: the row the busy check and the usage ledger read,
   // and the event the browser replays. The driver is chosen first only so the
   // row can say which one ran it.
-  const tutor = resolveTutor(lesson.learner_id);
-  const driver = driverOverride() ?? (backendOf(tutor.provider) === 'codex' ? codexDriver : tutor.provider === 'claude-code' ? claudeDriver : apiDriverFor(tutor.provider));
+  //
+  // A caller may name the provider and the model instead, which is the one way
+  // a turn runs on a row that is not the learner's active one: the Settings
+  // teaching proof presses a row and that row is what has to answer. Everything
+  // below flows from this single value — the turn row's driver and model, the
+  // `turn_start` payload, the web surface, the context's model and D-04's
+  // session comparison — which is why naming the seam is the whole change.
+  const tutor = opts.tutor ?? resolveTutor(lesson.learner_id);
+  const driver = driverOverride() ?? driverFor(tutor.provider);
   // D-04: a session id belongs to the provider that issued it. When the driver
   // changed since the last turn, the lesson starts a fresh provider
   // conversation; a model change on the same provider keeps resuming. On the

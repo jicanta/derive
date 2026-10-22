@@ -49,11 +49,12 @@ import {
   startTurn,
   stats,
   sweepOrphanMaterials,
+  sweepScratchLessons,
   turnStatusOf,
   type GraphNodeInput,
   type MaterialRow,
 } from './db.js';
-import { capabilityList, capabilityOf, capabilityRefusal, forgetCapabilities, knownCapability, rememberMetadata } from './capability.js';
+import { capabilityList, capabilityOf, capabilityRefusal, forgetCapabilities, knownCapability, rememberMetadata, testTeaching } from './capability.js';
 import { emit, subscribe } from './events.js';
 import { exportToVault, renderMarkdown } from './export.js';
 import { addResource, deleteResource, editResource, getResource, isKind, librarySection, listResources, publicRow, refetchResource, RESOURCE_KINDS, segmentsOf, tagCounts } from './library.js';
@@ -71,6 +72,16 @@ import { ACTIVE_PROVIDER, NUM_CTX_DEFAULT, NUM_CTX_FLOOR, baseUrlKey, currentTut
 import { shapeFor, toolsFor } from './tools.js';
 import { nativeSearch } from './drivers/adapters.js';
 import { lessonCost } from './drivers/api.js';
+
+/**
+ * A proof that a model can teach runs in a lesson it deletes in the same
+ * request, so one still here is the survivor of a crash between its turn and
+ * that delete. Swept before the stale-turn close below, which would otherwise
+ * write a turn_end event into a lesson that is about to be removed: a whole
+ * lesson left behind would carry usage rows the Usage total counts, which is
+ * exactly what D-14 says a proof must never cost.
+ */
+for (const id of sweepScratchLessons()) console.warn(`[boot] removed a leftover teaching-test lesson (${id})`);
 
 /**
  * A restart kills in-flight turns without a turn_end. Close them on boot so
@@ -732,6 +743,33 @@ app.post('/api/settings/:provider/capability', async (c) => {
   const model = asked || getSetting(modelKey(spec.id)) || '';
   if (!model) return c.json({ error: `Choose a model on the ${spec.label} row first` }, 400);
   return c.json(await capabilityOf(spec.id, model));
+});
+
+/**
+ * PROV-11: prove this row can actually teach — one node, one graded quiz, pass
+ * or fail with the latency — before the learner spends a session on it. Always
+ * a 200 with the result, like `/test` and `/capability`: a model that cannot
+ * teach is an answer, not a server error.
+ *
+ * Every row whose `teaches` is true, the two login rows included (D-13,
+ * amendment A-03): both login backends implement `Driver.runTurn`, so the same
+ * probe works on them unchanged, and a learner on a login row must not be left
+ * without the proof. The `teaches` guard stays as the defence for a future row
+ * that arrives before its driver, which is what the activation route keeps it
+ * for too.
+ *
+ * The scratch lesson is filed under `learnerOf(c)` and never a learner named in
+ * the body — the same rule `recordUsage` reads the learner off the turn for.
+ */
+app.post('/api/settings/:provider/test-teaching', async (c) => {
+  const spec = providerOf(c.req.param('provider'));
+  if (!spec) return c.json({ error: 'unknown provider' }, 404);
+  if (!spec.teaches) return c.json({ error: `teaching on ${spec.label} arrives with the next release` }, 400);
+  // `modelFor` with the learner, which is the same question a turn asks: the
+  // proof must run on the model this learner would actually be taught on, not
+  // on the install-wide one.
+  const learner = learnerOf(c);
+  return c.json(await testTeaching(spec.id, modelFor(spec.id, learner), learner));
 });
 
 // ---------- lessons ----------

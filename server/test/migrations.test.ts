@@ -540,10 +540,6 @@ function prefsOf(file: string, id: string): string | null {
 }
 
 describe('the learner model moved onto its provider', () => {
-  it('pins LATEST_VERSION, so a migration that forgets to bump the number is visible', () => {
-    assert.equal(LATEST_VERSION, 7);
-  });
-
   it('moves a bare string onto the provider that was active when it was stored', () => {
     const file = atVersion5([{ language: 'Spanish', model: 'claude-opus-5-5' }], 'anthropic');
     migrate(file);
@@ -577,6 +573,35 @@ describe('the learner model moved onto its provider', () => {
     const file = atVersion5([{ model: 'claude-opus-5-5' }], 'a-provider-this-build-does-not-carry');
     migrate(file);
     assert.deepEqual(JSON.parse(prefsOf(file, 'l0')!), { model: { 'claude-code': 'claude-opus-5-5' } });
+  });
+});
+
+describe('the scratch marker a teaching test needs', () => {
+  it('pins LATEST_VERSION, so a migration that forgets to bump the number is visible', () => {
+    assert.equal(LATEST_VERSION, 8);
+  });
+
+  it('carries a database at the previous version forward onto 8, and every lesson it already had is a real one', () => {
+    const file = legacyDatabase(scratch());
+    migrateTo(file, 7);
+    const before = new DatabaseSync(file);
+    before.prepare('INSERT INTO learners (id, name, created_at) VALUES (?, ?, ?)').run('default', 'You', 1);
+    before.prepare('INSERT INTO lessons (id, topic, phase, learner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run('l1', 'Fourier series', 'teach', 'default', 1, 2);
+    before.close();
+    assert.equal(userVersion(file), 7);
+
+    migrate(file);
+
+    assert.equal(userVersion(file), 8);
+    const after = new DatabaseSync(file);
+    // The column's default is what makes the upgrade safe: a lesson written
+    // before the marker existed is one the learner meant to keep, so it must
+    // come forward as a real lesson rather than as something to sweep.
+    assert.deepEqual(
+      after.prepare('SELECT id, scratch FROM lessons').all().map((r) => ({ ...r })),
+      [{ id: 'l1', scratch: 0 }],
+    );
+    after.close();
   });
 });
 

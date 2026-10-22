@@ -36,6 +36,8 @@ export type Lesson = {
   answer_in: 'browser' | 'terminal';
   /** Companion lessons only: the terminal that drives it, 'claude-code' or 'codex'. */
   driver: string | null;
+  /** 1 on a lesson created only to prove a model can teach, which is removed in the same request and is never listed; SQLite has no boolean, so this is the column as it is stored. */
+  scratch: number;
   created_at: number;
   updated_at: number;
 };
@@ -111,7 +113,7 @@ export type TurnMessagesRow = {
 
 const q = {
   insertLesson: db.prepare(
-    'INSERT INTO lessons (id, topic, mode, learner_id, answer_in, driver, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO lessons (id, topic, mode, learner_id, answer_in, driver, scratch, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   ),
   lastExternal: db.prepare("SELECT * FROM lessons WHERE mode = 'external' ORDER BY created_at DESC LIMIT 1"),
   setAnswerIn: db.prepare('UPDATE lessons SET answer_in = ?, updated_at = ? WHERE id = ?'),
@@ -155,8 +157,12 @@ const q = {
   deleteMemoryByLesson: db.prepare('DELETE FROM memory WHERE lesson_id = ?'),
   deleteMisByLesson: db.prepare('DELETE FROM misconceptions WHERE lesson_id = ?'),
   getLesson: db.prepare('SELECT * FROM lessons WHERE id = ?'),
-  listLessons: db.prepare('SELECT * FROM lessons WHERE learner_id = ? ORDER BY updated_at DESC'),
-  listAllLessons: db.prepare('SELECT * FROM lessons ORDER BY updated_at DESC'),
+  // Both listings exclude scratch rows: a lesson that exists only to prove a
+  // model can teach must never reach Home, the Atlas or a lesson count, not
+  // even for the second it is alive.
+  listLessons: db.prepare('SELECT * FROM lessons WHERE learner_id = ? AND scratch = 0 ORDER BY updated_at DESC'),
+  listAllLessons: db.prepare('SELECT * FROM lessons WHERE scratch = 0 ORDER BY updated_at DESC'),
+  scratchLessons: db.prepare('SELECT id FROM lessons WHERE scratch = 1'),
   touchLesson: db.prepare('UPDATE lessons SET updated_at = ? WHERE id = ?'),
   setSession: db.prepare('UPDATE lessons SET session_id = ?, updated_at = ? WHERE id = ?'),
   setPhase: db.prepare('UPDATE lessons SET phase = ?, updated_at = ? WHERE id = ?'),
@@ -449,10 +455,10 @@ export function deleteLearner(id: string) {
 export function createLesson(
   id: string,
   topic: string,
-  opts: { mode?: 'agent' | 'external'; learnerId?: string; answerIn?: 'browser' | 'terminal'; driver?: string | null } = {},
+  opts: { mode?: 'agent' | 'external'; learnerId?: string; answerIn?: 'browser' | 'terminal'; driver?: string | null; scratch?: boolean } = {},
 ): Lesson {
   const now = Date.now();
-  q.insertLesson.run(id, topic, opts.mode ?? 'agent', opts.learnerId ?? DEFAULT_LEARNER_ID, opts.answerIn ?? 'browser', opts.driver ?? null, now, now);
+  q.insertLesson.run(id, topic, opts.mode ?? 'agent', opts.learnerId ?? DEFAULT_LEARNER_ID, opts.answerIn ?? 'browser', opts.driver ?? null, opts.scratch ? 1 : 0, now, now);
   return getLesson(id)!;
 }
 
@@ -497,6 +503,22 @@ export function deleteLesson(id: string) {
     q.deleteTurnsByLesson.run(id);
     q.deleteLesson.run(id);
   });
+}
+
+/**
+ * Remove every scratch lesson still in the file, and say which ones they were.
+ *
+ * A scratch lesson is deleted in the request that made it, so one found here
+ * is the survivor of a crash between the probe turn and that delete. Each goes
+ * through `deleteLesson` rather than a sequence of DELETEs: that function is
+ * already one transaction over nine tables in dependency order, with usage
+ * cleared before turns, which is exactly why the probe's token counts need no
+ * special case in `recordUsage` — the rows go with the lesson.
+ */
+export function sweepScratchLessons(): string[] {
+  const ids = (q.scratchLessons.all() as { id: string }[]).map((r) => r.id);
+  for (const id of ids) deleteLesson(id);
+  return ids;
 }
 
 export function setSessionId(id: string, sessionId: string) {

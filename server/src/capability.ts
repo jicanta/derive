@@ -52,10 +52,27 @@
  * and the per-model read runs when the learner selects a model. Nothing runs
  * on a timer. The environment is read only through `config.ts`, by way of the
  * modules this one imports.
+ *
+ * Past those two tiers there is a third question, and it is the learner's
+ * rather than Derive's: can *this* model actually teach, right now, before I
+ * spend a session on it. `testTeaching` at the end of this file answers it the
+ * only way it can be answered — by teaching: one scripted turn through the
+ * production loop, one node, one quiz the server grades, in a lesson deleted in
+ * the same request. It never reaches a driver any other way than the one a real
+ * lesson does, so a pass cannot come from Derive's own plumbing: no stub, no
+ * process-global driver override (that seam lives in `driver.ts` and is read in
+ * `agent.ts`, never here), no cached verdict, no repaired tool call. The whole
+ * value of the action is that a learner can trust it before spending a session,
+ * and a pass their model did not produce would be worse than no action at all.
  */
+import { randomUUID } from 'node:crypto';
 import { generateText, jsonSchema, tool, type JSONSchema7 } from 'ai';
+import { runTurn } from './agent.js';
+import { createLesson, deleteLesson, type StoredEvent } from './db.js';
+import { subscribe } from './events.js';
 import { providerOf, type ProviderId } from './providers.js';
-import { bearer, field, getJson, hintFor, idsOf, LOCAL_MS, postJson, statusOf } from './probe.js';
+import { bearer, field, getJson, hintFor, idsOf, LOCAL_MS, postJson, statusOf, testConnection } from './probe.js';
+import { answerPrompt } from './prompts.js';
 import { safeMessage } from './secrets.js';
 import { effectiveKey, localBase, NUM_CTX_FLOOR } from './settings.js';
 import { descriptionFor, jsonSchemaOf, toolsFor } from './tools.js';
@@ -532,4 +549,170 @@ export async function capabilityOf(id: string, model: string): Promise<Capabilit
     const hint = spec ? hintFor(spec.label, statusOf(error), error) : undefined;
     return { ok: false, error, ...(hint ? { hint } : {}), ms: ms() };
   }
+}
+
+// ---------- the teaching proof ----------
+
+/**
+ * What the teaching proof answers: a pass with its latency, or a fail with the
+ * sentence to show and Derive's fix hint beside it where there is one. The same
+ * two-armed shape as `TestResult` and `CapabilityVerdict`, and for the same
+ * reason — the question has an answer even when the answer is a failure, so
+ * this function answers rather than throws and every sentence leaves through
+ * one chokepoint.
+ */
+export type TeachingTest = { ok: true; ms: number } | { ok: false; reason: string; hint?: string; ms: number };
+
+/**
+ * The two failure sentences Derive itself produces, verbatim from
+ * 04-UI-SPEC.md §Copywriting Contract. The third approved sentence —
+ * `nothing answered at {host}:{port}` — is `probe.ts`'s own and is never
+ * copied here; it arrives through the reachability read below.
+ */
+const NO_TOOLS = 'the model called no tools, so there was no node to grade.';
+const UNGRADABLE = 'the quiz came back but the grade was unreadable.';
+
+/** The event types a turn emits that are not the trace of a tool: everything else in a lesson's log is something a tool did. Read as the absence of tool calls, which is one of the three failures. */
+const NOT_A_TOOL = new Set(['turn_start', 'turn_end', 'user', 'assistant', 'status', 'delta', 'ready']);
+
+/**
+ * The fixed, trivial subject of the proof. Trivial on purpose: what is being
+ * tested is whether the model can work the method's machinery, never whether it
+ * knows anything, so the topic is one a two-billion-parameter model cannot get
+ * wrong and the failure is unambiguous when it comes.
+ */
+const PROBE_TOPIC = 'why two even numbers add to an even number';
+/** The node the proof teaches and quizzes — the graph's goal, so one node carries the whole run. */
+const PROBE_NODE = 'even-sum';
+/** The option the question's answer is, by the script. The probe picks it by its text rather than by its position, so a model that reorders its options still has its own key honoured. */
+const PROBE_CORRECT = 'It is even';
+const PROBE_WRONG = 'It is odd';
+
+/**
+ * The scripted turn.
+ *
+ * It rides the whole method prompt, as any turn does, so it has to say plainly
+ * that this is not a lesson — otherwise a model doing the right thing would
+ * open with probe questions and the proof would time out on its own method.
+ * The graph is three nodes because `set_plan`'s own schema requires at least
+ * three; the teaching and the quiz are one node, which is all PROV-11 claims.
+ * The question's answer is fixed here so the probe can settle the card with the
+ * option the model declared correct, and `actions.ts` still does the grading —
+ * the model never grades its own question, here least of all.
+ */
+const PROBE_PROMPT = `This is Derive's own capability check, not a lesson, and nobody is learning from it. Ask no probe questions. Run exactly these three steps and then end the turn:
+
+1. Call set_plan with the goal "Know that two even numbers add to an even number" and exactly these three nodes: {"id":"even","kind":"truth","label":"An even number is twice a whole number","summary":"Every even number can be written as two times some whole number."}, {"id":"pair","kind":"derived","label":"Two doubles add to a double","summary":"Adding two multiples of two gives another multiple of two.","depends_on":["even"]}, {"id":"${PROBE_NODE}","kind":"goal","label":"Two even numbers add to an even number","summary":"The sum of any two even numbers is even.","depends_on":["pair"]}.
+2. Call node_status with id "${PROBE_NODE}" and status "teaching", then write one or two sentences establishing it.
+3. Call quiz with node_id "${PROBE_NODE}", purpose "check", tests "intuition", question "If you add two even numbers, what is the sum?", options exactly ["${PROBE_CORRECT}", "${PROBE_WRONG}"], correct [0] — the correct option is "${PROBE_CORRECT}" — and a one-sentence explanation.
+
+Call no other tool, attach nothing, and ask nothing else.`;
+
+/** Which option carries the answer the script fixed, by its text; the first option when the model wrote something else, so a card is always settled and never left hanging. */
+function correctIndex(options: unknown): number {
+  if (!Array.isArray(options)) return 0;
+  const found = options.findIndex((o) => typeof o === 'string' && o.trim().toLowerCase() === PROBE_CORRECT.toLowerCase());
+  return found >= 0 ? found : 0;
+}
+
+/**
+ * Settle a card the scripted turn opened, the way the browser would.
+ *
+ * Deferred by a microtask because `openPrompt` emits the card's event *before*
+ * it registers the pending prompt, so an answer sent from inside the listener
+ * would arrive at nothing. Every kind is handled rather than only the two the
+ * script asks for: a model that opens a card the script did not ask for would
+ * otherwise leave the turn waiting on a learner who does not exist.
+ */
+function settle(lessonId: string, ev: StoredEvent): void {
+  const id = field(ev.payload, 'id');
+  if (typeof id !== 'string') return;
+  const answer =
+    ev.type === 'plan'
+      ? { approved: true }
+      : ev.type === 'quiz'
+        ? { selected: [correctIndex(field(ev.payload, 'options'))], sure: true }
+        : ev.type === 'ask' || ev.type === 'explain'
+          ? { text: 'This is a capability check, not a lesson.' }
+          : null;
+  if (!answer) return;
+  queueMicrotask(() => answerPrompt(lessonId, id, answer));
+}
+
+/**
+ * PROV-11: prove that this model, on this row, can run the method — one node
+ * and one graded quiz — before the learner invests a session in it.
+ *
+ * It runs one real turn through `runTurn`, naming the pressed row's provider
+ * and model, which `driverFor` resolves: the owned loop for the key, gateway
+ * and local rows, the Agent SDK and Codex drivers for the two login rows, with
+ * no per-row branch written here. The lesson it runs in is a scratch lesson,
+ * excluded from every listing and removed in a `finally` through the
+ * transactional `deleteLesson`, so a thrown error still takes the lesson and
+ * its usage rows with it — which is why the token counts of a proof can never
+ * reach the Usage total and why `recordUsage` needs no special case for it.
+ *
+ * The window is the row's own: the adapter resolves it through the same
+ * `numCtxFor` a real lesson uses. Probing at a smaller window "to be quick"
+ * would cost the learner forty seconds, not save them any — `num_ctx` is a
+ * load-time parameter, so a different value makes Ollama reload the model
+ * before their first real turn.
+ *
+ * Each failure is one observable outcome, and the order matters: nothing
+ * answering at the address is read before the run, because it is the reason
+ * there were no tool calls rather than a fact about the model; a turn the loop
+ * itself refused answers in the loop's own words, because that sentence names
+ * the real problem (a model the ladder refused, a window too small, a key the
+ * provider rejected) better than any of the three could; zero tool calls is
+ * the no-tools sentence; and anything else that failed to produce a graded pass
+ * is the ungradable one — including a quiz whose own key contradicts the
+ * question it was asked to write, which is a quiz that cannot gate anything.
+ */
+export async function testTeaching(providerId: string, model: string | null, learnerId: string): Promise<TeachingTest> {
+  const t0 = Date.now();
+  const ms = () => Date.now() - t0;
+  const spec = providerOf(providerId);
+  if (!spec) return { ok: false, reason: 'unknown provider', ms: ms() };
+
+  // Where the learner supplied the address, ask it first whether anything is
+  // there. It is the same cheap read `test connection` makes — one request, no
+  // model asked to generate a token — and it is how the approved transport
+  // sentence reaches the learner at all: `nothing answered at {host}:{port}` is
+  // written once, in `probe.ts`. Without this a closed port is two minutes of
+  // the loop's own retry backoff ending in the SDK's words, which name no
+  // address and tell the learner nothing they can act on.
+  if (spec.group === 'local' || spec.auth === 'key+url') {
+    const reachable = await testConnection(spec.id);
+    if (!reachable.ok) return { ok: false, reason: safeMessage(reachable.error), ...(reachable.hint ? { hint: reachable.hint } : {}), ms: ms() };
+  }
+
+  const lessonId = randomUUID();
+  createLesson(lessonId, PROBE_TOPIC, { scratch: true, learnerId });
+  const seen: StoredEvent[] = [];
+  // The lesson's own event log is what the outcome is read from, which is the
+  // one observation every driver makes alike: the Agent SDK path, the Codex
+  // path and the owned loop all report through the same sink. Ephemeral events
+  // (status lines, text deltas) carry seq -1 and are not part of the record.
+  const stop = subscribe(lessonId, (ev) => {
+    if (ev.seq >= 0) seen.push(ev);
+    settle(lessonId, ev);
+  });
+  let thrown = '';
+  try {
+    await runTurn(lessonId, PROBE_PROMPT, { tutor: { provider: spec.id, model } });
+  } catch (e) {
+    thrown = safeMessage(e);
+  } finally {
+    stop();
+    deleteLesson(lessonId);
+  }
+
+  const graded = seen.find((ev) => ev.type === 'quiz_result');
+  if (graded && field(graded.payload, 'result') === 'correct') return { ok: true, ms: ms() };
+
+  const end = seen.find((ev) => ev.type === 'turn_end');
+  const refused = end && field(end.payload, 'ok') === false ? String(field(end.payload, 'error') ?? '') : thrown;
+  if (refused) return { ok: false, reason: safeMessage(refused), ms: ms() };
+  if (!seen.some((ev) => !NOT_A_TOOL.has(ev.type))) return { ok: false, reason: NO_TOOLS, ms: ms() };
+  return { ok: false, reason: UNGRADABLE, ms: ms() };
 }

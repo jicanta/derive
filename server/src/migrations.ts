@@ -302,6 +302,19 @@ export const MIGRATIONS: Migration[] = [
       convertLearnerModelPrefs(db);
     },
   },
+  {
+    version: 8,
+    name: 'scratch-lesson',
+    up(db) {
+      // A lesson created only to prove a model can teach: one node, one graded
+      // quiz, deleted in the same request. The column exists for the one case
+      // the delete cannot cover — a crash *between* the turn and the delete —
+      // which would otherwise leave a whole lesson, with its usage rows, for
+      // the Usage total to count. `listLessons` excludes these rows and
+      // `sweepScratchLessons` removes any that survived, on the boot pass.
+      db.exec('ALTER TABLE lessons ADD COLUMN scratch INTEGER NOT NULL DEFAULT 0');
+    },
+  },
 ];
 
 /**

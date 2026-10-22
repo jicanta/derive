@@ -474,6 +474,225 @@ describe("the owned loop, through the app's own routes", () => {
     assert.ok(typeof v.json.cost === 'string' && v.json.cost.length > 0, `the lesson carries no cost string: ${v.json.cost}`);
     assert.notEqual(v.json.cost, 'not reported', 'the stub reported usage, so the lesson must not read as unreported');
   });
+
+  /**
+   * `test teaching` (PROV-11), over the same routes with no real model.
+   *
+   * What these cases prove is Derive's own plumbing and its cleanup: that each
+   * failure reaches the learner as its approved sentence, that the probe runs
+   * on the row it was aimed at rather than on whichever row is active, and
+   * that nothing it creates survives the request. **None of them says anything
+   * about any model's competence, and none of them can produce the pass line.**
+   * That line is emitted only from a run in which a real model made a real
+   * tool call and the server graded a real quiz — which is the whole value of
+   * the action, and the reason the pass path is a human check (Task 3) rather
+   * than a case here.
+   */
+  describe('the teaching proof', () => {
+    let database: typeof import('../src/db.js');
+    let agent: typeof import('../src/agent.js');
+    let apiDrivers: typeof import('../src/drivers/api.js');
+    let driverSeam: typeof import('../src/driver.js');
+    let fake: Server | undefined;
+    let live = 0;
+    let closed = 0;
+    /** Every path the pressed row's own address was asked for, which is how a case sees where the model request actually went. */
+    let asked: string[] = [];
+
+    const NO_TOOLS = 'the model called no tools, so there was no node to grade.';
+    const UNGRADABLE = 'the quiz came back but the grade was unreadable.';
+
+    /** A model that answers prose and calls nothing — the pleasant failure a model with no tool calling produces. */
+    const proseOnly = (modelId: string) =>
+      new MockLanguageModelV4({
+        modelId,
+        doStream: [step([{ type: 'stream-start', warnings: [] }, ...says('p1', 'What a nice topic. Even numbers are everywhere.'), finish('stop', 'end_turn')])],
+      });
+
+    /** What the lesson list, the ledger and the lessons table say right now; the proof must leave all three exactly as it found them. */
+    const counts = () => ({
+      lessons: database.listLessons('default').length,
+      usage: database.listUsage({ learner: 'default' }).length,
+      scratch: (database.db.prepare('SELECT count(*) AS n FROM lessons WHERE scratch = 1').get() as { n: number }).n,
+    });
+
+    before(async () => {
+      database = await import('../src/db.js');
+      agent = await import('../src/agent.js');
+      apiDrivers = await import('../src/drivers/api.js');
+      driverSeam = await import('../src/driver.js');
+      // Ollama's model list, so the row's own address answers something: the
+      // proof asks it before spending a model request, the same cheap read
+      // `test connection` makes. The fake stands in for a metadata endpoint and
+      // never for a model.
+      const tags = await fakeServer((url) => {
+        asked.push(url);
+        return url === '/api/tags'
+          ? { status: 200, type: 'application/json', body: JSON.stringify({ models: [{ name: 'a-local-model' }] }) }
+          : { status: 404, type: 'application/json', body: '{"error":"not found"}' };
+      });
+      fake = tags.server;
+      live = tags.port;
+      closed = await freePort();
+      const pointed = await call('/api/settings/ollama', { base_url: `http://127.0.0.1:${live}`, model: 'a-local-model' }, 'PUT');
+      assert.equal(pointed.status, 200, JSON.stringify(pointed.json));
+    });
+
+    after(() => {
+      fake?.close();
+      apiDrivers.setModelOverride(null);
+      driverSeam.setDriverOverride(null);
+    });
+
+    it('answers the no-tools sentence for a model that calls nothing, and leaves the database exactly as it found it', async () => {
+      const was = counts();
+      driverSeam.setDriverOverride(apiDrivers.apiDriverFor('ollama'));
+      apiDrivers.setModelOverride(() => proseOnly('a-local-model'));
+      const r = await call<{ ok: boolean; reason: string; ms: number }>('/api/settings/ollama/test-teaching', {});
+
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.ok, false, 'a model that called no tool cannot teach');
+      assert.equal(r.json.reason, NO_TOOLS, 'the fail reason must be the approved sentence, not a paraphrase');
+      assert.equal(typeof r.json.ms, 'number');
+      // D-11 and D-14 together: no lesson in Home, no row in the ledger, and
+      // no scratch lesson left in the file.
+      assert.deepEqual(counts(), was, 'the proof left something behind');
+    });
+
+    it('answers the ungradable sentence when the quiz call does not satisfy the tool’s own schema', async () => {
+      const was = counts();
+      driverSeam.setDriverOverride(apiDrivers.apiDriverFor('ollama'));
+      apiDrivers.setModelOverride(
+        () =>
+          new MockLanguageModelV4({
+            modelId: 'a-local-model',
+            doStream: [
+              step([{ type: 'stream-start', warnings: [] }, toolCall('q1', 'set_plan', PLAN), finish('tool-calls', 'tool_use')]),
+              // One option, no correct indices, no explanation: validateToolInput
+              // throws, so no quiz is ever opened and nothing can be graded.
+              step([{ type: 'stream-start', warnings: [] }, toolCall('q2', 'quiz', JSON.stringify({ question: 'Is the sum even?', options: ['It is even'] })), finish('tool-calls', 'tool_use')]),
+              step([{ type: 'stream-start', warnings: [] }, ...says('q3', 'That is all of it.'), finish('stop', 'end_turn')]),
+            ],
+          }),
+      );
+      const r = await call<{ ok: boolean; reason: string }>('/api/settings/ollama/test-teaching', {});
+
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.ok, false);
+      assert.equal(r.json.reason, UNGRADABLE, 'a quiz the server could not grade must not read as "called no tools": the model did call one');
+      assert.deepEqual(counts(), was, 'the proof left something behind');
+    });
+
+    it('sweeps a scratch lesson a crash left behind, and its usage rows with it', () => {
+      // The one case the delete inside the request cannot cover (T-04-05): a
+      // crash between the turn and the delete. Left behind deliberately, with a
+      // turn and a usage row, because the row is what would inflate the Usage
+      // total if the sweep were not there.
+      const id = 'a-proof-that-crashed';
+      database.createLesson(id, 'a proof that crashed', { scratch: true });
+      const turn = database.startTurn(id, 'ollama', 'a-local-model');
+      database.recordUsage(turn, { model: 'a-local-model', input_tokens: 900, output_tokens: 40, cost_source: 'unknown' });
+
+      assert.equal(database.listLessons('default').some((l) => l.id === id), false, 'a scratch lesson must never be listed, not even while it exists');
+      assert.equal(database.listUsage({ lesson: id }).length, 1, 'the case has to start from a ledger row, or the sweep proves nothing');
+
+      assert.deepEqual(database.sweepScratchLessons(), [id]);
+      assert.equal(database.getLesson(id), undefined);
+      assert.equal(database.listUsage({ lesson: id }).length, 0, 'the lesson went and its usage rows stayed, so the Usage total would still count the proof');
+      assert.equal((database.db.prepare('SELECT count(*) AS n FROM lessons WHERE scratch = 1').get() as { n: number }).n, 0);
+    });
+
+    it('resolves a driver from the row it was handed and from nothing else', async () => {
+      // The pure half of the property the probe rests on. Three rows, three
+      // drivers, and the answer for a row does not move when a different row is
+      // made active — a probe that read the active provider instead would run
+      // the wrong model and report the result as that row's.
+      const { driverFor } = agent;
+      assert.deepEqual([driverFor('claude-code').name, driverFor('codex').name, driverFor('ollama').name], ['claude', 'codex', 'ollama']);
+
+      const before = [driverFor('anthropic').name, driverFor('ollama').name];
+      const switched = await call<{ provider: string }>('/api/settings/active', { provider: 'ollama' });
+      assert.equal(switched.json.provider, 'ollama', JSON.stringify(switched.json));
+      assert.deepEqual([driverFor('anthropic').name, driverFor('ollama').name], before, 'the resolution moved when the active row did');
+
+      const back = await call<{ provider: string }>('/api/settings/active', { provider: 'anthropic' });
+      assert.equal(back.json.provider, 'anthropic', JSON.stringify(back.json));
+      assert.deepEqual([driverFor('anthropic').name, driverFor('ollama').name], before);
+    });
+
+    it('runs on a key row through its own driver, so the action is not a local-row feature', async () => {
+      // Amendment A-03 in the direction the structural tests can reach: the row
+      // the learner pressed is the active one here, and it is a key row rather
+      // than a local one, so the probe went through `apiDriverFor('anthropic')`
+      // with no per-row branch anywhere in the proof.
+      driverSeam.setDriverOverride(null);
+      apiDrivers.setModelOverride(() => proseOnly('claude-opus-5-5'));
+      const r = await call<{ ok: boolean; reason: string }>('/api/settings/anthropic/test-teaching', {});
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.ok, false);
+      assert.equal(r.json.reason, NO_TOOLS);
+    });
+
+    it('sends the model request to the pressed row’s own address while another row is active', async () => {
+      // The seam itself, observed positively: no override of any kind, the
+      // active row is Anthropic, and the pressed row is Ollama pointed at a
+      // fake that records what it is asked for. A probe that resolved the
+      // active provider instead — which is all `runTurn` could do before this
+      // plan — would send its request to api.anthropic.com and this fake would
+      // never see a completion path at all.
+      driverSeam.setDriverOverride(null);
+      apiDrivers.setModelOverride(null);
+      const pointed = await call('/api/settings/ollama', { base_url: `http://127.0.0.1:${live}` }, 'PUT');
+      assert.equal(pointed.status, 200, JSON.stringify(pointed.json));
+      const was = counts();
+      asked = [];
+
+      const r = await call<{ ok: boolean; reason: string }>('/api/settings/ollama/test-teaching', {});
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.ok, false, 'the fake answers no model, so this cannot be a pass');
+      assert.ok(asked.includes('/api/tags'), 'the row was never asked whether anything is there');
+      assert.ok(
+        asked.some((path) => path !== '/api/tags'),
+        `the model request never reached the pressed row's address; it was only asked for ${JSON.stringify(asked)}`,
+      );
+      assert.equal((await call<{ provider: string }>('/api/settings/active')).json.provider, 'anthropic', 'pressing the action on a row is not choosing that row');
+      assert.deepEqual(counts(), was);
+    });
+
+    it('runs on the row it was aimed at rather than on the active one, and choosing nothing', async () => {
+      // No override of any kind: what answers here is the real resolution. The
+      // active row is Anthropic; the pressed row is Ollama, pointed at a port
+      // nothing is listening on. The reason must name *that* address.
+      driverSeam.setDriverOverride(null);
+      apiDrivers.setModelOverride(null);
+      const pointed = await call('/api/settings/ollama', { base_url: `http://127.0.0.1:${closed}` }, 'PUT');
+      assert.equal(pointed.status, 200, JSON.stringify(pointed.json));
+      const activeBefore = await call<{ provider: string }>('/api/settings/active');
+      assert.equal(activeBefore.json.provider, 'anthropic');
+
+      const was = counts();
+      const r = await call<{ ok: boolean; reason: string }>('/api/settings/ollama/test-teaching', {});
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.ok, false, 'nothing answered, so this cannot be a pass');
+      assert.match(r.json.reason, new RegExp(`nothing answered at 127\\.0\\.0\\.1:${closed}`), 'the reason names some other address than the row the learner pressed');
+      assert.doesNotMatch(r.json.reason, /anthropic/i, 'the proof ran on the active row instead of the pressed one');
+
+      const activeAfter = await call<{ provider: string }>('/api/settings/active');
+      assert.equal(activeAfter.json.provider, 'anthropic', 'pressing the action on a row is not choosing that row');
+      assert.deepEqual(counts(), was);
+    });
+
+    it('is a 404 for an id the catalogue does not carry', async () => {
+      assert.equal((await call('/api/settings/not-a-provider/test-teaching', {})).status, 404);
+      // The route's `teaches` guard cannot be driven from the catalogue: every
+      // row teaches from plan 04-01 on, so there is no row to point it at. It
+      // stays as the defence for a future row that arrives before its driver,
+      // which is what the activation route keeps its own guard for. This
+      // assertion is what will fail if such a row is ever added without a case.
+      const rows = await call<{ rows: { id: string; teaches: boolean }[] }>('/api/settings');
+      assert.deepEqual(rows.json.rows.filter((row) => !row.teaches).map((row) => row.id), []);
+    });
+  });
 });
 
 describe('a repo import', () => {
