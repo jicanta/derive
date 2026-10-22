@@ -735,6 +735,65 @@ describe("the owned loop, through the app's own routes", () => {
       assert.deepEqual(rows.json.rows.filter((row) => !row.teaches).map((row) => row.id), []);
     });
   });
+
+  /**
+   * Which learner the activation's capability refusal speaks for.
+   *
+   * `ACTIVE_PROVIDER` is per install while the model is per learner, so one
+   * activation check cannot speak for everyone — it speaks for the learner
+   * making it. Here rather than in the spawned-server suites because those run
+   * with `DERIVE_BACKEND` set, which locks the provider with a 409 before the
+   * refusal is ever reached.
+   */
+  describe('the activation refusal', () => {
+    it('resolves the model the asking learner would be taught on, not the install-wide one', async () => {
+      // The install-wide id is stored while nothing is found on the row, so no
+      // metadata is read for it and it keeps no verdict. The learner's own id
+      // is the one in the quiet server's model list, so the pass refuses that
+      // one and only that one — which is what makes the two answers below
+      // distinguishable at all.
+      const away = await call('/api/settings/ollama', { base_url: 'http://127.0.0.1:1' }, 'PUT');
+      assert.equal(away.status, 200, JSON.stringify(away.json));
+      assert.equal((await call('/api/settings/detect', {})).status, 200);
+      const stored = await call('/api/settings/ollama', { model: 'an-unread-model' }, 'PUT');
+      assert.equal(stored.status, 200, JSON.stringify(stored.json));
+
+      const made = await call<{ id: string }>('/api/learners', { name: 'Quiet' });
+      assert.equal(made.status, 201, JSON.stringify(made.json));
+      const own = await call(`/api/learners/${made.json.id}`, { prefs: { model: { ollama: 'a-quiet-model' } } }, 'PATCH');
+      assert.equal(own.status, 200, JSON.stringify(own.json));
+
+      const quiet = await fakeServer((url) =>
+        url === '/api/tags'
+          ? { status: 200, type: 'application/json', body: JSON.stringify({ models: [{ name: 'a-quiet-model' }] }) }
+          : url === '/api/show'
+            ? {
+                status: 200,
+                type: 'application/json',
+                body: JSON.stringify({ model_info: { 'general.architecture': 'qwen3moe', 'qwen3moe.context_length': 262_144 }, capabilities: ['completion', 'vision'] }),
+              }
+            : { status: 404, type: 'application/json', body: '{"error":"not found"}' },
+      );
+      try {
+        const pointed = await call('/api/settings/ollama', { base_url: `http://127.0.0.1:${quiet.port}` }, 'PUT');
+        assert.equal(pointed.status, 200, JSON.stringify(pointed.json));
+        assert.equal((await call('/api/settings/detect', {})).status, 200);
+
+        // The learner with no model of their own runs the install-wide id,
+        // which nothing was read about, so nothing refuses them.
+        const other = await call<{ provider: string }>('/api/settings/active', { provider: 'ollama' });
+        assert.equal(other.status, 200, JSON.stringify(other.json));
+        assert.equal(other.json.provider, 'ollama');
+
+        const asking = await call<{ error: string }>(`/api/settings/active?learner=${made.json.id}`, { provider: 'ollama' });
+        assert.equal(asking.status, 400, JSON.stringify(asking.json));
+        assert.match(asking.json.error, /^a-quiet-model does not support tool calling/, 'the refusal named a model this learner never runs');
+      } finally {
+        quiet.server.close();
+        await call('/api/settings/active', { provider: 'anthropic' });
+      }
+    });
+  });
 });
 
 describe('a repo import', () => {
@@ -1009,4 +1068,5 @@ describe('the capability route, over HTTP', () => {
       if (open) quiet.server.close();
     }
   });
+
 });

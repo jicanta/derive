@@ -542,12 +542,22 @@ app.post('/api/settings/active', async (c) => {
   if (lockedBy('provider')) return c.json({ error: 'the provider is set by DERIVE_BACKEND in the environment' }, 409);
   // The other half of D-04's "cannot be selected": a learner must not be able
   // to make active a model the ladder has already said cannot run the method.
-  // The row's model is resolved through the same tiers a turn resolves it
-  // through, so this refusal and the next turn cannot disagree about which
-  // model was about to run. The lesson-time backstop in drivers/api.ts stays as
-  // it is — it covers the model that slipped through before any verdict
-  // existed, which is a different case from this one.
-  const refusal = capabilityRefusal(spec.id, modelFor(spec.id));
+  //
+  // The model is resolved through the same tiers a turn resolves it through —
+  // `modelFor(id, learner)`, which is the question `resolveTutor` asks — so
+  // this refusal and that learner's next turn cannot disagree about which model
+  // was about to run. Resolving it with no learner skipped the per-learner tier
+  // `chooseModel` consults first, and the two could then disagree in both
+  // directions: refusing everyone over an install-wide model the learner never
+  // runs, or allowing an activation whose own model the ladder has refused.
+  //
+  // `ACTIVE_PROVIDER` is per install while the model is per learner, so one
+  // activation check cannot speak for every learner. It speaks for the learner
+  // making it, which is the one whose session is about to be spent. The
+  // lesson-time backstop in drivers/api.ts stays as it is — it covers the model
+  // that slipped through before any verdict existed, and it is what catches
+  // another learner's refused model on their own first turn.
+  const refusal = capabilityRefusal(spec.id, modelFor(spec.id, learnerOf(c)));
   if (refusal) return c.json({ error: refusal }, 400);
   try {
     setSetting(ACTIVE_PROVIDER, spec.id);
