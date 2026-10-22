@@ -722,8 +722,17 @@ app.post('/api/settings/detect', async (c) => {
   // No request here reaches a completion endpoint, so opening Settings cannot
   // cost a generation; `rowView` gains no field, because the verdicts are read
   // by the two refusals below and by the line the row already shows.
-  const found = PROVIDERS.filter((s) => s.group === 'local' && !!seen.local?.[s.id as keyof Local]);
-  for (const s of found) forgetCapabilities(s.id);
+  //
+  // Every local row the pass looked at is forgotten, found or not. A row that
+  // answered last time and does not answer now is the case that matters: its
+  // verdicts are facts about a server that is no longer there, so keeping them
+  // would keep a refusal alive past the thing it was read from — a learner who
+  // stops llama-server, swaps the model file and rescans while it is still
+  // starting up would have their new model refused by the old `no`. Silence is
+  // the only safe direction, which is what `forgetCapabilities` says.
+  const local = PROVIDERS.filter((s) => s.group === 'local');
+  for (const s of local) forgetCapabilities(s.id);
+  const found = local.filter((s) => !!seen.local?.[s.id as keyof Local]);
   await Promise.all(found.map((s) => capabilityList(s.id)));
   return c.json(settingsView());
 });

@@ -955,4 +955,44 @@ describe('the capability route, over HTTP', () => {
     assert.equal(r.status, 200, JSON.stringify(r.json));
     assert.equal(r.json.model, 'stored-model');
   });
+
+  it('forgets a refusal on a rescan that no longer finds the row', async () => {
+    // A refusal must not outlive the server it was read from. The learner who
+    // stops their server, swaps the model file behind the same name and
+    // rescans while it is still starting up would otherwise keep the old `no`
+    // — and both the settings write and the activation read the remembered
+    // verdict, so the new model would be refused on a fact about a server that
+    // is not running.
+    //
+    // The address does not change anywhere in this case, on purpose: a base
+    // URL write forgets the row's verdicts by itself, so moving the row would
+    // hide whether the rescan forgets anything. The server stops answering at
+    // the address it was found on, which is the real case.
+    const quiet = await fakeServer((url) =>
+      url === '/api/tags'
+        ? { status: 200, type: 'application/json', body: JSON.stringify({ models: [{ name: 'a-quiet-model' }] }) }
+        : url === '/api/show'
+          ? { status: 200, type: 'application/json', body: JSON.stringify({ ...showBody, capabilities: ['completion', 'vision'] }) }
+          : { status: 404, type: 'application/json', body: '{"error":"not found"}' },
+    );
+    let open = true;
+    try {
+      await point(quiet.port);
+      assert.equal((await api('/api/settings/detect', {})).status, 200);
+      // The positive half: the pass really did remember a refusal, or the
+      // forgetting below would prove nothing.
+      const refused = await api<{ error: string }>('/api/settings/ollama', { model: 'a-quiet-model' }, 'PUT');
+      assert.equal(refused.status, 400, JSON.stringify(refused.json));
+      assert.match(refused.json.error, /^a-quiet-model does not support tool calling/);
+
+      quiet.server.close();
+      open = false;
+      assert.equal((await api('/api/settings/detect', {})).status, 200);
+      const allowed = await api<{ model: string | null }>('/api/settings/ollama', { model: 'a-quiet-model' }, 'PUT');
+      assert.equal(allowed.status, 200, JSON.stringify(allowed.json));
+      assert.equal(allowed.json.model, 'a-quiet-model', 'a row the pass no longer finds must be back at silence, and silence never refuses');
+    } finally {
+      if (open) quiet.server.close();
+    }
+  });
 });
