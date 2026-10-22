@@ -494,3 +494,65 @@ describe('a repo import', () => {
     }
   });
 });
+
+describe('the num_ctx field on a local row, over HTTP with no model', () => {
+  /** One row as GET /api/settings paints it. */
+  const rowOf = async (id: string) => {
+    const r = await api<{ rows: { id: string; teaches: boolean; num_ctx: number | null; num_ctx_default: number | null }[] }>('/api/settings');
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    return r.json.rows.find((row) => row.id === id)!;
+  };
+
+  it('refuses a window below the floor, and writes nothing', async () => {
+    const before = await rowOf('ollama');
+    const r = await api<{ error: string }>('/api/settings/ollama', { num_ctx: 8192 }, 'PUT');
+    assert.equal(r.status, 400);
+    // The zod message, which names the one constant rather than repeating it:
+    // below the floor the method does not fit at all, so the field refuses
+    // rather than letting the next lesson refuse instead.
+    assert.equal(r.json.error, 'the method needs at least 16384 tokens of context');
+    assert.deepEqual((await rowOf('ollama')).num_ctx, before.num_ctx, 'a refused write must not land');
+  });
+
+  it('round-trips a valid window into the row the page paints', async () => {
+    const r = await api<{ num_ctx: number | null }>('/api/settings/ollama', { num_ctx: 32768 }, 'PUT');
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.num_ctx, 32768);
+    assert.equal((await rowOf('ollama')).num_ctx, 32768, 'the write is not visible to the page that has to render it');
+  });
+
+  it('returns a cleared window to the default', async () => {
+    assert.equal((await api<{ num_ctx: number | null }>('/api/settings/ollama', { num_ctx: 65536 }, 'PUT')).json.num_ctx, 65536);
+    const cleared = await api<{ num_ctx: number | null; num_ctx_default: number | null }>('/api/settings/ollama', { num_ctx: null }, 'PUT');
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+    assert.equal(cleared.json.num_ctx, null, 'an emptied field stores nothing rather than storing the default as a value');
+    assert.equal(cleared.json.num_ctx_default, 32768, 'the default is what the field then shows as its placeholder');
+  });
+
+  it('refuses a window on a row that is not local, naming the row', async () => {
+    const remote = await api<{ error: string }>('/api/settings/anthropic', { num_ctx: 32768 }, 'PUT');
+    assert.equal(remote.status, 400);
+    assert.match(remote.json.error, /^Anthropic does not take a context window/);
+
+    // D-01 keeps the generic OpenAI-compatible row remote-and-proxied-only: the
+    // three dedicated local rows are the canonical way to teach on a local
+    // server, so a learner who types a localhost address into this row gets no
+    // local treatment at all.
+    const generic = await api<{ error: string }>('/api/settings/openai-compatible', { num_ctx: 32768 }, 'PUT');
+    assert.equal(generic.status, 400);
+    assert.match(generic.json.error, /^OpenAI-compatible endpoint does not take a context window/);
+  });
+
+  it('shows the default on every local row and nothing on any other, and all three teach', async () => {
+    const r = await api<{ rows: { id: string; group: string; teaches: boolean; num_ctx_default: number | null }[] }>('/api/settings');
+    for (const row of r.json.rows) {
+      if (row.group === 'local') {
+        assert.equal(row.num_ctx_default, 32768, `${row.id} does not offer a window field`);
+        assert.equal(row.teaches, true, `${row.id} does not teach, so it cannot be made active`);
+      } else {
+        assert.equal(row.num_ctx_default, null, `${row.id} offers a window field it has no use for`);
+      }
+    }
+    assert.deepEqual(r.json.rows.filter((row) => row.group === 'local').map((row) => row.id), ['ollama', 'lmstudio', 'llamacpp']);
+  });
+});

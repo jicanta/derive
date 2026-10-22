@@ -264,6 +264,68 @@ function BaseUrlField({ row, onChange }: { row: ProviderView; onChange: (row: Pr
 }
 
 /**
+ * The context window Derive asks a local model for — D-03's learner-editable
+ * `num_ctx` field.
+ *
+ * Empty means the default, which the placeholder shows and which the API
+ * returns rather than the browser knowing it; a value the server refuses shows
+ * the server's own sentence with the typed value left in the field. It saves on
+ * blur like every other field on this page: there is no Save control anywhere
+ * on the settings page and this field adds none.
+ *
+ * It renders only where `num_ctx_default` is non-null, which is the API saying
+ * this row has a window to set at all. On LM Studio and llama.cpp the row still
+ * carries one because the learner may raise it; what differs is that Derive
+ * never sends it to those servers (D-05) — a fact their own note states.
+ */
+function NumCtxField({ row, onChange }: { row: ProviderView; onChange: (row: ProviderView) => void }) {
+  const stored = row.num_ctx === null ? '' : String(row.num_ctx);
+  const [value, setValue] = useState(stored);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [saved, tick] = useTick();
+
+  useEffect(() => setValue(stored), [stored]);
+
+  const save = async () => {
+    const v = value.trim();
+    if (v === stored) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      // An emptied field is null, which returns the row to the default — the
+      // numeric counterpart of the empty string that clears the model id.
+      onChange(await api.setProvider(row.id, { num_ctx: v === '' ? null : Number(v) }));
+      tick();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="min-w-0 md:col-span-2">
+      <input
+        type="number"
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => void save()}
+        onKeyDown={blurOnEnter}
+        disabled={saving}
+        placeholder={String(row.num_ctx_default)}
+        aria-label={`${row.label} context window (num_ctx)`}
+        spellCheck={false}
+        autoComplete="off"
+        className={`${field} font-mono h-10`}
+      />
+      {err ? <p className={errLine}>{err}</p> : saved ? <p className={tickLine}>saved · applies from the next turn</p> : null}
+    </div>
+  );
+}
+
+/**
  * One provider on the settings page: its status pill, its key field, its
  * model combobox saving on blur or Enter with a saved tick, the base URL
  * where one applies, the fetch and test actions with their one-line result,
@@ -474,6 +536,7 @@ export function ProviderRow({
           ) : null}
         </div>
         {takesBaseUrl && <BaseUrlField row={row} onChange={onChange} />}
+        {row.num_ctx_default !== null && <NumCtxField row={row} onChange={onChange} />}
       </div>
 
       <div className="mt-3 flex items-center gap-2 flex-wrap">

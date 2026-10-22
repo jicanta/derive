@@ -60,6 +60,10 @@ export type ProviderView = {
   base_url_default: string | null;
   /** The environment variable that locks the base URL (OLLAMA_HOST on the Ollama row), or null. */
   base_url_locked: string | null;
+  /** The context window the learner stored for a local row, or null when the default applies. */
+  num_ctx: number | null;
+  /** The default window a local row's field shows as its placeholder; null on every row that has no window field at all, which is what the component reads to decide whether to render one. */
+  num_ctx_default: number | null;
   status: ProviderStatus;
   active: boolean;
 };

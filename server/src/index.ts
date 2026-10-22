@@ -66,7 +66,7 @@ import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type
 import { DEFAULTS_AS_OF, labelOf, PROVIDERS, providerOf, providerOfDriver, type ProviderSpec } from './providers.js';
 import { SEARCH_BASE_URL, SEARCH_PROVIDERS, SEARCH_SETTING, searchProvider, testSearch } from './search.js';
 import { registerSecret, safeMessage } from './secrets.js';
-import { ACTIVE_PROVIDER, baseUrlKey, currentTutor, envKeyFor, lastDetection, localBase, lockedBy, modelKey, normaliseBaseUrl, resetDetection, resolveTutor, type Detection, type Local } from './settings.js';
+import { ACTIVE_PROVIDER, NUM_CTX_DEFAULT, NUM_CTX_FLOOR, baseUrlKey, currentTutor, envKeyFor, lastDetection, localBase, lockedBy, modelKey, normaliseBaseUrl, numCtxKey, resetDetection, resolveTutor, type Detection, type Local } from './settings.js';
 import { shapeFor, toolsFor } from './tools.js';
 import { nativeSearch } from './drivers/adapters.js';
 import { lessonCost } from './drivers/api.js';
@@ -371,6 +371,27 @@ const SettingsWrite = z
       .max(500, 'the base URL is longer than any endpoint needs')
       .optional()
       .describe('Where a local server or an OpenAI-compatible endpoint is reached, or an empty string to return to the catalogue default.'),
+    num_ctx: z
+      .number()
+      // Integer-only because Ollama allocates a KV cache of exactly this size
+      // when it loads the model; a fraction is not a window.
+      .int()
+      // The one constant, imported rather than repeated: D-04's floor and this
+      // bound are the same number by definition, and two literals drift.
+      .min(NUM_CTX_FLOOR, `the method needs at least ${NUM_CTX_FLOOR} tokens of context`)
+      // A politeness bound, NOT a security control. The allocation is on the
+      // learner's own machine and the RAM it needs scales with the window, so
+      // an absurd value is a failed model load whose own sentence reaches the
+      // learner through `providerSentence` — there is nothing here to protect
+      // the server from. The bound exists so an obvious typo reads as one.
+      .max(1_048_576, 'that is larger than any local model serves')
+      // Nullable rather than empty-string-clearable, because this is the one
+      // numeric field on the page: emptying the input sends null, which returns
+      // the row to `NUM_CTX_DEFAULT` the same way an empty `model` string
+      // returns it to the catalogue default.
+      .nullable()
+      .optional()
+      .describe('The context window Derive asks a local Ollama model for, or null to return to the default. LM Studio and llama.cpp serve whatever they were started with and take no value here.'),
   })
   .strict();
 
@@ -422,6 +443,12 @@ const rowView = (spec: ProviderSpec, activeId: string, seen: Detection | null = 
     base_url: baseUrlLocked ? localBase(spec) : (getSetting(baseUrlKey(spec.id)) ?? null),
     base_url_default: spec.group === 'local' || spec.auth === 'key+url' ? spec.endpoint : null,
     base_url_locked: baseUrlLocked,
+    // The window the learner stored, or null. The browser renders what the API
+    // returns and hard-codes neither number — `num_ctx_default` is null on
+    // every row that has no window field at all, which is what the component
+    // reads to decide whether to render one.
+    num_ctx: getSetting(numCtxKey(spec.id)) ? Number(getSetting(numCtxKey(spec.id))) : null,
+    num_ctx_default: spec.group === 'local' ? NUM_CTX_DEFAULT : null,
     status: statusOf(spec, seen),
     active: activeId === spec.id,
   };
@@ -553,9 +580,16 @@ app.put('/api/settings/:provider', async (c) => {
   if (!spec) return c.json({ error: 'unknown provider' }, 404);
   const parsed = SettingsWrite.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? 'the settings body could not be read' }, 400);
-  const { model, base_url, key } = parsed.data;
+  const { model, base_url, key, num_ctx } = parsed.data;
   if (model !== undefined && lockedBy('model')) return c.json({ error: 'the model is set by DERIVE_MODEL in the environment' }, 409);
   if (base_url !== undefined && spec.auth !== 'key+url' && !spec.port) return c.json({ error: `${spec.label} has a fixed endpoint` }, 400);
+  // D-01: the three dedicated local rows are the canonical way to teach on a
+  // local server, and the generic OpenAI-compatible row stays remote-and-
+  // proxied-only. So a learner who types a localhost address into that row gets
+  // no local treatment — no window, and no capability refusal — because it is
+  // for endpoints somebody else runs. The sentence names the row, the shape the
+  // base_url refusal above already uses.
+  if (num_ctx !== undefined && spec.group !== 'local') return c.json({ error: `${spec.label} does not take a context window; it serves whatever the endpoint is configured for` }, 400);
   const baseUrlLock = base_url !== undefined ? lockedBy(`base_url:${spec.id}`) : null;
   if (baseUrlLock) return c.json({ error: `the ${spec.label} address is set by ${baseUrlLock} in the environment` }, 409);
   if (key !== undefined) {
@@ -573,6 +607,10 @@ app.put('/api/settings/:provider', async (c) => {
     if (base_url !== undefined) {
       if (base_url) setSetting(baseUrlKey(spec.id), normaliseBaseUrl(base_url));
       else deleteSetting(baseUrlKey(spec.id));
+    }
+    if (num_ctx !== undefined) {
+      if (num_ctx === null) deleteSetting(numCtxKey(spec.id));
+      else setSetting(numCtxKey(spec.id), String(num_ctx));
     }
     return c.json(rowView(spec, currentTutor().provider));
   } catch (e) {

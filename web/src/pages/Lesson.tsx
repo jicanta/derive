@@ -359,7 +359,7 @@ export function LessonPage() {
                   case 'error':
                     return (
                       <div key={it.seq} className="rounded-xl border border-rust-400/40 bg-rust-400/5 px-4 py-3 text-sm text-rust-400">
-                        {withHomeLink(it.text)}
+                        {withNextStepLink(it.text)}
                       </div>
                     );
                 }
@@ -432,34 +432,56 @@ export function LessonPage() {
 }
 
 /**
- * An error sentence with its one next step made reachable: the context-window
- * refusal ends `… start a review lesson on these nodes from Home.`, so the word
- * `Home` is the card's only link.
+ * The two words an error sentence may carry as its one next step, in the order
+ * they are checked, with where each leads.
+ *
+ * `Settings` is checked first and the order is load-bearing, not incidental.
+ * The two refusals have different fixes and the UI-SPEC is explicit that
+ * conflating them is wrong: the num_ctx refusal is fixed on the model's own row
+ * in Settings (`… Raise the model's context window in Settings (num_ctx) …`),
+ * and the lesson-growth refusal is fixed by a review lesson started from Home
+ * (`… start a review lesson on these nodes from Home.`). A learner sent to Home
+ * to raise a context window finds nothing there to raise. Checking `Settings`
+ * first also means a sentence that somehow named both would link the one whose
+ * fix is on this turn rather than the one whose fix is next session.
+ */
+const NEXT_STEPS = [
+  { word: 'Settings', to: '/settings' },
+  { word: 'Home', to: '/' },
+] as const;
+
+/**
+ * An error sentence with its one next step made reachable: whichever of the two
+ * words above the sentence actually carries becomes the card's only link, once.
  *
  * There is deliberately no button, and the reason is recorded here so a future
  * reader does not "fix" it by adding one: `api.startReview()` builds a review
  * lesson from the due queue across every lesson, not from this lesson's nodes,
  * so a button labelled "start a review lesson on these nodes" would review
  * whatever happens to be due — which may not include a single node of the lesson
- * that just refused. Naming the step and letting the learner go to Home is the
- * only version that is literally true today.
+ * that just refused. Naming the step and letting the learner go there is the
+ * only version that is literally true today. The num_ctx card is the same
+ * shape for the same kind of reason: Derive cannot raise the window itself.
  *
  * Every other error string reaching this card — an exhausted retry's provider
- * sentence, a tool-dropping refusal — carries no `Home`, so it renders exactly
- * as it did before: the split is once, on the literal word, or not at all.
+ * sentence, a tool-dropping refusal — carries neither word, so it renders
+ * exactly as it did before: the split is once, on a literal word, or not at all.
  */
-function withHomeLink(text: string) {
-  const at = text.indexOf('Home');
-  if (at < 0) return text;
-  return (
-    <>
-      {text.slice(0, at)}
-      <Link to="/" className="underline">
-        Home
-      </Link>
-      {text.slice(at + 'Home'.length)}
-    </>
-  );
+function withNextStepLink(text: string) {
+  for (const { word, to } of NEXT_STEPS) {
+    const at = text.indexOf(word);
+    if (at < 0) continue;
+    return (
+      <>
+        {text.slice(0, at)}
+        <Link to={to} className="underline">
+          {word}
+        </Link>
+        {text.slice(at + word.length)}
+      </>
+    );
+  }
+  return text;
 }
 
 function Legend() {
