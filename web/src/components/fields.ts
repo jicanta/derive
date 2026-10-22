@@ -33,6 +33,9 @@ export const tickLine = 'mt-2 font-mono text-[10px] text-gold-500';
 /** The line a refusal is shown on: the server's own sentence, never Derive's paraphrase of it. */
 export const errLine = 'mt-2 text-[14px] leading-relaxed text-rust-400';
 
+/** The one mono line an action answers on, truncated so a long sentence never widens the card; the caller composes the colour and the full text goes in `title`. */
+export const resultLine = 'min-w-0 max-w-full truncate font-mono text-[10px]';
+
 /** The line a muted aside is shown on: what the environment locks, what is still missing. */
 export const noteLine = 'mt-2 text-[14px] leading-relaxed text-ink-500';
 

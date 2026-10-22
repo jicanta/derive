@@ -48,6 +48,37 @@ export function freePort(): Promise<number> {
   });
 }
 
+/** What one fake answers, per request path: the status, the content type and the body as it goes on the wire. */
+export type FakeAnswer = { status: number; type: string; body: string };
+
+/**
+ * A loopback server that answers whatever a suite tells it to, on a port the
+ * operating system picked. It stands in for a *metadata* endpoint and never
+ * for a model: nothing it answers says a model can teach, which is a claim
+ * only a real run makes.
+ *
+ * Lives here rather than in a suite because two suites want it now — the
+ * detection cases and the capability cases — and a second copy is how the two
+ * would start disagreeing about what an unparseable body or a wrong path does.
+ */
+export function fakeServer(answer: (url: string) => FakeAnswer): Promise<{ server: Server; port: number }> {
+  return new Promise((res) => {
+    const server = http.createServer((req, r) => {
+      const a = answer(req.url ?? '/');
+      r.statusCode = a.status;
+      r.setHeader('content-type', a.type);
+      r.end(a.body);
+    });
+    server.listen(0, '127.0.0.1', () => res({ server, port: (server.address() as AddressInfo).port }));
+  });
+}
+
+/** One JSON body on one path, a 404 everywhere else: the shape a server that answers only the endpoint it owns has. */
+export const jsonAt =
+  (path: string, body: unknown) =>
+  (url: string): FakeAnswer =>
+    url === path ? { status: 200, type: 'application/json', body: JSON.stringify(body) } : { status: 404, type: 'application/json', body: '{"error":"not found"}' };
+
 /** What a spawned server gives a suite: the child to kill, the port a raw socket case dials, the base URL, and the scratch data dir holding its token file. */
 export type SpawnedServer = { child: ChildProcess; port: number; base: string; dataDir: string };
 

@@ -81,6 +81,32 @@ export type TutorChoice = {
 export type TestResult = { ok: true; models: number | null; ms: number } | { ok: false; error: string; hint?: string; ms: number };
 
 /**
+ * What a capability read answers for one model on one local row — the same
+ * two-armed shape as `TestResult`, because it has the same job: a verdict, or
+ * the server's own sentence with Derive's hint beside it.
+ */
+export type CapabilityResult =
+  | {
+      ok: true;
+      /** The model the verdict is about, which is what the line names. */
+      model: string;
+      /** Whether the server says the model can call tools. `unknown` is silence — it is never a refusal, and it is what the round-trip resolves. */
+      tools: 'yes' | 'no' | 'unknown';
+      /** The window the model was trained for: a ceiling, not a setting. Null when the server does not say. */
+      max_window: number | null;
+      /** The window the server was actually started with, where the server reports one. Null on Ollama, which is told the window rather than asked it. */
+      served_window: number | null;
+      /** Whether this model may be stored on the row and made the active one. */
+      selectable: boolean;
+      /** False while the verdict rests on silence, so the line can say the server did not answer the question rather than claim it did. */
+      definitive: boolean;
+      /** The sentence to show when `selectable` is false; null otherwise. */
+      refusal: string | null;
+      ms: number;
+    }
+  | { ok: false; error: string; hint?: string; ms: number };
+
+/**
  * The web-search block as GET /api/settings paints it: the learner's choice,
  * the key as the page may know it, the SearXNG address, and whether the
  * provider the next turn would run on searches with its own tool.

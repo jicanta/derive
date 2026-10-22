@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
-import type { ProviderStatus, ProviderView, TestResult } from '../lib/types';
-import { blurOnEnter, errLine, field, noteLine, pill, textButton, tickLine, useTick } from './fields';
+import type { CapabilityResult, ProviderStatus, ProviderView, TestResult } from '../lib/types';
+import { blurOnEnter, errLine, field, noteLine, pill, resultLine, textButton, tickLine, useTick } from './fields';
 
 /** The dot before a status pill: moss where something is there, ink where nothing is, and a pulse only while the pass is still looking. */
 const dotOf = (status: ProviderStatus): string =>
@@ -21,6 +21,19 @@ const resultText = (r: TestResult): string => (r.ok ? (r.models === null ? `Logg
 
 /** How many ids the last fetch brought back, as the line under the combobox says it. */
 const fetchedText = (n: number): string => (n === 0 ? '0 models fetched · type an id' : n === 1 ? '1 model fetched' : `${n} models fetched`);
+
+/**
+ * The one line a capability read answers with. A refusal is the server-side
+ * sentence verbatim — the component composes no refusal of its own and carries
+ * no list of what a model can do. Silence says so plainly rather than claiming
+ * either answer, because a model whose server does not say is still a model
+ * the learner may use.
+ */
+const capabilityText = (r: CapabilityResult): string => {
+  if (!r.ok) return r.error;
+  if (!r.selectable) return r.refusal ?? `${r.model} cannot run the method`;
+  return r.definitive ? `${r.model} can run the method · ${r.ms} ms` : `${r.model} · the server does not say whether it can call tools`;
+};
 
 /**
  * The key field of one row. The value goes one way: typed here, sent on blur
@@ -370,6 +383,7 @@ export function ProviderRow({
   const [fetchErr, setFetchErr] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
+  const [capability, setCapability] = useState<CapabilityResult | null>(null);
 
   useEffect(() => setModel(effective), [effective]);
   useEffect(
@@ -391,12 +405,26 @@ export function ProviderRow({
     if (value === effective) return;
     setState('saving');
     setErr(null);
+    setCapability(null);
     try {
       onChange(await api.setProvider(row.id, { model: value }));
       tick(timer, setState);
     } catch (e) {
       setErr((e as Error).message);
       setState('idle');
+      return;
+    }
+    // D-07's one probe per chosen model: the definitive answer costs a real
+    // request, so it is spent here — on the model the learner just picked —
+    // and nowhere else. It runs after the write and in its own try, so a
+    // capability line that could not be read never reads as a failed save.
+    // A refused write never reaches it: that sentence is already on the error
+    // line with the typed id left in the field.
+    if (row.group !== 'local' || !value) return;
+    try {
+      setCapability(await api.probeCapability(row.id, value));
+    } catch (e) {
+      setCapability({ ok: false, error: (e as Error).message, ms: 0 });
     }
   };
 
@@ -552,12 +580,19 @@ export function ProviderRow({
           {testing ? 'testing…' : 'test connection'}
         </button>
         {result && (
-          <span role="status" title={resultText(result)} className={`ml-auto min-w-0 max-w-full truncate font-mono text-[10px] ${result.ok ? 'text-moss-400' : 'text-rust-400'}`}>
+          <span role="status" title={resultText(result)} className={`ml-auto ${resultLine} ${result.ok ? 'text-moss-400' : 'text-rust-400'}`}>
             {resultText(result)}
           </span>
         )}
       </div>
       {result && !result.ok && result.hint && <p className="mt-2 text-[14px] leading-relaxed text-ink-300">{result.hint}</p>}
+      {/* Whether the model this row is set to can run the method. Moss when it can, rust with the server-side refusal when it cannot; the sentence is never clipped away, only truncated, with the whole of it in the title. The row's status pill and its model list are untouched by this line, so a reachable server exposing no tool-capable model still reads `found on port …` and still lists what it has. */}
+      {capability && (
+        <p role="status" title={capabilityText(capability)} className={`mt-2 ${resultLine} ${capability.ok && capability.selectable ? 'text-moss-400' : 'text-rust-400'}`}>
+          {capabilityText(capability)}
+        </p>
+      )}
+      {capability && !capability.ok && capability.hint && <p className="mt-2 text-[14px] leading-relaxed text-ink-300">{capability.hint}</p>}
     </div>
   );
 }

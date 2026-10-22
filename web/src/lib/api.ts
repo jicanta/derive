@@ -1,4 +1,4 @@
-import type { Atlas, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, LessonView, Library, Material, ProviderView, Resource, SearchView, Settings, Stats, TestResult, TutorChoice } from './types';
+import type { Atlas, CapabilityResult, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, LessonView, Library, Material, ProviderView, Resource, SearchView, Settings, Stats, TestResult, TutorChoice } from './types';
 
 /**
  * The selected learner profile, kept in this browser. Sent on every request
@@ -117,6 +117,8 @@ export const api = {
   providerModels: (id: string) => post(`/api/settings/${id}/models`).then((r) => j<{ models: string[] }>(r)),
   /** The cheapest real request for a provider, timed: the model count and latency, or the provider's sentence and Derive's hint. Never throws for a provider failure; the result says. */
   testProvider: (id: string) => post(`/api/settings/${id}/test`).then((r) => j<TestResult>(r)),
+  /** Whether one model on a local row can run the method, read from that server's own metadata. Only the three dedicated local rows answer; a server that said nothing comes back as silence, never as a refusal. */
+  probeCapability: (id: string, model: string) => post(`/api/settings/${id}/capability`, { model }).then((r) => j<CapabilityResult>(r)),
   /** Store the web-search choice and whatever that choice needs. A key is only ever written: the block comes back with `{ set, hint }` and the value is never read again. An empty base URL clears the address. */
   setSearch: (body: { provider?: string; key?: string; base_url?: string }) => post('/api/settings/search', body, 'PUT').then((r) => j<SearchView>(r)),
   /** Forget the stored search key. The running process keeps redacting the value until it restarts; the note says so. */

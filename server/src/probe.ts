@@ -76,7 +76,8 @@ export async function probeJson(url: string, ms = PROBE_MS): Promise<Probe> {
   }
 }
 
-const field = (body: unknown, key: string): unknown => (body && typeof body === 'object' ? (body as Record<string, unknown>)[key] : undefined);
+/** One key off a parsed body, or undefined when the body is not an object. Exported because every capability predicate must read a parsed field rather than a status code, and a second copy of this line is how one of them would stop doing that. */
+export const field = (body: unknown, key: string): unknown => (body && typeof body === 'object' ? (body as Record<string, unknown>)[key] : undefined);
 
 /** Ollama's `/api/tags`: a 200 whose body carries a `models` array. */
 export const isOllama = (p: Probe): boolean => !!p && p.status === 200 && Array.isArray(field(p.body, 'models'));
@@ -299,19 +300,13 @@ function unreachable(url: string, e: unknown): string {
 }
 
 /**
- * GET a URL expecting JSON, within `ms`, following nothing. A 3xx is a
- * failure with its own sentence, because following it could carry the key
- * to a third host; a non-2xx throws the provider's sentence; a 2xx that is
- * not JSON says so with its status. A host that did not answer throws
- * Derive's unreachable sentence.
+ * What an answered request is turned into: a 3xx is a failure with its own
+ * sentence, because following it could carry the key to a third host; a
+ * non-2xx throws the provider's sentence; a 2xx that is not JSON says so with
+ * its status. One copy for both verbs — two copies of a response rule drift
+ * apart until one of them accepts something the other refuses.
  */
-export async function getJson(url: string, headers: Record<string, string>, ms: number): Promise<unknown> {
-  let res: Response;
-  try {
-    res = await fetch(url, { headers: { accept: 'application/json', ...headers }, redirect: 'manual', signal: AbortSignal.timeout(ms) });
-  } catch (e) {
-    throw new Error(unreachable(url, e));
-  }
+async function jsonBody(res: Response): Promise<unknown> {
   if (res.status >= 300 && res.status < 400) throw new Error(`${res.status} the server redirected elsewhere; derive does not follow redirects that could carry a key`);
   const text = await res.text();
   if (!res.ok) throw new Error(providerSentence(res.status, text));
@@ -320,6 +315,45 @@ export async function getJson(url: string, headers: Record<string, string>, ms: 
   } catch {
     throw new Error(`${res.status} the response was not JSON`);
   }
+}
+
+/**
+ * GET a URL expecting JSON, within `ms`, following nothing. A host that did
+ * not answer throws Derive's unreachable sentence; everything an answer can
+ * be is decided by `jsonBody`.
+ */
+export async function getJson(url: string, headers: Record<string, string>, ms: number): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { accept: 'application/json', ...headers }, redirect: 'manual', signal: AbortSignal.timeout(ms) });
+  } catch (e) {
+    throw new Error(unreachable(url, e));
+  }
+  return jsonBody(res);
+}
+
+/**
+ * `getJson`'s twin with a JSON body. Ollama's `/api/show` is the only metadata
+ * read in this phase that is not a GET, which is the whole reason this exists.
+ * The bounded posture is the same and is kept here rather than delegated:
+ * `redirect: 'manual'` because a redirect could carry a key to a host the
+ * catalogue never named, and `AbortSignal.timeout` because a local server that
+ * does not answer fast is wrong rather than far away.
+ */
+export async function postJson(url: string, headers: Record<string, string>, body: unknown, ms: number): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+      redirect: 'manual',
+      signal: AbortSignal.timeout(ms),
+    });
+  } catch (e) {
+    throw new Error(unreachable(url, e));
+  }
+  return jsonBody(res);
 }
 
 /** The address a row is asked at: the stored or default base for a local row and the OpenAI-compatible row, nothing for a fixed-endpoint one. */
@@ -333,8 +367,8 @@ export async function listModels(id: string): Promise<string[]> {
   return idsOf(spec, await getJson(url, headers, timeoutFor(url)));
 }
 
-/** The status a sentence starts with, or 0 when it is one of Derive's. */
-const statusOf = (sentence: string): number => {
+/** The status a sentence starts with, or 0 when it is one of Derive's. Exported so the capability read reaches `hintFor` the same way a connection test does, rather than carrying a second copy of this regex. */
+export const statusOf = (sentence: string): number => {
   const m = /^(\d{3}) /.exec(sentence);
   return m ? Number(m[1]) : 0;
 };

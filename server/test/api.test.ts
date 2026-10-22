@@ -30,13 +30,14 @@
 import assert from 'node:assert/strict';
 import { type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
-import { startDeriveServer, startInProcessServer, type InProcessServer } from './spawn.js';
+import { fakeServer, freePort, startDeriveServer, startInProcessServer, type InProcessServer } from './spawn.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const entry = resolve(here, '../dist/index.js');
@@ -554,5 +555,112 @@ describe('the num_ctx field on a local row, over HTTP with no model', () => {
       }
     }
     assert.deepEqual(r.json.rows.filter((row) => row.group === 'local').map((row) => row.id), ['ollama', 'lmstudio', 'llamacpp']);
+  });
+});
+
+/**
+ * The capability route, over HTTP. The fake answers Ollama's `/api/show` and
+ * nothing else: it stands in for a metadata endpoint, never for a model, and
+ * no case here claims a model can teach. What is asserted is Derive's own
+ * behaviour on a server's answer — that it always answers, that the verdict is
+ * the ladder's, and that D-01's two excluded rows are refused by name.
+ */
+describe('the capability route, over HTTP', () => {
+  const fakes: Server[] = [];
+  const at = { show: 0, closed: 0 };
+  /** Ollama's /api/show for whatever model is asked for, tool-capable with a large window. */
+  const showBody = { model_info: { 'general.architecture': 'qwen3moe', 'qwen3moe.context_length': 262_144 }, capabilities: ['completion', 'tools'] };
+
+  before(async () => {
+    const show = await fakeServer((url) =>
+      url === '/api/show' ? { status: 200, type: 'application/json', body: JSON.stringify(showBody) } : { status: 404, type: 'application/json', body: '{"error":"not found"}' },
+    );
+    fakes.push(show.server);
+    at.show = show.port;
+    at.closed = await freePort();
+  });
+
+  after(() => {
+    for (const f of fakes) f.close();
+  });
+
+  const point = async (port: number) => {
+    const r = await api<{ base_url: string | null }>('/api/settings/ollama', { base_url: `http://127.0.0.1:${port}` }, 'PUT');
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+  };
+
+  it('answers 200 with the verdict when the server has metadata', async () => {
+    await point(at.show);
+    const r = await api<{ ok: boolean; tools: string; max_window: number | null; selectable: boolean; definitive: boolean; refusal: string | null }>(
+      '/api/settings/ollama/capability',
+      { model: 'some-model' },
+    );
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.ok, true);
+    assert.equal(r.json.tools, 'yes');
+    assert.equal(r.json.max_window, 262_144);
+    assert.equal(r.json.selectable, true);
+    assert.equal(r.json.definitive, true);
+    assert.equal(r.json.refusal, null);
+  });
+
+  it('refuses a model the server says cannot call tools, in the approved words', async () => {
+    const quiet = await fakeServer((url) =>
+      url === '/api/show'
+        ? { status: 200, type: 'application/json', body: JSON.stringify({ ...showBody, capabilities: ['completion', 'vision'] }) }
+        : { status: 404, type: 'application/json', body: '{"error":"not found"}' },
+    );
+    fakes.push(quiet.server);
+    await point(quiet.port);
+    const r = await api<{ ok: boolean; selectable: boolean; refusal: string | null }>('/api/settings/ollama/capability', { model: 'a-model' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.selectable, false);
+    assert.equal(
+      r.json.refusal,
+      'a-model does not support tool calling, and the understanding gate, the graph and the quiz all run as tools. Pick a model that supports tool calling, or choose another provider in Settings.',
+    );
+  });
+
+  it('answers 200 with ok false when nothing answers at all', async () => {
+    // Never a 5xx: "can this model teach" has an answer even when the answer
+    // is that the server could not be reached, and the row shows the sentence.
+    await point(at.closed);
+    const r = await api<{ ok: boolean; error: string }>('/api/settings/ollama/capability', { model: 'some-model' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.ok, false);
+    assert.match(r.json.error, new RegExp(`nothing answered at 127\\.0\\.0\\.1:${at.closed}`));
+  });
+
+  it('keeps the two excluded rows off the local path, naming each', async () => {
+    // D-01: the three dedicated local rows are the canonical local path, so
+    // the generic OpenAI-compatible row gets no capability probe either — it
+    // is for endpoints somebody else runs.
+    for (const [id, name] of [
+      ['anthropic', 'Anthropic'],
+      ['openai-compatible', 'OpenAI-compatible endpoint'],
+    ]) {
+      const r = await api<{ error: string }>(`/api/settings/${id}/capability`, { model: 'a-model' });
+      assert.equal(r.status, 400, JSON.stringify(r.json));
+      assert.match(r.json.error, new RegExp(`^${name} is reached as a remote endpoint`));
+    }
+  });
+
+  it('is a 404 for an id the catalogue does not carry, and a 400 with no model', async () => {
+    assert.equal((await api<{ error: string }>('/api/settings/not-a-provider/capability', { model: 'a-model' })).status, 404);
+    // No model in the body and none stored on the row: there is nothing to ask about.
+    const cleared = await api('/api/settings/llamacpp', { model: '' }, 'PUT');
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+    const r = await api<{ error: string }>('/api/settings/llamacpp/capability', {});
+    assert.equal(r.status, 400, JSON.stringify(r.json));
+    assert.match(r.json.error, /^Choose a model on the llama\.cpp row first/);
+  });
+
+  it('falls back to the model stored on the row when the body names none', async () => {
+    await point(at.show);
+    const stored = await api('/api/settings/ollama', { model: 'stored-model' }, 'PUT');
+    assert.equal(stored.status, 200, JSON.stringify(stored.json));
+    const r = await api<{ ok: boolean; model: string }>('/api/settings/ollama/capability', {});
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.model, 'stored-model');
   });
 });

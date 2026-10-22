@@ -53,6 +53,7 @@ import {
   type GraphNodeInput,
   type MaterialRow,
 } from './db.js';
+import { capabilityOf } from './capability.js';
 import { emit, subscribe } from './events.js';
 import { exportToVault, renderMarkdown } from './export.js';
 import { addResource, deleteResource, editResource, getResource, isKind, librarySection, listResources, publicRow, refetchResource, RESOURCE_KINDS, segmentsOf, tagCounts } from './library.js';
@@ -664,6 +665,30 @@ app.post('/api/settings/:provider/test', async (c) => {
   const spec = providerOf(c.req.param('provider'));
   if (!spec) return c.json({ error: 'unknown provider' }, 404);
   return c.json(await testConnection(spec.id));
+});
+
+/**
+ * Whether one model can run the method, read from its own server's metadata
+ * (D-06). Always a 200 with the verdict, the way `/test` always answers with a
+ * result rather than throwing: a server that could not be reached is
+ * `{ ok: false, error }` and not a 5xx, because the question "can this model
+ * teach" has an answer even when the answer is "nothing said".
+ *
+ * Only the three dedicated local rows. Per D-01 those are the canonical way to
+ * teach on a local server and the generic OpenAI-compatible row stays
+ * remote-and-proxied-only: it is for endpoints somebody else runs, so it gets
+ * no capability probe and no capability refusal. The model is the one the
+ * learner is asking about, or the one already stored on the row.
+ */
+app.post('/api/settings/:provider/capability', async (c) => {
+  const spec = providerOf(c.req.param('provider'));
+  if (!spec) return c.json({ error: 'unknown provider' }, 404);
+  if (spec.group !== 'local') return c.json({ error: `${spec.label} is reached as a remote endpoint, so derive does not read a local server's capability metadata for it` }, 400);
+  const body = (await c.req.json().catch(() => ({}))) as { model?: unknown };
+  const asked = typeof body.model === 'string' ? body.model.trim() : '';
+  const model = asked || getSetting(modelKey(spec.id)) || '';
+  if (!model) return c.json({ error: `Choose a model on the ${spec.label} row first` }, 400);
+  return c.json(await capabilityOf(spec.id, model));
 });
 
 // ---------- lessons ----------
