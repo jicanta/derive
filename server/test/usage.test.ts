@@ -549,6 +549,21 @@ describe('what learning has cost, as the Usage page reads it', () => {
     assert.equal(v.total, 'about $0.12 billed');
   });
 
+  it('writes both nouns in the singular for a learner whose one request reported one token', async () => {
+    const me = await learner('A learner whose turn reported one token');
+    const id = await lesson(me, 'A lesson that reported one token');
+    bill(id, [{ driver: 'ollama', model: 'qwen3:4b', input: 1, output: null, source: 'subscription' }]);
+
+    const v = await usage(me);
+
+    // Zero-one-many, driven by the payload. The browser never receives a count
+    // it has to pluralise, which is the only way this page and the lesson
+    // header can be sure of saying the same thing about the same lesson.
+    assert.equal(v.tokens, 1);
+    assert.equal(v.summary, 'across 1 lesson · 1 token');
+    assert.equal(v.groups[0].line, 'ollama · 1 lesson · 1 token · not billed');
+  });
+
   it('shows tokens and `not billed` for a lesson taught entirely on a subscription, and no figure', async () => {
     const me = await learner('A learner on a login');
     const id = await lesson(me, 'A whole lesson on a login');

@@ -1,7 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { errLine, textButton } from '../components/fields';
+import { errLine, resultLine, textButton } from '../components/fields';
 import { LearnerMenu } from '../components/LearnerMenu';
 import { api } from '../lib/api';
 import type { UsageView } from '../lib/types';
@@ -60,8 +60,11 @@ export function UsagePage() {
           {loading ? (
             // One line and nothing else. A skeleton group list or a zeroed
             // total here would be a figure shown before it is known, and a
-            // figure a learner is shown is a figure a learner believes.
-            <p role="status" className="font-mono text-[10px] text-ink-400 animate-pulse motion-reduce:animate-none">
+            // figure a learner is shown is a figure a learner believes. Teal
+            // and pulsing, the way every other in-flight readout in this
+            // codebase reads, with the reduced-motion companion the pulse
+            // always travels with.
+            <p role="status" className={`${resultLine} text-teal-400 animate-pulse motion-reduce:animate-none`}>
               adding up what learning has cost
             </p>
           ) : err ? (
