@@ -67,7 +67,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { generateText, jsonSchema, tool, type JSONSchema7 } from 'ai';
-import { runTurn } from './agent.js';
+import { interrupt, runTurn } from './agent.js';
 import { createLesson, deleteLesson, type StoredEvent } from './db.js';
 import { subscribe } from './events.js';
 import { providerOf, type ProviderId } from './providers.js';
@@ -595,6 +595,51 @@ export type TeachingTest = { ok: true; ms: number } | { ok: false; reason: strin
 const NO_TOOLS = 'the model called no tools, so there was no node to grade.';
 const UNGRADABLE = 'the quiz came back but the grade was unreadable.';
 
+/**
+ * How long the proof is given before it is stopped.
+ *
+ * `roundTrip` above is one tiny generation and is bounded at `ROUND_TRIP_MS`;
+ * this is a whole scripted turn with four tool calls, which on a small model
+ * running on a CPU is minutes rather than seconds, so the bound is generous.
+ * What it is not is absent: without one the proof relies entirely on the
+ * driver's own runaway guards (`maxTurns: 400`, the owned loop's `stepCountIs`)
+ * and a slow enough model holds the request, the scratch lesson and the
+ * `testing…` button open for tens of minutes with nothing the learner can do
+ * about it. The route's own reachability pre-check exists for exactly this
+ * reason one step earlier.
+ */
+const PROOF_MS = 5 * 60_000;
+
+/**
+ * A shorter deadline, for the suite. The same posture as `drivers/api.ts`'s
+ * `setStepCapOverride` and `setSleepOverride`, and for the same reason: no
+ * route, header, environment variable or config file can set it, the
+ * production path still runs on `PROOF_MS`, and the only honest way to assert
+ * the stopped branch is to reach it — on the real clock that is a five-minute
+ * test. It moves when the stop fires and not what the learner is told: the
+ * sentence names the shipped bound, because that is the one a learner's proof
+ * will actually be given.
+ */
+let proofMsOverride: number | null = null;
+
+export function setProofDeadlineOverride(ms: number | null) {
+  proofMsOverride = ms;
+}
+
+const proofMs = () => proofMsOverride ?? PROOF_MS;
+
+/**
+ * What a stopped proof is reported as.
+ *
+ * Not a fourth approved string: `04-UI-SPEC.md` fixes the three fail reasons
+ * and amendment A2 changes none of them, and this arrives the way the loop's
+ * own refusals do — through the `{reason}` slot of `Fail · {reason}`, carrying
+ * Derive's own words for an `ok: false` outcome that is none of the three. It
+ * says what was observed and the one thing the learner can do about it, which
+ * is the shape every refusal in this phase has.
+ */
+const TIMED_OUT = `the proof did not finish in ${PROOF_MS / 60_000} minutes and was stopped; a model this slow will make a lesson slower still, so pick a smaller model or one your server already has loaded.`;
+
 /** The event types a turn emits that are not the trace of a tool: everything else in a lesson's log is something a tool did. Read as the absence of tool calls, which is one of the three failures. */
 const NOT_A_TOOL = new Set(['turn_start', 'turn_end', 'user', 'assistant', 'status', 'delta', 'ready']);
 
@@ -681,15 +726,22 @@ function settle(lessonId: string, ev: StoredEvent): void {
  * load-time parameter, so a different value makes Ollama reload the model
  * before their first real turn.
  *
+ * The run has a stated bound, as the round-trip above has: `PROOF_MS`, after
+ * which the turn is ended the way a Stop ends it. Without one the request, the
+ * scratch lesson and the `testing…` button stay open for as long as the
+ * driver's own runaway guards allow, which on a small model running on a CPU is
+ * tens of minutes with nothing the learner can do about it.
+ *
  * Each failure is one observable outcome, and the order matters: nothing
  * answering at the address is read before the run, because it is the reason
- * there were no tool calls rather than a fact about the model; a turn the loop
- * itself refused answers in the loop's own words, because that sentence names
- * the real problem (a model the ladder refused, a window too small, a key the
- * provider rejected) better than any of the three could; zero tool calls is
- * the no-tools sentence; and anything else that failed to produce a graded pass
- * is the ungradable one — including a quiz whose own key contradicts the
- * question it was asked to write, which is a quiz that cannot gate anything.
+ * there were no tool calls rather than a fact about the model; a stopped run is
+ * read before the three below, for the same reason; a turn the loop itself
+ * refused answers in the loop's own words, because that sentence names the real
+ * problem (a model the ladder refused, a window too small, a key the provider
+ * rejected) better than any of the three could; zero tool calls is the no-tools
+ * sentence; and anything else that failed to produce a graded pass is the
+ * ungradable one — including a quiz whose own key contradicts the question it
+ * was asked to write, which is a quiz that cannot gate anything.
  */
 export async function testTeaching(providerId: string, model: string | null, learnerId: string): Promise<TeachingTest> {
   const t0 = Date.now();
@@ -721,17 +773,31 @@ export async function testTeaching(providerId: string, model: string | null, lea
     settle(lessonId, ev);
   });
   let thrown = '';
+  // Ended the way a Stop is: `interrupt` aborts the driver and cancels the
+  // card the turn may be waiting on, so the deadline cannot be outlasted by a
+  // prompt nobody is going to answer.
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    void interrupt(lessonId).catch(() => undefined);
+  }, proofMs());
   try {
     await runTurn(lessonId, PROBE_PROMPT, { tutor: { provider: spec.id, model } });
   } catch (e) {
     thrown = safeMessage(e);
   } finally {
+    clearTimeout(timer);
     stop();
     deleteLesson(lessonId);
   }
 
   const graded = seen.find((ev) => ev.type === 'quiz_result');
   if (graded && field(graded.payload, 'result') === 'correct') return { ok: true, ms: ms() };
+  // Read before the three outcomes below, because a stopped run is why there
+  // was no graded quiz rather than a fact about the model: a turn Derive cut
+  // short would otherwise read as "the model called no tools", which is true
+  // of the log and false about the model.
+  if (timedOut) return { ok: false, reason: TIMED_OUT, ms: ms() };
 
   const end = seen.find((ev) => ev.type === 'turn_end');
   const refused = end && field(end.payload, 'ok') === false ? String(field(end.payload, 'error') ?? '') : thrown;

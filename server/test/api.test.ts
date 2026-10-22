@@ -493,6 +493,7 @@ describe("the owned loop, through the app's own routes", () => {
     let agent: typeof import('../src/agent.js');
     let apiDrivers: typeof import('../src/drivers/api.js');
     let driverSeam: typeof import('../src/driver.js');
+    let capability: typeof import('../src/capability.js');
     let fake: Server | undefined;
     let live = 0;
     let closed = 0;
@@ -534,6 +535,7 @@ describe("the owned loop, through the app's own routes", () => {
       agent = await import('../src/agent.js');
       apiDrivers = await import('../src/drivers/api.js');
       driverSeam = await import('../src/driver.js');
+      capability = await import('../src/capability.js');
       // Ollama's model list, so the row's own address answers something: the
       // proof asks it before spending a model request, the same cheap read
       // `test connection` makes. The fake stands in for a metadata endpoint and
@@ -555,6 +557,7 @@ describe("the owned loop, through the app's own routes", () => {
       fake?.close();
       apiDrivers.setModelOverride(null);
       driverSeam.setDriverOverride(null);
+      capability.setProofDeadlineOverride(null);
     });
 
     it('answers the no-tools sentence for a model that calls nothing, and leaves the database exactly as it found it', async () => {
@@ -593,6 +596,50 @@ describe("the owned loop, through the app's own routes", () => {
       assert.equal(r.status, 200, JSON.stringify(r.json));
       assert.equal(r.json.ok, false);
       assert.equal(r.json.reason, UNGRADABLE, 'a quiz the server could not grade must not read as "called no tools": the model did call one');
+      assert.deepEqual(counts(), was, 'the proof left something behind');
+    });
+
+    it('stops a proof that does not finish in its deadline, and says that rather than blaming the model', async () => {
+      // Without a deadline the request, the scratch lesson and the `testing…`
+      // button stay open for as long as the driver's own runaway guards allow,
+      // which on a small model on a CPU is tens of minutes. The deadline is
+      // five minutes in production; the override moves when the stop fires and
+      // not what the learner is told, which is why the sentence below still
+      // names five.
+      const pointed = await call('/api/settings/ollama', { base_url: `http://127.0.0.1:${live}` }, 'PUT');
+      assert.equal(pointed.status, 200, JSON.stringify(pointed.json));
+      const was = counts();
+      driverSeam.setDriverOverride(apiDrivers.apiDriverFor('ollama'));
+      apiDrivers.setModelOverride(
+        () =>
+          new MockLanguageModelV4({
+            modelId: 'a-local-model',
+            doStream: [
+              {
+                stream: simulateReadableStream({
+                  chunks: [{ type: 'stream-start', warnings: [] }, ...says('s1', 'Thinking'), ...says('s2', ' about it'), finish('stop', 'end_turn')] as never[],
+                  initialDelayInMs: 10,
+                  chunkDelayInMs: 120,
+                }),
+              },
+            ],
+          }),
+      );
+      capability.setProofDeadlineOverride(40);
+      try {
+        const r = await call<{ ok: boolean; reason: string }>('/api/settings/ollama/test-teaching', {});
+        assert.equal(r.status, 200, JSON.stringify(r.json));
+        assert.equal(r.json.ok, false, 'a proof that was stopped cannot be a pass');
+        // Not the no-tools sentence: the run was cut short, so "the model
+        // called no tools" would be true of the log and false about the model.
+        assert.match(
+          r.json.reason,
+          /^the proof did not finish in 5 minutes and was stopped; a model this slow will make a lesson slower still/,
+          'a stopped proof must say it was stopped, and name the bound it was given',
+        );
+      } finally {
+        capability.setProofDeadlineOverride(null);
+      }
       assert.deepEqual(counts(), was, 'the proof left something behind');
     });
 
