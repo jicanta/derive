@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -411,5 +412,256 @@ describe('what a lesson cost, as both screens read it', () => {
     // whole bill when it is only part of it.
     assert.equal(view, 'not reported', 'a lesson with an unreported request may not show a partial total as if it were the whole');
     assert.equal(row, view);
+  });
+});
+
+/**
+ * What learning has cost, across every provider, as the Usage page reads it.
+ *
+ * Over HTTP and against the route rather than the function, because two of the
+ * things that must hold are properties of the request and not of the
+ * arithmetic: the read is scoped to the learner the server resolved, and the
+ * payload the browser receives carries no number it has to format. The six
+ * boundary cases this plan names — no rows, one row, an all-subscription
+ * lesson, a mixed lesson, a row with no counts, and a total under half a cent
+ * — are asserted on the strings the page actually prints, so a change that
+ * forked the label vocabulary would fail here rather than at a learner's eye.
+ *
+ * Rows are written straight into the ledger, as the lesson-cost suite above
+ * does and for the same reason: five label outcomes need five cost sources,
+ * and a provider that bills cannot be impersonated by a stub without a key.
+ */
+describe('what learning has cost, as the Usage page reads it', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const entry = resolve(here, '../dist/index.js');
+  let server: ChildProcess | undefined;
+  let base = '';
+  let dataDir = '';
+  let token = '';
+
+  type UsageView = import('../src/usage.js').UsageView;
+
+  before(async () => {
+    assert.ok(existsSync(entry), `build first: ${entry} is missing`);
+    ({ child: server, base, dataDir } = await startDeriveServer(entry));
+    token = readFileSync(join(dataDir, 'token'), 'utf8').trim();
+  });
+
+  after(() => {
+    server?.kill();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  /** A learner of their own per case, so one case's rows never land in another's grand total. */
+  async function learner(name: string): Promise<string> {
+    const res = await fetch(`${base}/api/learners`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-derive-token': token }, body: JSON.stringify({ name }) });
+    assert.equal(res.status, 201);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** One lesson belonging to that learner, with no turn behind it. */
+  async function lesson(learnerId: string, topic: string): Promise<string> {
+    const res = await fetch(`${base}/api/lessons`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-derive-token': token, 'x-derive-learner': learnerId }, body: JSON.stringify({ topic }) });
+    assert.equal(res.status, 201);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Usage rows written straight into the running server's ledger. WAL makes a second connection's write visible to the next read the server makes. */
+  function bill(lessonId: string, rows: { driver: string; model: string | null; input?: number | null; output?: number | null; source: string; usd?: number | null }[]) {
+    const db = new DatabaseSync(join(dataDir, 'derive.db'));
+    const owner = (db.prepare('SELECT learner_id FROM lessons WHERE id = ?').get(lessonId) as { learner_id: string }).learner_id;
+    const insert = db.prepare(
+      'INSERT INTO usage (turn_id, lesson_id, learner_id, driver, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost_source, cost_usd, ts) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)',
+    );
+    for (const r of rows) insert.run(randomUUID(), lessonId, owner, r.driver, r.model, r.input ?? null, r.output ?? null, r.source, r.usd ?? null, Date.now());
+    db.close();
+  }
+
+  /** The page's own read, scoped by the header the browser sends. */
+  async function usage(learnerId: string): Promise<UsageView> {
+    const res = await fetch(`${base}/api/usage`, { headers: { 'x-derive-token': token, 'x-derive-learner': learnerId } });
+    assert.equal(res.status, 200);
+    return (await res.json()) as UsageView;
+  }
+
+  /**
+   * The same read with a body naming somebody else.
+   *
+   * `fetch` refuses to send a body on a GET, which is the whole reason this
+   * goes through `node:http`: the assertion is that a body cannot redirect the
+   * scope, and a request that was never sent asserts nothing.
+   */
+  function usageWithBody(learnerId: string, body: unknown): Promise<UsageView> {
+    const payload = JSON.stringify(body);
+    const url = new URL(`${base}/api/usage`);
+    return new Promise((done, fail) => {
+      const req = httpRequest(
+        {
+          hostname: url.hostname,
+          port: url.port,
+          path: url.pathname,
+          method: 'GET',
+          headers: { 'x-derive-token': token, 'x-derive-learner': learnerId, 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
+        },
+        (res) => {
+          let text = '';
+          res.setEncoding('utf8');
+          res.on('data', (d: string) => (text += d));
+          res.on('end', () => {
+            assert.equal(res.statusCode, 200);
+            done(JSON.parse(text) as UsageView);
+          });
+        },
+      );
+      req.on('error', fail);
+      req.end(payload);
+    });
+  }
+
+  /** Every line the page would print, so an assertion can say what does and does not appear anywhere on it. */
+  const lines = (v: UsageView): string[] => [v.total ?? '', v.summary ?? '', ...v.groups.flatMap((g) => [g.line, ...g.models.flatMap((m) => [m.line, ...m.rows.map((r) => r.line)])])];
+
+  it('says nothing at all for a learner who has not run a lesson', async () => {
+    const me = await learner('A learner before their first lesson');
+
+    const v = await usage(me);
+
+    // Null, not zero, and an empty list rather than a placeholder row: the page
+    // needs an unambiguous empty signal, and a `$0.00` would claim the ledger
+    // measured nothing and found nothing when it measured nothing at all.
+    assert.deepEqual(v, { total: null, summary: null, lessons: 0, tokens: null, groups: [] });
+  });
+
+  it("reports a count of one for a learner with one lesson, so the singular nouns are the server's", async () => {
+    const me = await learner('A learner with exactly one lesson');
+    const id = await lesson(me, 'One metered lesson');
+    bill(id, [{ driver: 'openrouter', model: 'anthropic/claude-opus-5.5', input: 1, output: 1, source: 'provider', usd: 0.12 }]);
+
+    const v = await usage(me);
+
+    assert.equal(v.lessons, 1);
+    assert.equal(v.groups.length, 1);
+    assert.equal(v.groups[0].lessons, 1);
+    assert.equal(v.groups[0].models[0].lessons, 1);
+    // The noun is the server's, not a browser-side guess at it.
+    assert.match(v.summary ?? '', /\bacross 1 lesson\b/);
+    assert.match(v.groups[0].line, /\b1 lesson\b/);
+    assert.equal(v.total, 'about $0.12 billed');
+  });
+
+  it('shows tokens and `not billed` for a lesson taught entirely on a subscription, and no figure', async () => {
+    const me = await learner('A learner on a login');
+    const id = await lesson(me, 'A whole lesson on a login');
+    bill(id, [
+      { driver: 'claude-code', model: 'claude-opus-5-5', input: 900, output: 100, source: 'subscription' },
+      { driver: 'claude-code', model: 'claude-opus-5-5', input: 400, output: 100, source: 'subscription' },
+    ]);
+
+    const v = await usage(me);
+
+    assert.equal(v.total, 'not billed');
+    assert.equal(v.tokens, 1500);
+    assert.equal(v.groups[0].label, 'claude code');
+    // Tokens are the only thing a subscription line can honestly report, so
+    // they are what it reports — and there is no money anywhere on it.
+    assert.match(v.groups[0].line, /1,500 tokens · not billed$/);
+    assert.ok(!v.groups[0].line.includes('$'), `a subscription line may carry no money: ${v.groups[0].line}`);
+    assert.match(v.groups[0].models[0].rows[0].line, /A whole lesson on a login · 1,500 tokens · not billed/);
+  });
+
+  it('takes the weakest label for a lesson that is part priced and part subscription', async () => {
+    const me = await learner('A learner whose lesson is part metered');
+    const id = await lesson(me, 'Half on a key, half on a login');
+    bill(id, [
+      { driver: 'anthropic', model: 'claude-opus-5-5', input: 1_000_000, output: 0, source: 'table' },
+      { driver: 'claude-code', model: 'claude-opus-5-5', input: 500, output: 100, source: 'subscription' },
+    ]);
+
+    const v = await usage(me);
+
+    // Part of the total is Derive's own arithmetic and part of it is not a
+    // figure at all; `estimated` is the firmest word that overstates neither.
+    assert.match(String(v.total), /^about \$\d+\.\d\d estimated$/);
+    // The page does not re-decide it: the subscription half still renders its
+    // own tokens-only line under its own provider.
+    const login = v.groups.find((g) => g.provider === 'claude-code');
+    assert.ok(login, 'the subscription half has no group of its own');
+    assert.match(login.line, /600 tokens · not billed$/);
+  });
+
+  it('says `not reported` for a request nobody counted, and never a $0.00', async () => {
+    const me = await learner('A learner with an uncounted request');
+    const id = await lesson(me, 'One request nobody counted');
+    bill(id, [{ driver: 'claude-code', model: null, source: 'unknown' }]);
+
+    const v = await usage(me);
+
+    assert.equal(v.total, 'not reported');
+    assert.equal(v.tokens, null);
+    assert.match(v.groups[0].line, /not reported$/);
+    // The honest blank said out loud. A zero here would be a measurement
+    // nobody made, which is the one thing this vocabulary exists to refuse.
+    for (const l of lines(v)) assert.ok(!l.includes('$0.00'), `$0.00 reached the payload: ${l}`);
+    assert.ok(!JSON.stringify(v).includes('$0.00'));
+  });
+
+  it('reads `under $0.01` for a total below half a cent rather than rounding it away', async () => {
+    const me = await learner('A learner with a very cheap lesson');
+    const id = await lesson(me, 'A lesson that cost almost nothing');
+    bill(id, [{ driver: 'openrouter', model: 'anthropic/claude-opus-5.5', input: 3, output: 1, source: 'provider', usd: 0.002 }]);
+
+    const v = await usage(me);
+
+    // A cheap lesson on a metered key is not a free one.
+    assert.equal(v.total, 'under $0.01 billed');
+    assert.ok(!JSON.stringify(v).includes('$0.00'));
+  });
+
+  it('names a local provider by its own word, so LM Studio and llama.cpp are never read as Ollama', async () => {
+    const me = await learner('A learner running three local servers');
+    const studio = await lesson(me, 'A lesson on LM Studio');
+    const cpp = await lesson(me, 'A lesson on llama.cpp');
+    const olla = await lesson(me, 'A lesson on Ollama');
+    bill(studio, [{ driver: 'lmstudio', model: 'qwen3-30b', input: 800, output: 200, source: 'unknown' }]);
+    bill(cpp, [{ driver: 'llamacpp', model: '/home/someone/models/a-very-long-file-name.gguf', input: 700, output: 300, source: 'unknown' }]);
+    bill(olla, [{ driver: 'ollama', model: 'qwen3:30b', input: 600, output: 400, source: 'unknown' }]);
+
+    const v = await usage(me);
+    const labels = v.groups.map((g) => g.label).sort();
+
+    assert.deepEqual(labels, ['llama.cpp', 'lm studio', 'ollama']);
+    // The raw catalogue id is never the word on the line: a learner reading
+    // `lmstudio` would not know whether Derive had understood which server ran.
+    for (const l of lines(v)) {
+      assert.ok(!/\blmstudio\b/.test(l), `a raw id reached the page: ${l}`);
+      assert.ok(!/\bllamacpp\b/.test(l), `a raw id reached the page: ${l}`);
+    }
+    const studioGroup = v.groups.find((g) => g.label === 'lm studio')!;
+    assert.ok(!studioGroup.line.includes('ollama'), 'a non-Ollama local lesson is labelled ollama');
+    // The model id goes through verbatim, path and all, because the page
+    // truncates it with the whole value in the title.
+    const cppGroup = v.groups.find((g) => g.label === 'llama.cpp')!;
+    assert.equal(cppGroup.models[0].model, '/home/someone/models/a-very-long-file-name.gguf');
+  });
+
+  it("answers the resolved learner's rows and nobody else's", async () => {
+    const a = await learner('Learner A, who has spent something');
+    const b = await learner('Learner B, who has not');
+    const mine = await lesson(a, "A lesson of A's");
+    bill(mine, [{ driver: 'openrouter', model: 'anthropic/claude-opus-5.5', input: 10, output: 10, source: 'provider', usd: 0.5 }]);
+
+    const seenByA = await usage(a);
+    const seenByB = await usage(b);
+
+    assert.equal(seenByA.lessons, 1);
+    assert.equal(seenByA.total, 'about $0.50 billed');
+    // T-04-07: the ledger is denormalised per learner precisely so that one
+    // learner's spending is never visible from another's page.
+    assert.deepEqual(seenByB, { total: null, summary: null, lessons: 0, tokens: null, groups: [] });
+
+    // And a body naming A changes nothing about what B is shown. The write
+    // side takes the learner off the turn for exactly this reason; the read
+    // side takes it off the resolved request and from nowhere else.
+    assert.deepEqual(await usageWithBody(b, { learner: a }), seenByB);
   });
 });

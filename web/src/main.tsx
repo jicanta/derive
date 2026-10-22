@@ -7,6 +7,7 @@ import { HomePage } from './pages/Home';
 import { LibraryPage } from './pages/Library';
 import { LessonPage } from './pages/Lesson';
 import { SettingsPage } from './pages/Settings';
+import { UsagePage } from './pages/Usage';
 import { YouPage } from './pages/You';
 
 createRoot(document.getElementById('root')!).render(
@@ -20,6 +21,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/you" element={<YouPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/usage" element={<UsagePage />} />
         </Routes>
       </div>
     </BrowserRouter>

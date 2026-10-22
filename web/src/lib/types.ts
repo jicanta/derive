@@ -154,6 +154,61 @@ export type Settings = {
   prices_error: string | null;
 };
 
+/**
+ * What learning has cost, as GET /api/usage answers it.
+ *
+ * Every money string and every label word in here arrives already formatted:
+ * the server produces them with the one formatter the lesson header uses, so
+ * this page prints them and formats no number of its own. The counts are
+ * carried beside the lines for the states that are judged on them — an empty
+ * `lessons` is the page's unambiguous empty signal, never inferred from a
+ * zeroed total.
+ */
+export type UsageView = {
+  /** The grand total across every provider, or null when this learner has no usage at all. */
+  total: string | null;
+  /** The one line under the total: how many lessons and how many tokens it covers. Null when there is nothing to say. */
+  summary: string | null;
+  /** How many distinct lessons have cost anything. Zero is the empty state. */
+  lessons: number;
+  /** Every token reported across every provider, or null when nothing was reported anywhere. */
+  tokens: number | null;
+  groups: UsageGroup[];
+};
+
+/** One provider's section: the catalogue id it is keyed by, the word a learner reads, and the models beneath it. */
+export type UsageGroup = {
+  provider: string;
+  /** The lowercased provider word — `ollama`, `lm studio`, `llama.cpp` — never the raw id. */
+  label: string;
+  /** The section's whole line, already composed. */
+  line: string;
+  cost: string | null;
+  tokens: number | null;
+  lessons: number;
+  models: UsageModel[];
+};
+
+/** One model under a provider. `model` is verbatim, which on llama.cpp started without `--alias` is a file path — hence the truncation and the full value in `title`. */
+export type UsageModel = {
+  model: string | null;
+  line: string;
+  cost: string | null;
+  tokens: number | null;
+  lessons: number;
+  rows: UsageLesson[];
+};
+
+/** One lesson's line under the model it ran on. */
+export type UsageLesson = {
+  id: string;
+  /** What the lesson is about; its id when the lesson itself is gone. */
+  topic: string;
+  line: string;
+  cost: string | null;
+  tokens: number | null;
+};
+
 export type LessonSummary = Lesson & {
   nodes: number;
   locked: number;

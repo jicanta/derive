@@ -1,4 +1,4 @@
-import type { Atlas, CapabilityResult, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, LessonView, Library, Material, ProviderView, Resource, SearchView, Settings, Stats, TeachingTest, TestResult, TutorChoice } from './types';
+import type { Atlas, CapabilityResult, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, LessonView, Library, Material, ProviderView, Resource, SearchView, Settings, Stats, TeachingTest, TestResult, TutorChoice, UsageView } from './types';
 
 /**
  * The selected learner profile, kept in this browser. Sent on every request
@@ -100,6 +100,8 @@ export const api = {
     post(`/api/library/${id}`, body, 'PATCH').then((r) => j<Resource>(r)),
   refetchResource: (id: string) => post(`/api/library/${id}/refetch`).then((r) => j<Resource>(r)),
   deleteResource: (id: string) => del(`/api/library/${id}`).then((r) => j<{ ok: true }>(r)),
+  /** What learning has cost this learner, by provider, model and lesson. Scoped server-side to the learner this request resolves to; every money string and label word arrives already formatted. */
+  usage: () => get('/api/usage').then((r) => j<UsageView>(r)),
   /** Which provider and model teach, per install: every row with its stored config and what the last detection pass saw. Never spawns anything. */
   settings: () => get('/api/settings').then((r) => j<Settings>(r)),
   /** Run one detection pass — both logins and the local servers — and answer the settings view again. */

@@ -181,6 +181,13 @@ export function SettingsPage() {
                 Prices come from a table shipped with Derive, as of {settings.prices_as_of}. To use your own, put them in ~/.derive/prices.json.
               </p>
             ))}
+
+          {/* The only way in to the Usage page. It sits here because this is where a learner is already deciding which provider to learn on, and that is the decision the running total informs. Nothing in the default UI links to it: one screen, one next step. */}
+          <p className="mt-3">
+            <Link to="/usage" className={textButton} title="What learning has cost, by provider, model and lesson">
+              usage · what learning has cost
+            </Link>
+          </p>
         </div>
       </div>
     </div>

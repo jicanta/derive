@@ -70,6 +70,7 @@ import { SEARCH_BASE_URL, SEARCH_PROVIDERS, SEARCH_SETTING, searchProvider, test
 import { registerSecret, safeMessage } from './secrets.js';
 import { ACTIVE_PROVIDER, NUM_CTX_DEFAULT, NUM_CTX_FLOOR, baseUrlKey, currentTutor, envKeyFor, lastDetection, localBase, lockedBy, modelFor, modelKey, normaliseBaseUrl, numCtxKey, resetDetection, resolveTutor, type Detection, type Local } from './settings.js';
 import { shapeFor, toolsFor } from './tools.js';
+import { learnerUsage } from './usage.js';
 import { nativeSearch } from './drivers/adapters.js';
 import { lessonCost } from './drivers/api.js';
 
@@ -1104,6 +1105,29 @@ app.post('/api/review', async (c) => {
   if (!started) return c.json({ error: 'nothing due' }, 400);
   void runTurn(started.lesson.id, reviewTurnPrompt(started.graph.due)).catch((e) => console.error('[turn]', safeMessage(e)));
   return c.json(started.lesson, 201);
+});
+
+// ---------- what learning has cost ----------
+
+/**
+ * The learner's running total, by provider, model and lesson.
+ *
+ * Scoped to the learner this request resolves to and to nothing it carried of
+ * its own. `recordUsage` takes the lesson, the learner and the driver off the
+ * turn precisely so that no caller can file a request under a learner its turn
+ * does not belong to; the read side owes the same discipline, so the learner id
+ * comes from `learnerOf` and a body naming another one changes nothing.
+ *
+ * Every figure and every label word on the answer is already a string. The page
+ * prints them; it formats no number of its own, which is what keeps this page
+ * and the lesson header on one vocabulary.
+ */
+app.get('/api/usage', (c) => {
+  try {
+    return c.json(learnerUsage(learnerOf(c)));
+  } catch (e) {
+    return c.json({ error: safeMessage(e) }, 500);
+  }
 });
 
 // ---------- atlas + learner profile ----------
