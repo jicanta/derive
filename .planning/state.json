@@ -21,7 +21,7 @@
     {
       "number": "4",
       "name": "Local Models, Parity Proof and Usage",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "5",
@@ -44,5 +44,5 @@
     "label": "Advance to the next step",
     "reason": "Phase 04 of 7 · 43% · executing"
   },
-  "updated_at": "2026-10-22T20:03:52.472Z"
+  "updated_at": "2026-10-22T20:45:26.915Z"
 }
