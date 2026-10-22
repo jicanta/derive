@@ -162,7 +162,7 @@ label is a bare verb: each names its object (`test teaching`, `Use this provider
 
 | Element | Copy |
 |---------|------|
-| Primary CTA | `test teaching` (Settings local-model row) — verb + noun, lowercase to match `test connection` / `fetch models` |
+| Primary CTA | `test teaching` (every teachable provider row — see §Amendments) — verb + noun, lowercase to match `test connection` / `fetch models` |
 | Section CTA (unchanged) | `Use this provider` |
 | Empty state heading | `Nothing spent yet` |
 | Empty state body | `Run a lesson and its cost lands here: one line per lesson, grouped by provider and model. Local and subscription turns show tokens only — no dollar figure, because there is none.` |
@@ -188,6 +188,33 @@ Additional strings fixed by this contract:
 Label vocabulary is fixed by `server/src/cost.ts` and must not fork: `billed` · `estimated` ·
 `not billed` · `not reported`. Money is `about $X.XX {label}` or `under $0.01 {label}`, produced once
 server-side by `costLabel`. The Usage page must call the same formatter, never re-format a number.
+
+---
+
+## Amendments
+
+> Appended, never a rewrite. This contract is approved and its §Checker Sign-Off refers to the rows as
+> they were reviewed on 2026-10-16; editing a signed-off row in place would make that sign-off describe
+> something nobody signed off. Each entry below is dated and cites what widened it.
+
+**A1 — 2026-10-22 · `test teaching` appears on every row whose `teaches` is true.**
+That is the three local rows (Ollama, LM Studio, llama.cpp), the four key and gateway rows (Anthropic,
+OpenAI, Gemini, OpenRouter, and the OpenAI-compatible endpoint row), **and the two login rows,
+`claude-code` and `codex`**. The widening past the local-model row is D-13's own (`04-CONTEXT.md`), which
+says this file "needs a small update to note the action on cloud rows too"; the further widening to the two
+login rows is **amendment A-03 of `04-03-PLAN.md`** (owner decision, this phase's planning session). The
+reason: both login backends implement `Driver.runTurn`, so the same one-node-one-graded-quiz probe runs on
+them unchanged through the per-provider driver seam, and PROV-11 says "any chosen model" — a learner on a
+login row must not be left without a way to run the proof. The control keys on `row.teaches` and never on a
+list of ids, so a row that arrives before its driver does not render it.
+
+**A2 — 2026-10-22 · No string changes.**
+The CTA (`test teaching`), the running line (`running one node and a graded quiz`), the pass line
+(`Pass · taught one node and passed one graded quiz · {ms} ms`) and the three fail reasons are exactly the
+approved strings in §Copywriting Contract, with the same colours (teal in flight, moss on a pass, rust on a
+fail) and the same one-line truncation with the full text in the `title`. The only thing these amendments
+move is **which rows render them**. The one in-place edit above — the Primary CTA row's parenthetical, now
+pointing here — exists so the table does not contradict this section; no copy in it changed.
 
 ---
 
