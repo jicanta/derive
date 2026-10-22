@@ -604,10 +604,8 @@ describe('the scratch marker a teaching test needs', () => {
 });
 
 describe('the table the conformance harness counts bad tool calls in', () => {
-  it('pins LATEST_VERSION, so a migration that forgets to bump the number is visible', () => {
-    assert.equal(LATEST_VERSION, 9);
-  });
-
+  // The "forgets to bump the number" pin lives with the newest migration, which
+  // is the only place it can keep catching anything; see the block below.
   it('carries a database at version 8 forward and gives the new table both of its indexes', () => {
     const file = legacyDatabase(scratch());
     migrateTo(file, 8);
@@ -626,6 +624,38 @@ describe('the table the conformance harness counts bad tool calls in', () => {
     // and model read the report makes: without the second it is a table scan
     // per group, which is a diagnostic costing more than what it diagnoses.
     assert.deepEqual(indexes, ['tool_rejections_provider', 'tool_rejections_turn']);
+    after.close();
+  });
+});
+
+describe('the window setting that was stored on a row Derive never sends one to', () => {
+  it('pins LATEST_VERSION, so a migration that forgets to bump the number is visible', () => {
+    assert.equal(LATEST_VERSION, 10);
+  });
+
+  it('deletes a window stored on LM Studio or llama.cpp and leaves the Ollama one alone', () => {
+    const file = legacyDatabase(scratch());
+    migrateTo(file, 9);
+    const before = new DatabaseSync(file);
+    const insert = before.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)');
+    insert.run('num_ctx:ollama', '65536', 1);
+    insert.run('num_ctx:lmstudio', '65536', 1);
+    insert.run('num_ctx:llamacpp', '65536', 1);
+    // A neighbouring key on the same rows, to show the delete is about the one
+    // setting that had no effect rather than about the rows themselves.
+    insert.run('model:lmstudio', 'qwen3-8b', 1);
+    before.close();
+
+    migrate(file);
+
+    assert.equal(userVersion(file), LATEST_VERSION);
+    const after = new DatabaseSync(file);
+    assert.deepEqual(
+      (after.prepare("SELECT key FROM settings WHERE key LIKE 'num_ctx:%' ORDER BY key").all() as { key: string }[]).map((r) => r.key),
+      ['num_ctx:ollama'],
+      'a learner must not be left holding a window on a row D-05 makes read-only',
+    );
+    assert.equal((after.prepare("SELECT value FROM settings WHERE key = 'model:lmstudio'").get() as { value: string }).value, 'qwen3-8b');
     after.close();
   });
 });

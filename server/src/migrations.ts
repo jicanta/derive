@@ -350,6 +350,25 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 10,
+    name: 'drop-read-only-num-ctx',
+    up(db) {
+      // D-05 makes LM Studio and llama.cpp read-only — Derive reads the window
+      // they serve and never tells them one — so `numCtxFor` is read for
+      // `ollama` and nowhere else. Until the settings route was narrowed to
+      // that row, a window typed on either of the other two was accepted,
+      // stored, and confirmed with "saved · applies from the next turn". A
+      // learner left holding one of those rows would believe a number is in
+      // force that no request has ever carried, so the rows go rather than
+      // being left to be read back by a field that no longer exists.
+      //
+      // The keys are written out rather than built from `numCtxKey`: a
+      // migration records what was in the file at this version, and a helper
+      // that changes shape later would silently change what this one deletes.
+      db.exec("DELETE FROM settings WHERE key IN ('num_ctx:lmstudio', 'num_ctx:llamacpp')");
+    },
+  },
 ];
 
 /**

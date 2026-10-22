@@ -749,7 +749,7 @@ describe('the num_ctx field on a local row, over HTTP with no model', () => {
     assert.equal(cleared.json.num_ctx_default, 32768, 'the default is what the field then shows as its placeholder');
   });
 
-  it('refuses a window on a row that is not local, naming the row', async () => {
+  it('refuses a window on every row but Ollama, naming the row', async () => {
     const remote = await api<{ error: string }>('/api/settings/anthropic', { num_ctx: 32768 }, 'PUT');
     assert.equal(remote.status, 400);
     assert.match(remote.json.error, /^Anthropic does not take a context window/);
@@ -761,17 +761,29 @@ describe('the num_ctx field on a local row, over HTTP with no model', () => {
     const generic = await api<{ error: string }>('/api/settings/openai-compatible', { num_ctx: 32768 }, 'PUT');
     assert.equal(generic.status, 400);
     assert.match(generic.json.error, /^OpenAI-compatible endpoint does not take a context window/);
+
+    // D-05: LM Studio and llama.cpp serve the window they were started with and
+    // `numCtxFor` is read for `ollama` and nowhere else, so a write here is
+    // refused rather than stored — the row must not persist a number no request
+    // carries and then answer that it applies from the next turn.
+    for (const [id, label] of [
+      ['lmstudio', 'LM Studio'],
+      ['llamacpp', 'llama.cpp'],
+    ]) {
+      const readOnly = await api<{ error: string }>(`/api/settings/${id}`, { num_ctx: 32768 }, 'PUT');
+      assert.equal(readOnly.status, 400, JSON.stringify(readOnly.json));
+      assert.match(readOnly.json.error, new RegExp(`^${label.replace('.', '\\.')} does not take a context window`));
+      assert.equal((await rowOf(id)).num_ctx, null, `${id} stored a window Derive never sends`);
+    }
   });
 
-  it('shows the default on every local row and nothing on any other, and all three teach', async () => {
+  it('shows the default on the Ollama row and nothing on any other, and all three local rows teach', async () => {
     const r = await api<{ rows: { id: string; group: string; teaches: boolean; num_ctx_default: number | null }[] }>('/api/settings');
     for (const row of r.json.rows) {
-      if (row.group === 'local') {
-        assert.equal(row.num_ctx_default, 32768, `${row.id} does not offer a window field`);
-        assert.equal(row.teaches, true, `${row.id} does not teach, so it cannot be made active`);
-      } else {
-        assert.equal(row.num_ctx_default, null, `${row.id} offers a window field it has no use for`);
-      }
+      // The field exists exactly where Derive sends a window, which is the
+      // Ollama row and nothing else (D-05).
+      assert.equal(row.num_ctx_default, row.id === 'ollama' ? 32768 : null, `${row.id} offers the wrong window field`);
+      if (row.group === 'local') assert.equal(row.teaches, true, `${row.id} does not teach, so it cannot be made active`);
     }
     assert.deepEqual(r.json.rows.filter((row) => row.group === 'local').map((row) => row.id), ['ollama', 'lmstudio', 'llamacpp']);
   });

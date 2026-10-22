@@ -460,8 +460,14 @@ const rowView = (spec: ProviderSpec, activeId: string, seen: Detection | null = 
     // returns and hard-codes neither number — `num_ctx_default` is null on
     // every row that has no window field at all, which is what the component
     // reads to decide whether to render one.
+    //
+    // Ollama is the one row that gets a field, because it is the one row Derive
+    // sends a window to: `numCtxFor` is read for `ollama` and nowhere else
+    // (`drivers/adapters.ts`, `drivers/api.ts`). D-05 makes LM Studio and
+    // llama.cpp read-only, so a field there would persist a number nothing ever
+    // sends and tell the learner it applies from the next turn.
     num_ctx: getSetting(numCtxKey(spec.id)) ? Number(getSetting(numCtxKey(spec.id))) : null,
-    num_ctx_default: spec.group === 'local' ? NUM_CTX_DEFAULT : null,
+    num_ctx_default: spec.id === 'ollama' ? NUM_CTX_DEFAULT : null,
     status: statusOf(spec, seen),
     active: activeId === spec.id,
   };
@@ -605,13 +611,24 @@ app.put('/api/settings/:provider', async (c) => {
   const { model, base_url, key, num_ctx } = parsed.data;
   if (model !== undefined && lockedBy('model')) return c.json({ error: 'the model is set by DERIVE_MODEL in the environment' }, 409);
   if (base_url !== undefined && spec.auth !== 'key+url' && !spec.port) return c.json({ error: `${spec.label} has a fixed endpoint` }, 400);
-  // D-01: the three dedicated local rows are the canonical way to teach on a
-  // local server, and the generic OpenAI-compatible row stays remote-and-
-  // proxied-only. So a learner who types a localhost address into that row gets
-  // no local treatment — no window, and no capability refusal — because it is
-  // for endpoints somebody else runs. The sentence names the row, the shape the
-  // base_url refusal above already uses.
-  if (num_ctx !== undefined && spec.group !== 'local') return c.json({ error: `${spec.label} does not take a context window; it serves whatever the endpoint is configured for` }, 400);
+  // Ollama is the only row Derive sends a window to, so it is the only row that
+  // accepts one. Two decisions converge on that:
+  //
+  // D-01 keeps the generic OpenAI-compatible row remote-and-proxied-only — the
+  // three dedicated local rows are the canonical way to teach on a local
+  // server, so a learner who types a localhost address into that row gets no
+  // local treatment, no window and no capability refusal, because it is for
+  // endpoints somebody else runs.
+  //
+  // D-05 makes LM Studio and llama.cpp read-only: Derive never fights a
+  // server's own context configuration, and `numCtxFor` is read for `ollama`
+  // and nowhere else. Accepting a window there stored a setting no request ever
+  // carries and answered `saved · applies from the next turn` about it.
+  //
+  // The sentence names the row, the shape the base_url refusal above already
+  // uses, and is true of every row it now reaches: each serves the window it
+  // was started with or configured for.
+  if (num_ctx !== undefined && spec.id !== 'ollama') return c.json({ error: `${spec.label} does not take a context window; it serves whatever the endpoint is configured for` }, 400);
   const baseUrlLock = base_url !== undefined ? lockedBy(`base_url:${spec.id}`) : null;
   if (baseUrlLock) return c.json({ error: `the ${spec.label} address is set by ${baseUrlLock} in the environment` }, 409);
   if (key !== undefined) {

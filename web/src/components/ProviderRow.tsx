@@ -294,9 +294,11 @@ function BaseUrlField({ row, onChange }: { row: ProviderView; onChange: (row: Pr
  * on the settings page and this field adds none.
  *
  * It renders only where `num_ctx_default` is non-null, which is the API saying
- * this row has a window to set at all. On LM Studio and llama.cpp the row still
- * carries one because the learner may raise it; what differs is that Derive
- * never sends it to those servers (D-05) — a fact their own note states.
+ * this row has a window to set at all — Ollama and nothing else, because Ollama
+ * is the one server Derive tells the window to. D-05 makes LM Studio and
+ * llama.cpp read-only, so those rows carry no field: raising a value Derive
+ * never sends raises nothing, and a tick saying it applies from the next turn
+ * would be false.
  */
 function NumCtxField({ row, onChange }: { row: ProviderView; onChange: (row: ProviderView) => void }) {
   const stored = row.num_ctx === null ? '' : String(row.num_ctx);
