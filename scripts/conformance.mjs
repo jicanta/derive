@@ -49,6 +49,21 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * The one way a sentence leaves this script, for the two paths that are not a
+ * report row: the throw a failed spawn carries, and the entry point's last
+ * catch.
+ *
+ * Both of those handle text Derive never composed — the child server's own
+ * stderr, and whatever message an unhandled failure arrived with — and both
+ * reach a job log that is public on a public repository. They cannot take
+ * `main`'s own `safe`, because they also have to work before `loadServer` has
+ * run and before a single key has been registered. So this starts as the
+ * narrowing every catch does and nothing more, and `main` rebinds it to the
+ * server's own `safeMessage` the moment the keys are registered.
+ */
+let safeOut = (e) => String(e instanceof Error ? e.message : (e ?? ''));
+
 // ---------- the exit code, as a pure function of the report ----------
 
 /**
@@ -316,8 +331,12 @@ async function startServer(entry, dataDir, env) {
     }
     child.kill();
   }
+  // `last` is a raw line of the child's stderr, so it goes through the same
+  // redaction every recorded sentence does: a server that dies with an
+  // unhandled error can carry a credential in it, and this message reaches the
+  // job log.
   const last = stderr.trim().split('\n').filter(Boolean).at(-1) ?? 'it wrote nothing to stderr';
-  throw new Error(`the derive server did not start in ${SPAWN_ATTEMPTS} attempts: ${last}`);
+  throw new Error(safeOut(`the derive server did not start in ${SPAWN_ATTEMPTS} attempts: ${last}`));
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -542,6 +561,9 @@ async function main(argv) {
   // published CI artifact.
   for (const name of keyNames(providers)) secrets.registerSecret(process.env[name]);
   const safe = (text) => secrets.safeMessage(text);
+  // From here on the two paths outside a report row redact too — the spawn
+  // throw below and the entry point's last catch.
+  safeOut = safe;
 
   const started = new Date().toISOString();
   const run = {
@@ -594,7 +616,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const report = await main(process.argv.slice(2));
     process.exit(exitCodeFor(report));
   } catch (e) {
-    console.error(e instanceof Error ? e.message : String(e));
+    console.error(safeOut(e));
     process.exit(1);
   }
 }
