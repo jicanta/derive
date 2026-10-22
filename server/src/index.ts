@@ -53,7 +53,7 @@ import {
   type GraphNodeInput,
   type MaterialRow,
 } from './db.js';
-import { capabilityOf } from './capability.js';
+import { capabilityList, capabilityOf, capabilityRefusal, forgetCapabilities, knownCapability, rememberMetadata } from './capability.js';
 import { emit, subscribe } from './events.js';
 import { exportToVault, renderMarkdown } from './export.js';
 import { addResource, deleteResource, editResource, getResource, isKind, librarySection, listResources, publicRow, refetchResource, RESOURCE_KINDS, segmentsOf, tagCounts } from './library.js';
@@ -67,7 +67,7 @@ import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type
 import { DEFAULTS_AS_OF, labelOf, PROVIDERS, providerOf, providerOfDriver, type ProviderSpec } from './providers.js';
 import { SEARCH_BASE_URL, SEARCH_PROVIDERS, SEARCH_SETTING, searchProvider, testSearch } from './search.js';
 import { registerSecret, safeMessage } from './secrets.js';
-import { ACTIVE_PROVIDER, NUM_CTX_DEFAULT, NUM_CTX_FLOOR, baseUrlKey, currentTutor, envKeyFor, lastDetection, localBase, lockedBy, modelKey, normaliseBaseUrl, numCtxKey, resetDetection, resolveTutor, type Detection, type Local } from './settings.js';
+import { ACTIVE_PROVIDER, NUM_CTX_DEFAULT, NUM_CTX_FLOOR, baseUrlKey, currentTutor, envKeyFor, lastDetection, localBase, lockedBy, modelFor, modelKey, normaliseBaseUrl, numCtxKey, resetDetection, resolveTutor, type Detection, type Local } from './settings.js';
 import { shapeFor, toolsFor } from './tools.js';
 import { nativeSearch } from './drivers/adapters.js';
 import { lessonCost } from './drivers/api.js';
@@ -510,6 +510,15 @@ app.post('/api/settings/active', async (c) => {
   if (!spec) return c.json({ error: 'unknown provider' }, 404);
   if (!spec.teaches) return c.json({ error: `teaching on ${spec.label} arrives with the next release` }, 400);
   if (lockedBy('provider')) return c.json({ error: 'the provider is set by DERIVE_BACKEND in the environment' }, 409);
+  // The other half of D-04's "cannot be selected": a learner must not be able
+  // to make active a model the ladder has already said cannot run the method.
+  // The row's model is resolved through the same tiers a turn resolves it
+  // through, so this refusal and the next turn cannot disagree about which
+  // model was about to run. The lesson-time backstop in drivers/api.ts stays as
+  // it is — it covers the model that slipped through before any verdict
+  // existed, which is a different case from this one.
+  const refusal = capabilityRefusal(spec.id, modelFor(spec.id));
+  if (refusal) return c.json({ error: refusal }, 400);
   try {
     setSetting(ACTIVE_PROVIDER, spec.id);
     return c.json(resolveTutor());
@@ -599,6 +608,23 @@ app.put('/api/settings/:provider', async (c) => {
     const lock = lockedBy(`key:${spec.id}`);
     if (lock) return c.json({ error: keyLockSentence(spec, lock) }, 409);
   }
+  // D-04 in the words it actually uses: the model "cannot be selected". This is
+  // where selecting happens, so this is where that has to be true — for a
+  // typed id as much as for one picked out of the fetched list. Nothing is
+  // stored when the ladder refuses.
+  //
+  // When nothing is known about the pair yet, the cheap metadata tier is read
+  // for this one model first — this is the moment D-07 calls "the model the
+  // learner selects" — but only on a local row a pass actually found a server
+  // on, and only the metadata tier: a real round-trip belongs to the probe the
+  // page makes after the save, not inside the write the learner is waiting on.
+  // A read that fails leaves the verdict at silence, which lets the write
+  // through. A row the ladder does not cover is never refused here.
+  if (model && spec.group === 'local') {
+    if (!knownCapability(spec.id, model) && !!lastDetection()?.local?.[spec.id as keyof Local]) await rememberMetadata(spec.id, model);
+    const refusal = capabilityRefusal(spec.id, model);
+    if (refusal) return c.json({ error: refusal }, 400);
+  }
   try {
     if (key !== undefined) setKey(spec.id, key);
     if (model !== undefined) {
@@ -608,6 +634,11 @@ app.put('/api/settings/:provider', async (c) => {
     if (base_url !== undefined) {
       if (base_url) setSetting(baseUrlKey(spec.id), normaliseBaseUrl(base_url));
       else deleteSetting(baseUrlKey(spec.id));
+      // The row now points somewhere else, so every verdict on it is a fact
+      // about a different server. Forgetting returns the row to silence, which
+      // is the only safe direction: a stale verdict could refuse a model the
+      // new address serves perfectly well.
+      forgetCapabilities(spec.id);
     }
     if (num_ctx !== undefined) {
       if (num_ctx === null) deleteSetting(numCtxKey(spec.id));
@@ -645,7 +676,19 @@ app.delete('/api/settings/:provider/key', (c) => {
  */
 app.post('/api/settings/detect', async (c) => {
   resetDetection();
-  await detect();
+  const seen = await detect();
+  // D-07's cheap tier rides this one pass rather than adding a second: every
+  // model on each local row a server was actually found on, read from that
+  // server's own metadata. Never a row nothing answered on, and never the
+  // generic OpenAI-compatible row, which D-01 keeps remote-and-proxied-only.
+  // Previous verdicts are dropped first so a rescan re-reads rather than
+  // layering over a fact about a server that may have changed underneath.
+  // No request here reaches a completion endpoint, so opening Settings cannot
+  // cost a generation; `rowView` gains no field, because the verdicts are read
+  // by the two refusals below and by the line the row already shows.
+  const found = PROVIDERS.filter((s) => s.group === 'local' && !!seen.local?.[s.id as keyof Local]);
+  for (const s of found) forgetCapabilities(s.id);
+  await Promise.all(found.map((s) => capabilityList(s.id)));
   return c.json(settingsView());
 });
 

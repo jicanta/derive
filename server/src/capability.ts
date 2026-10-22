@@ -55,7 +55,7 @@
  */
 import { generateText, jsonSchema, tool, type JSONSchema7 } from 'ai';
 import { providerOf, type ProviderId } from './providers.js';
-import { bearer, field, getJson, hintFor, LOCAL_MS, postJson, statusOf } from './probe.js';
+import { bearer, field, getJson, hintFor, idsOf, LOCAL_MS, postJson, statusOf } from './probe.js';
 import { safeMessage } from './secrets.js';
 import { effectiveKey, localBase, NUM_CTX_FLOOR } from './settings.js';
 import { descriptionFor, jsonSchemaOf, toolsFor } from './tools.js';
@@ -412,6 +412,94 @@ async function roundTrip(id: string, model: string): Promise<'yes' | 'no' | 'unk
   } catch {
     /* not answerable */
     return 'unknown';
+  }
+}
+
+/** The entries of an OpenAI-shaped `data` array, or none. A body without one establishes nothing; it is never guessed at. */
+const entriesOf = (body: unknown): unknown[] => {
+  const data = field(body, 'data');
+  return Array.isArray(data) ? data : [];
+};
+
+/** What one reading plus the ladder's decision on it is remembered as. */
+const keep = (id: string, model: string, cap: Capability): void => rememberCapability(id, model, { ...cap, ...verdictOf(model, cap) });
+
+/**
+ * The cheap tier for one model, remembered and never round-tripped.
+ *
+ * This is what the model write asks for before it stores anything: the
+ * learner may have typed an id that no pass has looked at, and a metadata read
+ * bounded by `LOCAL_MS` is affordable inside a write where a real generation
+ * is not. A read that fails or a shape that does not hold leaves the model at
+ * silence, which lets the write through — the correct direction, because
+ * nothing was established.
+ */
+export async function rememberMetadata(id: string, model: string): Promise<void> {
+  try {
+    keep(id, model, await readCapability(id, model));
+  } catch {
+    /* not answering */
+  }
+}
+
+/**
+ * D-07's cheap tier, for a whole row at once: what the settings page's one
+ * detection pass reads about every model on a local server it just found.
+ *
+ * What makes this tier the cheap one is **not** the number of requests. It is
+ * that no request reaches a completion endpoint: nothing here asks a model to
+ * generate a single token. That is the whole reason the definitive round-trip
+ * stays on the one model the learner selects. A later reader optimising this
+ * towards "one request per row" could move the round-trip in here and quietly
+ * make opening Settings cost a generation on every installed model — on a
+ * local machine, minutes of it. The distinction to preserve is the endpoint,
+ * not the count.
+ *
+ * The counts are what each server's shape allows: llama.cpp serves one model,
+ * so one `/props` plus one model list covers it; LM Studio describes its whole
+ * library in one list; Ollama keeps capabilities only on `/api/show`, which is
+ * per model, so that row is one read per installed model — issued together
+ * rather than one after another, each bounded by `LOCAL_MS`.
+ *
+ * Answers always and throws never. A model whose read failed is left at
+ * silence, which never refuses.
+ */
+export async function capabilityList(id: string): Promise<void> {
+  const spec = providerOf(id);
+  if (!spec || spec.group !== 'local') return;
+  const base = localBase(spec);
+  if (!base || !spec.modelsPath) return;
+  const headers = spec.id === 'ollama' ? {} : bearer(effectiveKey(spec.id));
+  const list = (path: string) => orNothing(() => getJson(`${base}${path}`, headers, LOCAL_MS));
+  switch (spec.id) {
+    case 'llamacpp': {
+      const [props, models] = await Promise.all([list('/props'), list(spec.modelsPath)]);
+      for (const model of idsOf(spec, models)) keep(id, model, llamaCppCapability(props, models, model));
+      return;
+    }
+    case 'lmstudio': {
+      // v1 first: it is the only one of the two that says anything about tool
+      // use, so a build that has it needs no second request.
+      const v1Entries = entriesOf(await list('/api/v1/models'));
+      if (v1Entries.length) {
+        for (const entry of v1Entries) {
+          const model = field(entry, 'key');
+          if (typeof model === 'string' && model) keep(id, model, lmStudioCapability(entry, undefined));
+        }
+        return;
+      }
+      for (const entry of entriesOf(await list(spec.modelsPath))) {
+        const model = field(entry, 'id');
+        if (typeof model === 'string' && model) keep(id, model, lmStudioCapability(undefined, entry));
+      }
+      return;
+    }
+    case 'ollama': {
+      const models = idsOf(spec, await list(spec.modelsPath));
+      const shown = await Promise.all(models.map((model) => orNothing(() => postJson(`${base}/api/show`, headers, { model }, LOCAL_MS))));
+      models.forEach((model, i) => keep(id, model, ollamaCapability(shown[i])));
+      return;
+    }
   }
 }
 

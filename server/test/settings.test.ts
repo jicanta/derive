@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { freePort, startDeriveServer } from './spawn.js';
+import { fakeServer, freePort, jsonAt, startDeriveServer, type FakeAnswer } from './spawn.js';
 
 // db.ts opens the database on import and the resolver may shell out on its
 // first detection; pin the data dir, unset the env locks and hide the
@@ -348,21 +348,9 @@ describe('read-only routes never spawn', { skip: process.platform === 'win32' },
   });
 });
 
-/** A loopback server answering one JSON body on one path, and 404 elsewhere; or HTML everywhere, the way a foreign dashboard on a default port does. */
-function fakeServer(answer: (url: string) => { status: number; type: string; body: string }): Promise<{ server: Server; port: number }> {
-  return new Promise((res) => {
-    const server = createServer((req, r) => {
-      const a = answer(req.url ?? '/');
-      r.statusCode = a.status;
-      r.setHeader('content-type', a.type);
-      r.end(a.body);
-    });
-    server.listen(0, '127.0.0.1', () => res({ server, port: (server.address() as AddressInfo).port }));
-  });
-}
-
-const jsonAt = (path: string, body: unknown) => (url: string) =>
-  url === path ? { status: 200, type: 'application/json', body: JSON.stringify(body) } : { status: 404, type: 'application/json', body: '{"error":"not found"}' };
+/** A JSON answer from a fake, for the bodies built inline below. */
+const json = (body: unknown): FakeAnswer => ({ status: 200, type: 'application/json', body: JSON.stringify(body) });
+const notFound: FakeAnswer = { status: 404, type: 'application/json', body: '{"error":"not found"}' };
 
 describe('detection over HTTP', () => {
   let server: ChildProcess | undefined;
@@ -486,6 +474,140 @@ describe('detection over HTTP', () => {
     const active = await api<Tutor>('/api/settings/active');
     assert.equal(active.json.provider, 'claude-code');
     assert.equal(active.json.source, 'detected');
+  });
+
+  /**
+   * The whole-list capability pass, and the two refusals it feeds.
+   *
+   * The fake answers **metadata and nothing else**. It does not stand in for a
+   * model, and nothing asserted here says a model can teach — that claim is
+   * only ever made by a real run, which is plan 04-03's and the human checks'.
+   * What these cases assert is Derive's own behaviour on a server's answer:
+   * which paths it asks for, what it remembers, and what it then refuses.
+   *
+   * It reuses the spawned server and client above; the only new thing is one
+   * fake that records every path it was asked for and can change what it says.
+   */
+  describe('the capability pass, and the two refusals it feeds', () => {
+    const MODELS = ['a-publisher/first-model', 'a-publisher/second-model'];
+    /** Every path the fake was asked for, so a case can assert both what was asked and what was not. */
+    let asked: string[] = [];
+    let toolUse: unknown = true;
+    let shape: 'v1' | 'v0' = 'v1';
+    const askedFor = (path: string) => asked.filter((u) => u === path).length;
+    /** A completion endpoint on any of the three servers. Nothing in the cheap tier may ever appear here. */
+    const completions = () => asked.filter((u) => /completions|\/api\/chat|\/api\/generate/.test(u));
+    const row = async () => (await rows()).get('lmstudio')!;
+    const activeProvider = async () => (await api<Tutor>('/api/settings/active')).json.provider;
+
+    before(async () => {
+      const fake = await fakeServer((url) => {
+        asked.push(url);
+        // v1 carries the tool-use flag; v0 answers always, because it is also
+        // the path the detection probe reads this row's shape from.
+        if (shape === 'v1' && url === '/api/v1/models') {
+          return json({
+            object: 'list',
+            data: MODELS.map((key) => ({
+              key,
+              type: 'llm',
+              max_context_length: 131_072,
+              capabilities: { vision: false, trained_for_tool_use: toolUse },
+              loaded_instances: [{ id: key, config: { context_length: 32_768 } }],
+            })),
+          });
+        }
+        if (url === '/api/v0/models') {
+          return json({ object: 'list', data: MODELS.map((id) => ({ id, object: 'model', type: 'llm', state: 'loaded', max_context_length: 65_536 })) });
+        }
+        return notFound;
+      });
+      fakes.push(fake.server);
+      const pointed = await api<Row>('/api/settings/lmstudio', { base_url: `http://127.0.0.1:${fake.port}` }, 'PUT');
+      assert.equal(pointed.status, 200, pointed.text);
+    });
+
+    it('reads every model on a found row in one pass, and asks no completion endpoint', async () => {
+      toolUse = true;
+      shape = 'v1';
+      asked = [];
+      const { byId } = await detect();
+      assert.equal(byId.get('lmstudio')!.status.startsWith('found on port'), true, 'the fake was not even found, so the pass had nothing to read');
+      assert.equal(askedFor('/api/v1/models'), 1, 'the list endpoint was asked more than once for a row whose whole library is one read');
+      assert.deepEqual(completions(), [], 'the cheap tier reached a completion endpoint, which would make opening Settings cost a generation');
+
+      // That both models were remembered *by the pass* is proven by what does
+      // not happen next: the write consults the verdict and only reads when
+      // nothing is known, so a write that asks the fake nothing is a write
+      // that found a verdict already there.
+      for (const model of MODELS) {
+        const wrote = await api<Row>('/api/settings/lmstudio', { model }, 'PUT');
+        assert.equal(wrote.status, 200, wrote.text);
+        assert.equal(askedFor('/api/v1/models'), 1, `the write re-read the server, so ${model} had no remembered verdict after the pass`);
+      }
+    });
+
+    it('row shape is unchanged by the pass — no new field, and no verdict on the wire', async () => {
+      // The verdicts are read by the two refusals and by the line the row
+      // already shows, so the locked UI contract needs no new surface.
+      const keys = Object.keys(await row()).sort();
+      assert.equal(keys.includes('capability'), false, 'the list pass leaked a field onto rowView');
+      assert.equal(keys.includes('tools'), false);
+      assert.equal(keys.includes('selectable'), false);
+    });
+
+    it('refuses the write for a model the server reports as not tool-capable, and stores nothing', async () => {
+      const previous = (await row()).model;
+      assert.equal(previous, MODELS[1], 'the previous case did not leave the model it stored');
+      toolUse = false;
+      await detect();
+      const refused = await api<{ error: string }>('/api/settings/lmstudio', { model: MODELS[0] }, 'PUT');
+      assert.equal(refused.status, 400, refused.text);
+      assert.equal(
+        refused.json.error,
+        `${MODELS[0]} does not support tool calling, and the understanding gate, the graph and the quiz all run as tools. Pick a model that supports tool calling, or choose another provider in Settings.`,
+      );
+      assert.equal((await row()).model, previous, 'a refused write landed anyway');
+    });
+
+    it('refuses the activation for a row whose stored model the ladder refused', async () => {
+      // MODELS[1] is on the row and is now non-selectable, so the row cannot
+      // become the active one — D-04's "cannot be selected", at the second of
+      // the two places a model becomes the one a lesson runs on.
+      const before = await activeProvider();
+      assert.notEqual(before, 'lmstudio');
+      const refused = await api<{ error: string }>('/api/settings/active', { provider: 'lmstudio' });
+      assert.equal(refused.status, 400, refused.text);
+      assert.match(refused.json.error, new RegExp(`^${MODELS[1]} does not support tool calling`));
+      assert.equal(await activeProvider(), before, 'the activation was refused and happened anyway');
+    });
+
+    it('lets the same write and the same activation through when the server says the model is tool-capable', async () => {
+      toolUse = true;
+      await detect();
+      assert.equal((await api<Row>('/api/settings/lmstudio', { model: MODELS[1] }, 'PUT')).status, 200);
+      const used = await api<Tutor>('/api/settings/active', { provider: 'lmstudio' });
+      assert.equal(used.status, 200, used.text);
+      assert.equal(await activeProvider(), 'lmstudio');
+    });
+
+    it('lets both through on a server that says nothing about tool use at all', async () => {
+      // The v0-only build: a window and no tool-use indicator anywhere. Silence
+      // must never refuse — this is the case the round-trip exists for, and
+      // refusing here would be a sentence that is simply false.
+      shape = 'v0';
+      await detect();
+      assert.equal((await api<Row>('/api/settings/lmstudio', { model: MODELS[0] }, 'PUT')).status, 200);
+      assert.equal((await api<Tutor>('/api/settings/active', { provider: 'lmstudio' })).status, 200);
+    });
+
+    it('leaves a model write on a row the ladder does not cover alone', async () => {
+      // D-01 keeps the ladder off the rows it does not cover, so a non-local
+      // row's model write is exactly what it was before this plan.
+      const wrote = await api<Row>('/api/settings/anthropic', { model: 'a-model-id' }, 'PUT');
+      assert.equal(wrote.status, 200, wrote.text);
+      assert.equal(wrote.json.model, 'a-model-id');
+    });
   });
 });
 

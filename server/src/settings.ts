@@ -205,6 +205,17 @@ function chooseModel(provider: ProviderId, learnerId?: string): { model: string 
   return { model: fallback, modelSource: fallback ? 'default' : null };
 }
 
+/**
+ * The model a named provider would run on, without resolving which provider is
+ * active. One line over the tiers above and deliberately not a fourth copy of
+ * them: the activation's capability refusal has to ask the same question a turn
+ * asks, or Settings could refuse one model while the next turn would have run
+ * another.
+ */
+export function modelFor(provider: ProviderId, learnerId?: string): string | null {
+  return chooseModel(provider, learnerId).model;
+}
+
 /** What the next turn runs on, for the learner named when one is. Computed on every call; re-runs the login detectors only when nothing else decides and the observation is older than DETECT_MS. */
 export function resolveTutor(learnerId?: string): TutorChoice {
   const { provider, source } = chooseProvider(() => currentDetection()?.logins ?? observeLogins());
