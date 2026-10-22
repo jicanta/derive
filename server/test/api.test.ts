@@ -928,6 +928,25 @@ describe('the capability route, over HTTP', () => {
     assert.match(r.json.error, /^Choose a model on the llama\.cpp row first/);
   });
 
+  it('bounds the model id it is asked about by the same schema the settings write uses', async () => {
+    // The id becomes a key in capability.ts's `observed` map and is
+    // interpolated into every refusal sentence built from it, so an unbounded
+    // one would grow that map without limit and echo arbitrary text back. The
+    // sentences are the settings write's own, because there is one schema.
+    const charset = await api<{ error: string }>('/api/settings/ollama/capability', { model: 'a model; rm -rf' });
+    assert.equal(charset.status, 400, JSON.stringify(charset.json));
+    assert.equal(charset.json.error, 'the model id may only contain letters, digits, . _ : / and -');
+
+    const long = await api<{ error: string }>('/api/settings/ollama/capability', { model: 'm'.repeat(201) });
+    assert.equal(long.status, 400, JSON.stringify(long.json));
+    assert.equal(long.json.error, 'the model id is longer than any provider issues');
+
+    // `.strict()`, like SettingsWrite: a field this route does not have is a
+    // caller asking for something it will not get, not something to ignore.
+    const extra = await api<{ error: string }>('/api/settings/ollama/capability', { model: 'a-model', learner: 'someone-else' });
+    assert.equal(extra.status, 400, JSON.stringify(extra.json));
+  });
+
   it('falls back to the model stored on the row when the body names none', async () => {
     await point(at.show);
     const stored = await api('/api/settings/ollama', { model: 'stored-model' }, 'PUT');

@@ -360,24 +360,31 @@ app.delete('/api/learners/:id', async (c) => {
 // ---------- settings ----------
 
 /**
- * The fields a settings write may carry. The model id is bounded to the
- * characters real ids use — local servers name models in a
- * `publisher/model:tag` shape, so `/` and `:` are allowed — and it is never
- * rendered into prompt text; it
- * reaches only the turn's model field. An empty string clears the stored value.
- * A key is only ever written: keys.ts checks and stores it, and the answer
- * describes it as `{ set, hint }`.
+ * A model id as every entry point bounds it: the characters real ids use —
+ * local servers name models in a `publisher/model:tag` shape, so `/` and `:`
+ * are allowed — and a length no provider exceeds.
+ *
+ * One schema rather than one per route, because a second copy is how the
+ * settings write and the capability ask would start disagreeing about what a
+ * model id may be. An id reaches the turn's model field, a key in the
+ * capability module's `observed` map and the refusal sentences built from it;
+ * it is never rendered into prompt text.
+ */
+const ModelId = z
+  .string()
+  .trim()
+  .max(200, 'the model id is longer than any provider issues')
+  .regex(/^[A-Za-z0-9._:/-]*$/, 'the model id may only contain letters, digits, . _ : / and -');
+
+/**
+ * The fields a settings write may carry. An empty string clears the stored
+ * value. A key is only ever written: keys.ts checks and stores it, and the
+ * answer describes it as `{ set, hint }`.
  */
 const SettingsWrite = z
   .object({
     key: z.string().max(4096, 'the key is longer than any provider issues').optional().describe('The API key to store for this provider. Never read back.'),
-    model: z
-      .string()
-      .trim()
-      .max(200, 'the model id is longer than any provider issues')
-      .regex(/^[A-Za-z0-9._:/-]*$/, 'the model id may only contain letters, digits, . _ : / and -')
-      .optional()
-      .describe('The model id to store for this provider, or an empty string to clear it.'),
+    model: ModelId.optional().describe('The model id to store for this provider, or an empty string to clear it.'),
     base_url: z
       .string()
       .trim()
@@ -739,6 +746,9 @@ app.post('/api/settings/:provider/test', async (c) => {
   return c.json(await testConnection(spec.id));
 });
 
+/** What a capability ask may carry: the model to ask about, bounded by the one `ModelId` schema, and nothing else. */
+const CapabilityAsk = z.object({ model: ModelId.optional().describe('The model id to read the verdict for, or absent to use the one stored on the row.') }).strict();
+
 /**
  * Whether one model can run the method, read from its own server's metadata
  * (D-06). Always a 200 with the verdict, the way `/test` always answers with a
@@ -756,9 +766,14 @@ app.post('/api/settings/:provider/capability', async (c) => {
   const spec = providerOf(c.req.param('provider'));
   if (!spec) return c.json({ error: 'unknown provider' }, 404);
   if (spec.group !== 'local') return c.json({ error: `${spec.label} is reached as a remote endpoint, so derive does not read a local server's capability metadata for it` }, 400);
-  const body = (await c.req.json().catch(() => ({}))) as { model?: unknown };
-  const asked = typeof body.model === 'string' ? body.model.trim() : '';
-  const model = asked || getSetting(modelKey(spec.id)) || '';
+  // The same `ModelId` bound the settings write uses, rather than a second
+  // reading of the same field: an id asked for here becomes a key in
+  // `capability.ts`'s `observed` map and is interpolated into the refusal
+  // sentences built from it, so this was the one entry point where a model id
+  // arrived unbounded.
+  const parsed = CapabilityAsk.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? 'the capability body could not be read' }, 400);
+  const model = parsed.data.model || getSetting(modelKey(spec.id)) || '';
   if (!model) return c.json({ error: `Choose a model on the ${spec.label} row first` }, 400);
   return c.json(await capabilityOf(spec.id, model));
 });
