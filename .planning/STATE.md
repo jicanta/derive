@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: Local Models, Parity Proof and Usage
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-10-22T20:45:27.683Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-10-22T21:23:14.632Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 04 execution started
-state_head: 9116cfe512452de146ff931df16ffeb7490e9715
+state_head: 523a66114c10bc94d892be5c4146ee3dca1a84eb
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 43
-  completed_plans: 40
+  completed_plans: 41
   percent: 43
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-14)
 ## Current Position
 
 Phase: 04 (Local Models, Parity Proof and Usage) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 04 execution started
 
@@ -96,6 +96,7 @@ Progress: [████░░░░░░] 43%
 | Phase 03 P09 | 95 min | 3 tasks | 11 files |
 | Phase 04 P01 | 25 min | 4 tasks | 18 files |
 | Phase 04 P02 | 32 min | 3 tasks | 14 files |
+| Phase 04 P03 | 33 min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -217,6 +218,9 @@ Recent decisions affecting current work:
 - [Phase 04]: 04-01: headroomCheck now counts the serialised tool projection the request will actually carry, in the same surface-and-dialect pair it goes out in — a fifth of a 16k window it was blind to — and takes a caller-resolved window that outranks the price table, because an observation beats a listing; neither source carrying one still abstains
 - [Phase 04]: 04-01: a refusal sentence and its one link are one unit — two constants with one link each, never one parameterised sentence. The num_ctx fix is on the model's row in Settings and the lesson-growth fix is a review lesson from Home, so Lesson.tsx picks from an ordered table with Settings checked first because that fix is on this turn
 - [Phase 04]: 04-01: every catalogue row now teaches, so the unwired note helper is deleted with its last caller and no row is left for the teaches-false branch to exercise — the three cases that used one now drive the identical providerOf(stored) teaches path through an id this build does not carry, which is also the real case: a settings row can outlive the build that named its provider
+- [Phase 04]: driverFor names the per-provider driver resolution and runTurn takes the provider and model per turn, so a turn can run on the row the learner pressed rather than only on the active one — The Settings teaching proof must run on every teachable row (D-13, A-03); with the resolution inline and the provider read from resolveTutor, that was impossible without this seam
+- [Phase 04]: A teaching proof runs in a lesson marked scratch (migration 8), excluded from every listing, deleted in the same request through the transactional deleteLesson, and swept at boot if a crash left one behind — D-11 and D-14: the proof must leave no trace in Home, the Atlas or the Usage total, and recordUsage stays the single usage write path with no special case
+- [Phase 04]: On a row whose address the learner supplied, the proof asks that address whether anything is there before spending a model request — A closed port inside the owned loop is a retryable error, so the turn would wait out the full two-minute retry window and end in the SDK own words, which name no address; the approved sentence (nothing answered at host:port) lives once in probe.ts and this is how it reaches the learner
 
 ### Pending Todos
 
@@ -247,6 +251,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T20:45:27.594Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-10-22T21:22:44.232Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None
