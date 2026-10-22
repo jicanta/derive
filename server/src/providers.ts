@@ -58,7 +58,10 @@ export type ProviderSpec = {
 /** The day the default model ids below were last checked against the vendors' documentation. */
 export const DEFAULTS_AS_OF = '2026-09-30';
 
-const unwired = (label: string) => `Teaching on ${label} arrives with the next release. Keys, model lists and tests already work.`;
+// The `unwired` note helper is gone with its last caller: every row in the
+// catalogue below now teaches, so there is no row left to say it about. The
+// activation route's own `teaches` guard stays (index.ts) as the defence for a
+// future row that arrives before its adapter does.
 
 /** Every provider, in the row order the settings page keeps. */
 export const PROVIDERS: readonly ProviderSpec[] = [
@@ -185,9 +188,9 @@ export const PROVIDERS: readonly ProviderSpec[] = [
     endpoint: 'http://127.0.0.1:1234',
     modelsPath: '/api/v0/models',
     port: 1234,
-    teaches: false,
+    teaches: true,
     optionalKey: true,
-    note: unwired('LM Studio'),
+    note: "Runs the app's tutor on a model on this machine — no key, no network, nothing billed. The context window is whatever LM Studio was started with.",
   },
   {
     id: 'llamacpp',
@@ -199,9 +202,9 @@ export const PROVIDERS: readonly ProviderSpec[] = [
     endpoint: 'http://127.0.0.1:8080',
     modelsPath: '/v1/models',
     port: 8080,
-    teaches: false,
+    teaches: true,
     optionalKey: true,
-    note: unwired('llama.cpp'),
+    note: "Runs the app's tutor on a model on this machine — no key, no network, nothing billed. The context window is whatever llama-server was started with. Start it with --alias so the model reads as a name rather than a file path in the lesson header, the Usage page and an exported note.",
   },
 ];
 

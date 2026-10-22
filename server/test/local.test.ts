@@ -32,9 +32,11 @@ delete process.env.DERIVE_BACKEND;
 delete process.env.DERIVE_MODEL;
 delete process.env.OLLAMA_HOST;
 
-const { createLesson, deleteSetting, lastTurn, listEvents, setSetting } = await import('../src/db.js');
+const { createLesson, deleteSetting, insertMaterial, lastTurn, listEvents, setSetting } = await import('../src/db.js');
 const { runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
+const { SEP, materialsSection } = await import('../src/materials.js');
+const { PROVIDERS, providerOf } = await import('../src/providers.js');
 const { NUM_CTX_DEFAULT, NUM_CTX_FLOOR, numCtxFor, numCtxKey } = await import('../src/settings.js');
 const { adapterFor } = await import('../src/drivers/adapters.js');
 const { apiDriverFor, setModelOverride } = await import('../src/drivers/api.js');
@@ -223,5 +225,60 @@ describe('a local turn that will not fit the window', () => {
     deleteSetting(numCtxKey('ollama'));
     deleteSetting('model:ollama');
     deleteSetting('active_provider');
+  });
+});
+
+/** The three rows the catalogue groups as `local`, named once. */
+const LOCAL = ['ollama', 'lmstudio', 'llamacpp'] as const;
+
+describe('all three local rows', () => {
+  it('have an owned-loop adapter, and none of them throws', () => {
+    for (const id of LOCAL) assert.doesNotThrow(() => adapterFor(id), `${id} still reaches the throwing case`);
+  });
+
+  it('project their tools in the compact dialect', () => {
+    // D-08 is keyed on the provider being local, so all three answer the same
+    // whatever model the learner loaded: a full tool surface in a small local
+    // window is how the method's own text gets squeezed out.
+    for (const id of LOCAL) assert.equal(adapterFor(id).dialect, 'compact', `${id} is projecting the full tool surface into a local window`);
+  });
+
+  it('are the rows the catalogue groups as local, and all of them teach', () => {
+    assert.deepEqual(
+      PROVIDERS.filter((p) => p.group === 'local').map((p) => p.id),
+      [...LOCAL],
+      'the local group is what agent.ts derives the material posture from, so the group and this list must be the same three rows',
+    );
+    for (const id of LOCAL) assert.equal(providerOf(id)!.teaches, true, `${id} does not teach, so it cannot be made active`);
+  });
+});
+
+describe('the material section on a local row', () => {
+  it('is the outline branch whatever the material measures, with the method text byte-identical', () => {
+    const id = randomUUID();
+    createLesson(id, 'A lesson with a small attached material');
+    // Well under INLINE_CHARS, so the default rendering inlines it. That is
+    // what makes the local rendering's outline branch a decision rather than a
+    // consequence of the size.
+    const body = ['A line is a function of the form y = mx + b.', 'Its slope is m.'].join(SEP);
+    insertMaterial({ id: randomUUID(), lesson_id: id, name: 'notes.txt', kind: 'txt', unit: 'part', pages: 2, chars: body.length, text: body });
+
+    const full = materialsSection(id);
+    const local = materialsSection(id, { outlineOnly: true });
+
+    assert.ok(!full.includes('## Outline'), 'the default rendering of a small material must still inline it');
+    assert.ok(local.includes('## Outline'), 'D-09 takes the outline branch on a local row whatever the size');
+    assert.ok(full.includes('A line is a function'), 'the default rendering carries the material’s own text');
+    assert.ok(!local.includes('--- section 1 ---'), 'the local rendering must not inline the segments it is replacing with an outline');
+
+    // The assertion that proves compaction never reached the method: everything
+    // above the branch is rendered method text, gated byte-for-byte by
+    // `pnpm method:check`. If a future change shortened it for a local row —
+    // the exact failure PROV-06's prohibition names — this is what catches it.
+    const methodText = (text: string) => text.slice(0, text.indexOf('# Course material the learner attached') + text.slice(text.indexOf('# Course material the learner attached')).indexOf('\n- Disagree when needed.'));
+    assert.equal(methodText(local), methodText(full), 'the method prose that opens the material section must be byte-identical on every surface');
+    for (const sentence of ['Method unchanged.', 'You still derive every node from unconditional truths.', 'Disagree when needed.']) {
+      assert.ok(local.includes(sentence), `the local rendering dropped the method sentence "${sentence}"`);
+    }
   });
 });

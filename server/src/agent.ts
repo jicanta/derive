@@ -13,6 +13,7 @@ import { materialsSection } from './materials.js';
 import { takeNotices } from './notices.js';
 import { cancelPending } from './prompts.js';
 import { systemPrompt, type WebSurface } from './prompt.js';
+import { providerOf } from './providers.js';
 import { safeMessage } from './secrets.js';
 import { backendOf, resolveTutor } from './settings.js';
 import { DERIVE_TOOL_NAMES, TOOL_LABELS, descriptionFor, shapeFor, toolsFor } from './tools.js';
@@ -296,7 +297,14 @@ export async function runTurn(lessonId: string, prompt: string, opts: { echoUser
   // concatenation order is unchanged, so `ctx.instructions` is byte-identical
   // to what the Claude and Codex drivers have always received.
   const instructionsStable = systemPrompt(web);
-  const instructionsVolatile = materialsSection(lessonId) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
+  // D-09: a local row gets the outline-only material section. Derived from the
+  // catalogue group rather than from a list of the three local ids, so a future
+  // local row needs no edit here. `instructionsStable` is deliberately
+  // untouched — the system prompt, every sentence of the gate included, is
+  // byte-identical to the cloud rendering, and D-10 makes compaction a silent
+  // implementation detail with no learner-facing note.
+  const outlineOnly = providerOf(tutor.provider)?.group === 'local';
+  const instructionsVolatile = materialsSection(lessonId, { outlineOnly }) + librarySection(lesson.learner_id, lesson.topic) + learnerProfile(lesson.learner_id, lessonId);
   const instructions = instructionsStable + instructionsVolatile;
 
   // The one dispatch, below: everything around it — the bookkeeping above and

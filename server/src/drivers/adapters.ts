@@ -477,7 +477,48 @@ export function adapterFor(provider: ProviderId): Adapter {
         cost: (_pm, usage) => localCost(usage),
       };
     case 'lmstudio':
+      return {
+        // D-08, the same as the Ollama row: keyed on the provider being local.
+        dialect: 'compact',
+        // A local server caches nothing across requests and takes no breakpoint.
+        cacheHook: () => undefined,
+        // No search of its own, so D-20 puts it on the pluggable fallback path
+        // by construction.
+        search: () => null,
+        model: (key, base, modelId) => {
+          // D-05: Derive sends LM Studio no window. The window it serves is the
+          // one it was started with, and Derive never fights a server's own
+          // configuration on the learner's machine. Plan 04-02's capability read
+          // is what supplies that window to `headroomCheck`, so the per-lesson
+          // refusal still fires — it just fires on the server's number rather
+          // than on one Derive invented.
+          if (!base) throw new Error("Add LM Studio's base URL first");
+          // Only the learner knows which model they loaded; an empty id would
+          // come back as somebody else's 400.
+          if (!modelId) throw new Error('Choose a model for LM Studio first');
+          // includeUsage is load-bearing: without it this endpoint reports no
+          // usage at all and every local lesson would read `not reported` when
+          // the honest label is `not billed`.
+          return createOpenAICompatible({ name: 'lmstudio', apiKey: key, baseURL: v1(base), includeUsage: true, fetch: noRedirectFetch })(modelId);
+        },
+        // Amendment A-02, as on the Ollama row.
+        cost: (_pm, usage) => localCost(usage),
+      };
     case 'llamacpp':
-      throw new Error(`${labelOf(provider)} has no owned-loop adapter yet`);
+      return {
+        // D-08, the same as the two rows above.
+        dialect: 'compact',
+        cacheHook: () => undefined,
+        search: () => null,
+        model: (key, base, modelId) => {
+          // D-05 again: llama.cpp serves the window `llama-server` was started
+          // with, and Derive sends none. Plan 04-02's capability read supplies
+          // it to `headroomCheck`.
+          if (!base) throw new Error("Add llama.cpp's base URL first");
+          if (!modelId) throw new Error('Choose a model for llama.cpp first');
+          return createOpenAICompatible({ name: 'llamacpp', apiKey: key, baseURL: v1(base), includeUsage: true, fetch: noRedirectFetch })(modelId);
+        },
+        cost: (_pm, usage) => localCost(usage),
+      };
   }
 }

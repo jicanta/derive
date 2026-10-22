@@ -275,8 +275,25 @@ function outlineOf(m: MaterialFull, budget = 2600) {
   return out.join(' · ');
 }
 
-/** Everything the tutor is told about the material, appended to the system prompt. Empty when there is none. */
-export function materialsSection(lessonId: string): string {
+/**
+ * Everything the tutor is told about the material, appended to the system
+ * prompt. Empty when there is none.
+ *
+ * `outlineOnly` is the surface's material posture, not a size judgement. D-09
+ * makes every local row take the outline branch whatever the material measures:
+ * a 16k window cannot hold the method, the tool surface and a short course
+ * besides, and the outline branch already tells the tutor to pull the relevant
+ * range with `read_material` and `search_material` — so taking it is a change
+ * of route, not a loss of content. It defaults to today's behaviour so every
+ * existing caller is unchanged.
+ *
+ * What it must never reach: the paragraphs above the branch. Those are rendered
+ * method text, gated byte-for-byte by `pnpm method:check`, and the whole point
+ * of compacting the material rather than the method is that the gate, the
+ * discipline and the checks read identically on a local model and on a cloud
+ * one.
+ */
+export function materialsSection(lessonId: string, { outlineOnly = false }: { outlineOnly?: boolean } = {}): string {
   const rows = listMaterials(lessonId);
   if (!rows.length) return '';
   const full = rows.map((r) => getMaterial(r.id)!);
@@ -298,7 +315,7 @@ A repository is attached. Treat it as the course: the lesson teaches how this co
 - Quiz with the code's own names, types and edge cases. A good question asks what a change would break, or which invariant a line protects.
 - Never paste large stretches of code back to the learner: a few lines, then the reasoning.`);
   }
-  if (total <= INLINE_CHARS) {
+  if (total <= INLINE_CHARS && !outlineOnly) {
     lines.push('\nThe material is short, so here it is in full.\n');
     for (const m of full) {
       lines.push(`## ${describe(m)}`);

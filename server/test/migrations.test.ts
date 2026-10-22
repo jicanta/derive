@@ -568,11 +568,13 @@ describe('the learner model moved onto its provider', () => {
   });
 
   it('falls back to claude-code when the stored provider is one that cannot teach', () => {
-    // llama.cpp, not Ollama: the Ollama row teaches from plan 04-01 on, so a
-    // model id stored against it migrates onto Ollama rather than falling back.
-    // The fallback branch this case is about needs a row that genuinely cannot
-    // teach, which is what llama.cpp still is here.
-    const file = atVersion5([{ model: 'claude-opus-5-5' }], 'llamacpp');
+    // An id the catalogue does not carry, because every row it does carry
+    // teaches from plan 04-01 on. The migration asks the same
+    // `providerOf(stored)?.teaches` question the resolver does, so an unknown
+    // id takes the identical fallback branch the three local rows took before
+    // they got adapters — and it is the real-world case besides: a settings row
+    // can outlive the build that named the provider.
+    const file = atVersion5([{ model: 'claude-opus-5-5' }], 'a-provider-this-build-does-not-carry');
     migrate(file);
     assert.deepEqual(JSON.parse(prefsOf(file, 'l0')!), { model: { 'claude-code': 'claude-opus-5-5' } });
   });
