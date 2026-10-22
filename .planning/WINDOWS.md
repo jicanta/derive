@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 25
+open_count: 26
 waived_count: 0
 fixed_count: 0
-total_count: 25
-last_updated: 2026-10-12T20:57:32.013Z
+total_count: 26
+last_updated: 2026-10-22T20:40:59.733Z
 ---
 
 # Broken Windows Ledger
@@ -40,6 +40,7 @@ last_updated: 2026-10-12T20:57:32.013Z
 | 23 | 03 | unrun-verify | server/test/api.test.ts |  | The real-key halves of Success Criteria 1 and 2: a whole lesson each on an Anthropic, OpenAI, Gemini, OpenRouter (billed cost in the usage table) and base-URL key, plus one lesson through the Claude Code plugin and one through the Codex skills. No provider key exists in this environment. | open |  | 2026-10-12T20:57:31.595Z |  |
 | 24 | 03 | unrun-verify | web/src/components/WebSearchCard.tsx |  | The SearXNG json-disabled sentence naming settings.yml is asserted at the server (search.test.ts) but not observed rendered on the card: it needs a real SearXNG instance with the json format off. | open |  | 2026-10-12T20:57:31.805Z |  |
 | 25 | 03 | unrun-verify | web/src/components/WebSearchCard.tsx |  | Hover feedback on the card's text buttons is unverified in the browser: Tailwind v4 gates hover: behind @media (hover:hover), which no headless Chrome mode satisfies. Checked statically against the emitted CSS instead. | open |  | 2026-10-12T20:57:32.013Z |  |
+| 26 | 04 | unmet-truth | server/src/drivers/api.ts | 530 | The per-lesson window refusal on the LM Studio and llama.cpp rows uses the num_ctx sentence, whose first fix (raise num_ctx in Settings) does nothing on a row D-05 makes read-only; only its second (pick a model with room) is actionable. Neither locked UI-SPEC sentence fits a read-only row and a third is a Copywriting Contract change. Pinned by server/test/local.test.ts#measures a read-only row against the window its server reported. | open |  | 2026-10-22T20:40:59.733Z |  |
 
 ````json
 [
@@ -365,6 +366,19 @@ last_updated: 2026-10-12T20:57:32.013Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-12T20:57:32.013Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 26,
+    "kind": "unmet-truth",
+    "phase": "04",
+    "file": "server/src/drivers/api.ts",
+    "line": 530,
+    "description": "The per-lesson window refusal on the LM Studio and llama.cpp rows uses the num_ctx sentence, whose first fix (raise num_ctx in Settings) does nothing on a row D-05 makes read-only; only its second (pick a model with room) is actionable. Neither locked UI-SPEC sentence fits a read-only row and a third is a Copywriting Contract change. Pinned by server/test/local.test.ts#measures a read-only row against the window its server reported.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-22T20:40:59.733Z",
     "resolved_at": null,
     "milestone": null
   }

@@ -37,7 +37,7 @@ const { runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
 const { SEP, materialsSection } = await import('../src/materials.js');
 const { PROVIDERS, providerOf } = await import('../src/providers.js');
-const { NUM_CTX_DEFAULT, NUM_CTX_FLOOR, numCtxFor, numCtxKey } = await import('../src/settings.js');
+const { NUM_CTX_DEFAULT, NUM_CTX_FLOOR, baseUrlKey, numCtxFor, numCtxKey } = await import('../src/settings.js');
 const { capabilityRefusalFor, forgetCapabilities, rememberCapability, verdictOf } = await import('../src/capability.js');
 const { adapterFor } = await import('../src/drivers/adapters.js');
 const { apiDriverFor, setModelOverride } = await import('../src/drivers/api.js');
@@ -288,6 +288,52 @@ describe('a local turn on a model the ladder has refused', () => {
 
     deleteSetting('model:ollama');
     deleteSetting('active_provider');
+  });
+
+  it('measures a read-only row against the window its server reported, instead of abstaining', async () => {
+    // D-05 leaves LM Studio serving whatever it was started with, so Derive
+    // sends it no window and the price table has none for it either — before
+    // the capability read supplied one, `headroomCheck` abstained here and the
+    // turn went out to be truncated silently. Now the observed window is what
+    // the estimate is measured against.
+    setSetting('active_provider', 'lmstudio');
+    setSetting('model:lmstudio', 'a-publisher/a-loaded-model');
+    setSetting(baseUrlKey('lmstudio'), 'http://127.0.0.1:1234');
+    const cap = { tools: 'yes' as const, maxWindow: 262_144, servedWindow: NUM_CTX_FLOOR };
+    rememberCapability('lmstudio', 'a-publisher/a-loaded-model', { ...cap, ...verdictOf('a-publisher/a-loaded-model', cap) });
+
+    const id = randomUUID();
+    createLesson(id, 'A lesson on a server-set window that is too small');
+    const model = neverAsked();
+    setModelOverride(() => model);
+    setDriverOverride(apiDriverFor('lmstudio'));
+    try {
+      await runTurn(id, `Teach me this, and here is what I already tried: ${'x'.repeat(3_000)}`);
+    } finally {
+      setDriverOverride(null);
+      setModelOverride(null);
+    }
+
+    assert.equal(model.doStreamCalls.length, 0, 'the turn went out, so the served window never reached the estimate');
+    const end = ending(listEvents(id));
+    assert.equal(end.ok, false);
+    const reason = end.error ?? '';
+    assert.ok(reason.includes(String(NUM_CTX_FLOOR)), 'the refusal names the window the server actually serves');
+    assert.ok(reason.includes('a-publisher/a-loaded-model'), 'the refusal names the model');
+    // Pinning the wording, not endorsing it. `headroomCheck` picks its
+    // sentence on whether the caller supplied the window, so a read-only row
+    // now gets the num_ctx card — whose first fix ("raise it in Settings") does
+    // nothing on a row Derive sends no window to, while its second ("pick a
+    // model with room") is the real one. Neither locked sentence fits a
+    // read-only row; a third is a Copywriting Contract change. This assertion
+    // is the failing case that change will have to update, and the finding is
+    // recorded in .planning/WINDOWS.md.
+    assert.match(reason, /Raise the model's context window in Settings \(num_ctx\)/);
+
+    deleteSetting(baseUrlKey('lmstudio'));
+    deleteSetting('model:lmstudio');
+    deleteSetting('active_provider');
+    forgetCapabilities('lmstudio');
   });
 });
 

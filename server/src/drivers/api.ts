@@ -525,6 +525,19 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   // two the window comes from what the capability read observed on the server
   // itself — an observation, never a literal, and `undefined` where nothing has
   // been observed, which leaves the check abstaining exactly as before.
+  //
+  // One wrinkle this leaves, recorded at the line that causes it rather than
+  // only in a summary: `headroomCheck` chooses between its two refusal
+  // sentences on whether the *caller* supplied the window, and the caller-
+  // supplied branch is the `num_ctx` sentence, whose fix is the `num_ctx` field
+  // on the model's row. That was exactly right while Ollama was the only row
+  // reaching this branch. On these two rows the window came from the server
+  // instead, and raising the field will not move it — only the second half of
+  // that sentence ("or pick a model with room") is actionable here. Neither of
+  // the two locked sentences fits a read-only row, and inventing a third is a
+  // change to `04-UI-SPEC.md`'s Copywriting Contract, which this plan is not
+  // the place for. `server/test/local.test.ts` pins the current wording so the
+  // fix has a failing case to update, and `.planning/WINDOWS.md` carries it.
   const served = asked ? knownCapability(provider, asked)?.servedWindow : null;
   const window = provider === 'ollama' ? numCtxFor(provider) : (served ?? undefined);
 
