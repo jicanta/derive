@@ -51,7 +51,8 @@ export function UsagePage() {
           Usage <em className="text-ink-400">· what learning has cost</em>
         </h1>
         <div className="ml-auto flex items-center gap-6">
-          <LearnerMenu />
+          {/* Switching learner has to refetch: the route is scoped to the learner the request resolves to, so without this the page would keep the previous learner's total, lessons and lesson links on screen under the new name. */}
+          <LearnerMenu onChange={() => void load()} />
         </div>
       </header>
 
