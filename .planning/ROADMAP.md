@@ -255,13 +255,13 @@ Plans:
   4. A nightly conformance harness replays a scripted lesson on every configured provider and reports whether the understanding gate, the pretest and the cumulative quiz held
   5. The Usage page, reached from Settings, shows one thing: a running total per learner by provider, model and lesson, with tokens-only lines for subscription and local paths
 
-**Plans**: 5 plans in 5 waves, one per requirement, each led by a tracer that proves its slice end to end before anything expands sideways. Fully serialised: `server/src/index.ts`, `server/src/db.ts`, `server/src/drivers/api.ts`, `server/src/capability.ts` and `web/src/components/ProviderRow.tsx` are the spines every later slice extends, and each plan runs the whole-tree `pnpm method:check` / `pnpm typecheck` / `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files. **No local model server exists on the execution machine** (no `ollama`, `lms` or `llama-server` binary; nothing on 11434 or 1234; port 8080 answers 200 text/html from an unrelated dashboard), so every server-metadata parser is a pure function tested from the JSON quoted in `04-RESEARCH.md`, the loop is driven structurally through `setModelOverride` / `setDriverOverride`, and Success Criteria 1 and 2 are carried as end-of-phase UAT `<human-check>` items with install commands rather than claimed from a stub.
+**Plans**: 1/5 plans executed in 5 waves, one per requirement, each led by a tracer that proves its slice end to end before anything expands sideways. Fully serialised: `server/src/index.ts`, `server/src/db.ts`, `server/src/drivers/api.ts`, `server/src/capability.ts` and `web/src/components/ProviderRow.tsx` are the spines every later slice extends, and each plan runs the whole-tree `pnpm method:check` / `pnpm typecheck` / `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files. **No local model server exists on the execution machine** (no `ollama`, `lms` or `llama-server` binary; nothing on 11434 or 1234; port 8080 answers 200 text/html from an unrelated dashboard), so every server-metadata parser is a pure function tested from the JSON quoted in `04-RESEARCH.md`, the loop is driven structurally through `setModelOverride` / `setDriverOverride`, and Success Criteria 1 and 2 are carried as end-of-phase UAT `<human-check>` items with install commands rather than claimed from a stub.
 
 Plans:
 
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — Tracer: `ai-sdk-ollama@4.4.0` behind a package-legitimacy gate, the three local adapter rows, the `num_ctx` floor and default as two distinct constants, a tool-surface-and-window-aware `headroomCheck` with two distinct refusal sentences, the compact tool surface and outline-only material render, and the num_ctx refusal card whose one link is `Settings` (PROV-06, wave 1)
+- [x] 04-01-PLAN.md — Tracer: `ai-sdk-ollama@4.4.0` behind a package-legitimacy gate, the three local adapter rows, the `num_ctx` floor and default as two distinct constants, a tool-surface-and-window-aware `headroomCheck` with two distinct refusal sentences, the compact tool surface and outline-only material render, and the num_ctx refusal card whose one link is `Settings` (PROV-06, wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -346,7 +346,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 | 1. Foundation | 22/22 | Complete    | 2026-09-20 |
 | 2. Settings and Secrets | 7/7 | Complete    | 2026-10-01 |
 | 3. Owned Loop: API Keys and Gateways | 9/9 | Complete    | 2026-10-14 |
-| 4. Local Models, Parity Proof and Usage | 0/TBD | Not started | - |
+| 4. Local Models, Parity Proof and Usage | 1/5 | In Progress|  |
 | 5. Learning Experience | 0/TBD | Not started | - |
 | 6. Personalization | 0/TBD | Not started | - |
 | 7. Adoption | 0/TBD | Not started | - |

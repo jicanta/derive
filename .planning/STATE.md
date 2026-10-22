@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 04
-current_phase_name: local-models-parity-proof-and-usage
+current_phase_name: Local Models, Parity Proof and Usage
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-10-22T19:17:40.677Z"
-last_activity: 2026-10-14
-last_activity_desc: Phase 03 complete, transitioned to Phase 4
-state_head: 9565ef191bcf4965b8272d699801b199cdd45e4b
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-10-22T20:04:47.043Z"
+last_activity: 2026-10-22
+last_activity_desc: Phase 04 execution started
+state_head: 79f4ec1c2def297f8195675affb2b50084afaae2
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 43
-  completed_plans: 38
+  completed_plans: 39
   percent: 43
 ---
 
@@ -24,14 +24,14 @@ See: .planning/PROJECT.md (updated 2026-10-14)
 
 **Core value:** A learner can sit down with any model they have access to and be taught the Derive way: the dependency graph, the understanding gate, the review loop, with nothing lost between providers.
 **Simplicity rule (binding):** one screen, one next step. The default UI shows the lesson and what to do next; everything else lives behind Settings. No feature ships without a one-sentence reason tied to learning better.
-**Current focus:** Phase 4 — Local Models, Parity Proof and Usage
+**Current focus:** Phase 04 — Local Models, Parity Proof and Usage
 
 ## Current Position
 
-Phase: 04 (local-models-parity-proof-and-usage) — READY TO EXECUTE
-Plan: Not started
+Phase: 04 (Local Models, Parity Proof and Usage) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-10-14 — Phase 03 complete, transitioned to Phase 4
+Last activity: 2026-10-22 — Phase 04 execution started
 
 Progress: [████░░░░░░] 43%
 
@@ -94,6 +94,7 @@ Progress: [████░░░░░░] 43%
 | Phase 03 P07 | 22 min | 2 tasks | 6 files |
 | Phase 03 P08 | 42 min | 3 tasks | 11 files |
 | Phase 03 P09 | 95 min | 3 tasks | 11 files |
+| Phase 04 P01 | 25 min | 4 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -209,6 +210,12 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-09: KeyField is exported from ProviderRow.tsx parameterised on its two writes, so the search key reuses the masked write-only machine including the keep button's mouse-down guard; fields.ts stays JSX-free and the component count stays 13 plus one new card
 - [Phase 03]: 03-09: no lock sentence on the SearXNG address field, because no environment variable sets that address — a branch for a variable that does not exist would claim a feature the code does not have
 - [Phase 03]: 03-09: the API suite serves the real routes inside its own process (startInProcessServer in server/test/spawn.ts), capturing the listening socket from node:http with syncBuiltinESMExports so it can be closed — because setModelOverride is reachable from nowhere else and index.ts's startup side effects must not change to suit a test
+- [Phase 04]: ai-sdk-ollama is pinned to 4.4.0, not latest: 4.4.0 peers ai ^7.0.103 which this repo's pinned ai@7.0.126 satisfies, where 4.5.x peers ^7.0.137 and does not; the owner approved the install after the SUS too-new verdict was rebutted signal by signal (SLSA provenance on 4.4.0, 14.5 months old, no install scripts)
+- [Phase 04]: 04-01: Ollama is the only local row Derive sends a window to. options.num_ctx is the whole reason that row is not on the OpenAI-compatible route, which carries no options object and so silently accepts Ollama's 4,096-token default and truncates the method's gate text; D-05 leaves LM Studio and llama.cpp serving whatever their server was started with, and plan 04-02's capability read supplies their window to headroomCheck
+- [Phase 04]: 04-01: amendment A-01 is in code as two constants and the test measured the arithmetic that forced the split — NUM_CTX_FLOOR 16384 is D-04's refusal floor, NUM_CTX_DEFAULT 32768 is the editable field's default, because 0.8x16384 leaves about eleven estimated tokens over the measured ~13,096-token prompt floor and the learner's own first message is what pushes a floor-sized window over
+- [Phase 04]: 04-01: headroomCheck now counts the serialised tool projection the request will actually carry, in the same surface-and-dialect pair it goes out in — a fifth of a 16k window it was blind to — and takes a caller-resolved window that outranks the price table, because an observation beats a listing; neither source carrying one still abstains
+- [Phase 04]: 04-01: a refusal sentence and its one link are one unit — two constants with one link each, never one parameterised sentence. The num_ctx fix is on the model's row in Settings and the lesson-growth fix is a review lesson from Home, so Lesson.tsx picks from an ordered table with Settings checked first because that fix is on this turn
+- [Phase 04]: 04-01: every catalogue row now teaches, so the unwired note helper is deleted with its last caller and no row is left for the teaches-false branch to exercise — the three cases that used one now drive the identical providerOf(stored) teaches path through an id this build does not carry, which is also the real case: a settings row can outlive the build that named its provider
 
 ### Pending Todos
 
@@ -221,6 +228,7 @@ None yet.
 - [Phase 4]: No measurement yet of which local models pass the understanding gate; the harness produces the answer
 - [Phase 4]: Two Phase 3 deferrals are owed here, both named with their seam in `03/deferred-items.md`: the Ollama search backend (`SEARCH_PROVIDERS` in `server/src/search.ts`, one entry plus one function — PROV-09's third backend) and lifting `/you`'s field string onto the shared `fields.ts` vocabulary
 - [Phase 7]: npm package name not yet reserved (`derive` is taken)
+- Phase 4: research assumption A7 is still open — whether think:false is accepted by every tool-capable Ollama model without breaking tool calling cannot be settled without a local server; plan 04-04's conformance harness is the detector and should carry think as a harness variable
 
 ### Quick Tasks Completed
 
@@ -238,6 +246,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-16T21:05:45.927Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-local-models-parity-proof-and-usage/04-CONTEXT.md
+Last session: 2026-10-22T20:04:28.421Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None
