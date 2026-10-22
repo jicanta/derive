@@ -255,7 +255,30 @@ Plans:
   4. A nightly conformance harness replays a scripted lesson on every configured provider and reports whether the understanding gate, the pretest and the cumulative quiz held
   5. The Usage page, reached from Settings, shows one thing: a running total per learner by provider, model and lesson, with tokens-only lines for subscription and local paths
 
-**Plans**: TBD
+**Plans**: 5 plans in 5 waves, one per requirement, each led by a tracer that proves its slice end to end before anything expands sideways. Fully serialised: `server/src/index.ts`, `server/src/db.ts`, `server/src/drivers/api.ts`, `server/src/capability.ts` and `web/src/components/ProviderRow.tsx` are the spines every later slice extends, and each plan runs the whole-tree `pnpm method:check` / `pnpm typecheck` / `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files. **No local model server exists on the execution machine** (no `ollama`, `lms` or `llama-server` binary; nothing on 11434 or 1234; port 8080 answers 200 text/html from an unrelated dashboard), so every server-metadata parser is a pure function tested from the JSON quoted in `04-RESEARCH.md`, the loop is driven structurally through `setModelOverride` / `setDriverOverride`, and Success Criteria 1 and 2 are carried as end-of-phase UAT `<human-check>` items with install commands rather than claimed from a stub.
+
+Plans:
+
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Tracer: `ai-sdk-ollama@4.4.0` behind a package-legitimacy gate, the three local adapter rows, the `num_ctx` floor and default as two distinct constants, a tool-surface-and-window-aware `headroomCheck` with two distinct refusal sentences, the compact tool surface and outline-only material render, and the num_ctx refusal card whose one link is `Settings` (PROV-06, wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 04-02-PLAN.md — The two-tier capability probe: `postJson`, the three servers' metadata parsers as pure functions with a three-valued verdict where only a positive `no` refuses, the 16384-floor refusal, one real round-trip where metadata is silent, and the lesson-time backstop card (PROV-07, wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-03-PLAN.md — `test teaching`: one node and one graded quiz in an ephemeral scratch lesson deleted in the same request, migration 8's `lessons.scratch` marker plus a boot sweep for the crash case, the three approved failure readouts, and the control on every teachable row including both login rows (PROV-11, wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 04-04-PLAN.md — The method-conformance harness: one script in two environments (a nightly cron with `workflow_dispatch` beside it, and a local `pnpm conformance`), a complete JSON-plus-Markdown report whose unreached providers say so and why, a non-zero exit on any real failure, and migration 9's narrow schema-rejection counter (PROV-13, wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 04-05-PLAN.md — The Usage page, reached from Settings: a running total per learner by provider, model and lesson, with tokens-only lines where there is no money, every string produced once server-side by `costLabel`, and no new table, migration or formatter (COST-03, wave 5)
+
 **UI hint**: yes
 **Research**: `--research-phase` recommended — which tool-capable local models actually complete a Derive lesson (expect small models to fail the gate often); minimum `num_ctx` (floor 16k from a prompt estimate, checked against `/api/show`); LM Studio and llama.cpp template support (`/v1/models`, `/props`, `--jinja`). Use `ai-sdk-ollama` on the native API because it is the only route that sets `num_ctx`; compact tool descriptions and material-outline-only for local providers, gate text never removed; record tool rejection rate per provider in usage; the usage page needs no research.
 
