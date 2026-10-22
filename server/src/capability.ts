@@ -398,15 +398,13 @@ const ROUND_TRIP_MS = 60_000;
  * learner would pay a reload before their first real turn.
  *
  * A clean answer with no tool call in it is a `no`. That is the one negative
- * in this module not taken from a server's own statement, and it is sound
- * precisely because of where it sits: the metadata tier already said nothing,
- * the model was handed one tool and asked plainly for one call, and a model
- * that answers prose to that cannot run a method which is nothing but tool
- * calls. Any failure — a refused request, a timeout, an endpoint that rejects
- * tools outright — is `'unknown'` instead, because that is a fact about the
- * request rather than about the model.
+ * in this module not taken from a server's own statement, so `roundTrip`
+ * below asks twice before believing it; this function is one attempt. Any
+ * failure — a refused request, a timeout, an endpoint that rejects tools
+ * outright — is `'unknown'` instead, because that is a fact about the request
+ * rather than about the model.
  */
-async function roundTrip(id: string, model: string): Promise<'yes' | 'no' | 'unknown'> {
+async function oneRoundTrip(id: string, model: string): Promise<'yes' | 'no' | 'unknown'> {
   const spec = providerOf(id);
   const probe = toolsFor('api').find((s) => s.name === PROBE_TOOL);
   if (!spec || !probe) return 'unknown';
@@ -430,6 +428,31 @@ async function roundTrip(id: string, model: string): Promise<'yes' | 'no' | 'unk
     /* not answerable */
     return 'unknown';
   }
+}
+
+/**
+ * D-06's definitive tier: one attempt, and a second one before an inferred
+ * negative is believed.
+ *
+ * Every other `no` in this module is a server's own statement about a model.
+ * This one is an inference from a sampled generation, and the module header
+ * states the invariant that makes the difference matter: the one direction this
+ * module must never be wrong in is claiming a `no`. A single prose answer is
+ * not only produced by a model that cannot call tools — a sampling fluke, a
+ * model still loading, a chat template that wants a warm-up turn, or a server
+ * busy enough to answer prose once all produce the same observation, and the
+ * verdict it would be remembered as refuses the settings write, the activation
+ * and every turn for the life of the process.
+ *
+ * So a `no` is asked a second time and a second prose answer is what is
+ * believed: a pattern rather than a sample. Anything other than `no` is
+ * returned from the first attempt untouched — a `yes` is settled and an
+ * `'unknown'` already refuses nothing, so neither is worth a second request on
+ * a model the learner is waiting on.
+ */
+async function roundTrip(id: string, model: string): Promise<'yes' | 'no' | 'unknown'> {
+  const first = await oneRoundTrip(id, model);
+  return first === 'no' ? oneRoundTrip(id, model) : first;
 }
 
 /** The entries of an OpenAI-shaped `data` array, or none. A body without one establishes nothing; it is never guessed at. */
