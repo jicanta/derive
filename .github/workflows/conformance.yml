@@ -1,0 +1,78 @@
+name: Conformance
+
+# Two triggers, both load-bearing.
+#
+# The cron is deliberately off the hour: GitHub's own documentation names the
+# start of every hour as the high-load window, and a scheduled run can be
+# delayed under load. Two further facts about `schedule` a future reader will
+# otherwise be surprised by: a scheduled workflow runs on the latest commit of
+# the DEFAULT branch and nowhere else, and in a public repository it is
+# automatically disabled after sixty days with no repository activity — so a
+# silently dead nightly is a thing that happens. Neither is fixable from inside
+# the repository; `workflow_dispatch` is the manual path that always works.
+#
+# `workflow_dispatch` is here because a `schedule` trigger cannot be exercised
+# from a branch at all. Without it, nobody finds out the workflow is broken
+# until the next night, or the night after.
+on:
+  schedule:
+    - cron: '37 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  conformance:
+    name: the method held, per provider
+    runs-on: ubuntu-latest
+    # One replay per reachable provider, each bounded by the harness's own
+    # ten-minute per-row timeout, plus the install and the build. Generous
+    # rather than tight: a row that hangs is reported as a failed row by the
+    # harness, and this cap is only the backstop for the whole job.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        # The version comes from packageManager in package.json.
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The harness drives the built server, as a learner's own machine does.
+      - name: Build
+        run: pnpm build
+
+      # Every key is optional. The harness records an explicit `skipped (no
+      # key)` line for each one that is absent, so this workflow is correct and
+      # useful before any secret exists and the first green run can legitimately
+      # report every provider skipped — that is a *complete* report, which is
+      # the point. The report goes to the runner's temp directory, never into
+      # the repository tree.
+      #
+      # Nothing softens this step. A nightly whose job is green whatever the
+      # harness said is worse than no nightly, because it is read as evidence.
+      - name: Replay the method on every reachable provider
+        run: node scripts/conformance.mjs --out "${{ runner.temp }}/conformance"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+      # `if: always()` because the report is most valuable on exactly the run
+      # that failed: it names which provider, which model and which verdict.
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: conformance
+          path: ${{ runner.temp }}/conformance
+          if-no-files-found: warn
