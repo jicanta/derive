@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 26
+open_count: 27
 waived_count: 0
 fixed_count: 0
-total_count: 26
-last_updated: 2026-10-22T20:40:59.733Z
+total_count: 27
+last_updated: 2026-10-22T22:00:53.844Z
 ---
 
 # Broken Windows Ledger
@@ -41,6 +41,7 @@ last_updated: 2026-10-22T20:40:59.733Z
 | 24 | 03 | unrun-verify | web/src/components/WebSearchCard.tsx |  | The SearXNG json-disabled sentence naming settings.yml is asserted at the server (search.test.ts) but not observed rendered on the card: it needs a real SearXNG instance with the json format off. | open |  | 2026-10-12T20:57:31.805Z |  |
 | 25 | 03 | unrun-verify | web/src/components/WebSearchCard.tsx |  | Hover feedback on the card's text buttons is unverified in the browser: Tailwind v4 gates hover: behind @media (hover:hover), which no headless Chrome mode satisfies. Checked statically against the emitted CSS instead. | open |  | 2026-10-12T20:57:32.013Z |  |
 | 26 | 04 | unmet-truth | server/src/drivers/api.ts | 530 | The per-lesson window refusal on the LM Studio and llama.cpp rows uses the num_ctx sentence, whose first fix (raise num_ctx in Settings) does nothing on a row D-05 makes read-only; only its second (pick a model with room) is actionable. Neither locked UI-SPEC sentence fits a read-only row and a third is a Copywriting Contract change. Pinned by server/test/local.test.ts#measures a read-only row against the window its server reported. | open |  | 2026-10-22T20:40:59.733Z |  |
+| 27 | 04 | unrun-verify | scripts/conformance.mjs |  | The conformance replay path (quiet -> scripted turn -> card answers -> verdicts) has no automated coverage: this machine has no local model or key and D-16 forbids a fake provider. Proven only by the owner's end-of-phase UAT (pnpm conformance with a local model; a dispatched nightly run). | open |  | 2026-10-22T22:00:53.844Z |  |
 
 ````json
 [
@@ -379,6 +380,19 @@ last_updated: 2026-10-22T20:40:59.733Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-22T20:40:59.733Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 27,
+    "kind": "unrun-verify",
+    "phase": "04",
+    "file": "scripts/conformance.mjs",
+    "line": null,
+    "description": "The conformance replay path (quiet -> scripted turn -> card answers -> verdicts) has no automated coverage: this machine has no local model or key and D-16 forbids a fake provider. Proven only by the owner's end-of-phase UAT (pnpm conformance with a local model; a dispatched nightly run).",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-22T22:00:53.844Z",
     "resolved_at": null,
     "milestone": null
   }

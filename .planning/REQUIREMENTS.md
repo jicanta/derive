@@ -31,7 +31,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **PROV-09**: Web search and fetch work on every provider: provider-native tools where they exist, otherwise a pluggable search provider (Tavily, SearXNG, Ollama search) with a fetch that reuses the library fetcher
 - [x] **PROV-10**: Tool schemas are projected per provider dialect (OpenAI strict, Gemini, compact for local) and validated in CI; incoming calls are validated against the full schema server-side
 - [x] **PROV-11**: Learner can run a "test teaching" smoke test from settings: one node, one graded quiz, proving the chosen model can run the method
-- [ ] **PROV-13**: A method-conformance harness replays a scripted lesson per provider and asserts the gate, pretest and cumulative quiz held; runs nightly
+- [x] **PROV-13**: A method-conformance harness replays a scripted lesson per provider and asserts the gate, pretest and cumulative quiz held; runs nightly
 
 ### Settings
 
@@ -157,7 +157,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROV-09 | Phase 3 | Complete |
 | PROV-10 | Phase 3 | Complete |
 | PROV-11 | Phase 4 | Complete |
-| PROV-13 | Phase 4 | Pending |
+| PROV-13 | Phase 4 | Complete |
 | SET-01 | Phase 2 | Complete |
 | SET-02 | Phase 2 | Complete |
 | SET-03 | Phase 2 | Complete |

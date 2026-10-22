@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: Local Models, Parity Proof and Usage
 status: executing
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-10-22T21:23:14.632Z"
+stopped_at: Completed 04-04-PLAN.md
+last_updated: "2026-10-22T22:01:37.629Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 04 execution started
-state_head: 523a66114c10bc94d892be5c4146ee3dca1a84eb
+state_head: 85a1596251ced1e795b5ff35632f8f9f2bac8097
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 43
-  completed_plans: 41
+  completed_plans: 42
   percent: 43
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-14)
 ## Current Position
 
 Phase: 04 (Local Models, Parity Proof and Usage) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 04 execution started
 
@@ -97,6 +97,7 @@ Progress: [████░░░░░░] 43%
 | Phase 04 P01 | 25 min | 4 tasks | 18 files |
 | Phase 04 P02 | 32 min | 3 tasks | 14 files |
 | Phase 04 P03 | 33 min | 3 tasks | 12 files |
+| Phase 04 P04 | 34 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -221,6 +222,10 @@ Recent decisions affecting current work:
 - [Phase 04]: driverFor names the per-provider driver resolution and runTurn takes the provider and model per turn, so a turn can run on the row the learner pressed rather than only on the active one — The Settings teaching proof must run on every teachable row (D-13, A-03); with the resolution inline and the provider read from resolveTutor, that was impossible without this seam
 - [Phase 04]: A teaching proof runs in a lesson marked scratch (migration 8), excluded from every listing, deleted in the same request through the transactional deleteLesson, and swept at boot if a crash left one behind — D-11 and D-14: the proof must leave no trace in Home, the Atlas or the Usage total, and recordUsage stays the single usage write path with no special case
 - [Phase 04]: On a row whose address the learner supplied, the proof asks that address whether anything is there before spending a model request — A closed port inside the owned loop is a retryable error, so the turn would wait out the full two-minute retry window and end in the SDK own words, which name no address; the approved sentence (nothing answered at host:port) lives once in probe.ts and this is how it reaches the learner
+- [Phase 04]: The conformance replay runs against the built server in a throwaway data directory and takes keys from the environment only, so a parity proof leaves no lesson, node, FSRS row or usage row in the learner's record and never reads their secrets file
+- [Phase 04]: The harness scripts its own quizzes with their answer key: the quiz card deliberately omits 'correct', so a fixed question with a declared correct option is the only way the method's own server-side grading can decide a verdict — and it makes every row comparable
+- [Phase 04]: The two subscription-login rows are opt-in behind --logins and otherwise reported skipped with that reason: a login spends the owner's own subscription and no CI runner has one. No row is ever dropped, which is what D-17 forbids
+- [Phase 04]: DERIVE_OLLAMA_THINK (default false, no Settings field) makes 'think' a variable a run can set, which is the instrument research assumption A7 needs; A7 remains open until a real Ollama server answers
 
 ### Pending Todos
 
@@ -251,6 +256,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T21:22:44.232Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-10-22T22:01:22.930Z
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None
