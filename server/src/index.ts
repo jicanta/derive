@@ -392,10 +392,15 @@ const SettingsWrite = z
       .optional()
       .describe('Where a local server or an OpenAI-compatible endpoint is reached, or an empty string to return to the catalogue default.'),
     num_ctx: z
-      .number()
+      // The type errors carry a sentence of their own, because zod's defaults
+      // ("Invalid input: expected int, received number") reach the row's error
+      // line verbatim and this is the one field on the page where a learner can
+      // produce one: `type="number"` accepts a fraction, so `20000.5` and a
+      // blur is enough.
+      .number({ message: 'the context window is a whole number of tokens' })
       // Integer-only because Ollama allocates a KV cache of exactly this size
       // when it loads the model; a fraction is not a window.
-      .int()
+      .int('the context window is a whole number of tokens')
       // The one constant, imported rather than repeated: D-04's floor and this
       // bound are the same number by definition, and two literals drift.
       .min(NUM_CTX_FLOOR, `the method needs at least ${NUM_CTX_FLOOR} tokens of context`)

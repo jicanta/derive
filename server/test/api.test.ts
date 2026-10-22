@@ -765,6 +765,20 @@ describe('the num_ctx field on a local row, over HTTP with no model', () => {
     return r.json.rows.find((row) => row.id === id)!;
   };
 
+  it('answers a fraction and a string in the learner’s own words, not zod’s', async () => {
+    // These two sentences go straight onto the row's error line, so a zod
+    // default ("Invalid input: expected int, received number") would be shown
+    // to a learner verbatim. The fraction is reachable: `type="number"` takes
+    // one, so typing 20000.5 and blurring is enough.
+    const fraction = await api<{ error: string }>('/api/settings/ollama', { num_ctx: 20_000.5 }, 'PUT');
+    assert.equal(fraction.status, 400, JSON.stringify(fraction.json));
+    assert.equal(fraction.json.error, 'the context window is a whole number of tokens');
+
+    const text = await api<{ error: string }>('/api/settings/ollama', { num_ctx: '32768' }, 'PUT');
+    assert.equal(text.status, 400, JSON.stringify(text.json));
+    assert.equal(text.json.error, 'the context window is a whole number of tokens');
+  });
+
   it('refuses a window below the floor, and writes nothing', async () => {
     const before = await rowOf('ollama');
     const r = await api<{ error: string }>('/api/settings/ollama', { num_ctx: 8192 }, 'PUT');
