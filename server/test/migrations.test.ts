@@ -577,11 +577,9 @@ describe('the learner model moved onto its provider', () => {
 });
 
 describe('the scratch marker a teaching test needs', () => {
-  it('pins LATEST_VERSION, so a migration that forgets to bump the number is visible', () => {
-    assert.equal(LATEST_VERSION, 8);
-  });
-
-  it('carries a database at the previous version forward onto 8, and every lesson it already had is a real one', () => {
+  // The "forgets to bump the number" pin lives with the newest migration, which
+  // is the only place it can keep catching anything; see the block below.
+  it('carries a database at version 7 forward, and every lesson it already had is a real one', () => {
     const file = legacyDatabase(scratch());
     migrateTo(file, 7);
     const before = new DatabaseSync(file);
@@ -592,7 +590,7 @@ describe('the scratch marker a teaching test needs', () => {
 
     migrate(file);
 
-    assert.equal(userVersion(file), 8);
+    assert.equal(userVersion(file), LATEST_VERSION);
     const after = new DatabaseSync(file);
     // The column's default is what makes the upgrade safe: a lesson written
     // before the marker existed is one the learner meant to keep, so it must
@@ -601,6 +599,33 @@ describe('the scratch marker a teaching test needs', () => {
       after.prepare('SELECT id, scratch FROM lessons').all().map((r) => ({ ...r })),
       [{ id: 'l1', scratch: 0 }],
     );
+    after.close();
+  });
+});
+
+describe('the table the conformance harness counts bad tool calls in', () => {
+  it('pins LATEST_VERSION, so a migration that forgets to bump the number is visible', () => {
+    assert.equal(LATEST_VERSION, 9);
+  });
+
+  it('carries a database at version 8 forward and gives the new table both of its indexes', () => {
+    const file = legacyDatabase(scratch());
+    migrateTo(file, 8);
+    assert.equal(userVersion(file), 8);
+
+    migrate(file);
+
+    assert.equal(userVersion(file), LATEST_VERSION);
+    const after = new DatabaseSync(file);
+    const columns = (after.prepare('PRAGMA table_info(tool_rejections)').all() as { name: string }[]).map((r) => r.name);
+    // The turn is the key the provider and the model are read off, which is why
+    // neither is a parameter anywhere in db.ts.
+    assert.deepEqual(columns, ['id', 'turn_id', 'driver', 'model', 'tool', 'ts']);
+    const indexes = (after.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tool_rejections' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
+    // One for the per-turn read and the lesson delete, one for the per-provider
+    // and model read the report makes: without the second it is a table scan
+    // per group, which is a diagnostic costing more than what it diagnoses.
+    assert.deepEqual(indexes, ['tool_rejections_provider', 'tool_rejections_turn']);
     after.close();
   });
 });

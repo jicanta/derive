@@ -29,7 +29,7 @@ import * as actions from '../actions.js';
 import { capabilityRefusal, knownCapability } from '../capability.js';
 import { headroomCheck } from '../context.js';
 import { costLabel, costOf, type CostRow } from '../cost.js';
-import { getSetting, listUsage, loadTurnMessages, recordToolResult, recordedToolResult, saveTurnMessages, type UsageInput } from '../db.js';
+import { getSetting, listUsage, loadTurnMessages, recordToolRejection, recordToolResult, recordedToolResult, saveTurnMessages, type UsageInput } from '../db.js';
 import { type Driver, type EventSink, type TurnContext } from '../driver.js';
 import { priceTable } from '../prices.js';
 import { hintFor, providerSentence } from '../probe.js';
@@ -453,7 +453,18 @@ function buildTools(
           // can correct from, which is the right shape — a malformed call is the
           // model's mistake to fix, not a turn to fail. After the replay guard,
           // so a call that already succeeded is not re-validated.
-          const args = validateToolInput(spec, 'api', input);
+          // 04 D-19 counts exactly what that function rejects, at the one site
+          // it is called from: a second schema check here would count something
+          // else. The error is re-thrown unchanged — recording is not a
+          // decision, and the model must still receive the same correctable
+          // tool error it always did.
+          let args: Record<string, unknown>;
+          try {
+            args = validateToolInput(spec, 'api', input);
+          } catch (e) {
+            recordToolRejection(ctx.turnId, spec.name);
+            throw e;
+          }
           sink.emitEphemeral('status', { text: TOOL_LABELS[spec.name] ?? `Using ${spec.name}` });
           const out = await actions.runTool(ctx.lessonId, spec.name, args);
           recordToolResult(ctx.turnId, ctx.lessonId, toolCallId, spec.name, out);

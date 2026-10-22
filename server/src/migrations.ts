@@ -315,6 +315,41 @@ export const MIGRATIONS: Migration[] = [
       db.exec('ALTER TABLE lessons ADD COLUMN scratch INTEGER NOT NULL DEFAULT 0');
     },
   },
+  {
+    version: 9,
+    name: 'tool-rejections',
+    up(db) {
+      // One row per tool call whose arguments failed the **full** server-side
+      // schema — the narrow, unambiguous signal that the model produced a bad
+      // call. It is deliberately not a count of anything else: not a missing
+      // tool call, not a tool that returned `refused`, not any other non-ok
+      // outcome. Those are the method working, or the model reasoning poorly,
+      // which is a different measurement and would make this one unreadable.
+      //
+      // Append-only, and keyed on the turn so `driver` and `model` can be read
+      // off it rather than taken from a caller. The grain is the call rather
+      // than a counter column on `usage`, which would mean "this request's
+      // rejections": the same migration then also answers *which tool* a model
+      // fails on, which is far more diagnostic than a bare rate.
+      //
+      // Internal diagnostics. No route reads it, no event carries it, and
+      // nothing in the loop branches on it (04 D-21): a number telling a
+      // learner their model is bad would make them doubt their setup rather
+      // than learn, about a choice they may not be free to change.
+      db.exec(`
+        CREATE TABLE tool_rejections (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          turn_id TEXT NOT NULL,
+          driver TEXT NOT NULL,
+          model TEXT,
+          tool TEXT NOT NULL,
+          ts INTEGER NOT NULL
+        );
+        CREATE INDEX tool_rejections_turn ON tool_rejections (turn_id);
+        CREATE INDEX tool_rejections_provider ON tool_rejections (driver, model);
+      `);
+    },
+  },
 ];
 
 /**

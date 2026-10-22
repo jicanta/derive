@@ -222,6 +222,17 @@ const q = {
   getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
   setSetting: db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'),
   deleteSetting: db.prepare('DELETE FROM settings WHERE key = ?'),
+  insertToolRejection: db.prepare('INSERT INTO tool_rejections (turn_id, driver, model, tool, ts) VALUES (?, ?, ?, ?, ?)'),
+  // One indexed read per provider and model, grouped in SQLite rather than in
+  // JavaScript: the alternative is a scan per group, and `model IS ?` is what
+  // makes the row whose model nobody reported findable at all.
+  rejectionsOfModel: db.prepare('SELECT tool, COUNT(*) AS n FROM tool_rejections WHERE driver = ? AND model IS ? GROUP BY tool ORDER BY tool'),
+  // The denominator, on the same key: the calls that did execute. `tool_results`
+  // is written only by the owned loop, which is also the only place a rejection
+  // can happen, so the two sides of the rate measure the same surface.
+  executedOfModel: db.prepare('SELECT COUNT(*) AS n FROM tool_results r JOIN turns t ON t.id = r.turn_id WHERE t.driver = ? AND t.model IS ?'),
+  rejectionsOfTurn: db.prepare('SELECT * FROM tool_rejections WHERE turn_id = ? ORDER BY id'),
+  deleteRejectionsByLesson: db.prepare('DELETE FROM tool_rejections WHERE turn_id IN (SELECT id FROM turns WHERE lesson_id = ?)'),
   usageOfTurn: db.prepare('SELECT * FROM usage WHERE turn_id = ? ORDER BY id'),
   usageOfLesson: db.prepare('SELECT * FROM usage WHERE lesson_id = ? ORDER BY id'),
   usageOfLearner: db.prepare('SELECT * FROM usage WHERE learner_id = ? ORDER BY id'),
@@ -496,6 +507,12 @@ export function deleteLesson(id: string) {
     // tool_results row names the turn it was recorded against.
     q.deleteTurnMessagesByLesson.run(id);
     q.deleteToolResultsByLesson.run(id);
+    // Same rule, and the reason it is inside this transaction rather than
+    // anywhere else: a rejection row names a turn, so the lesson's rejections
+    // go before its turns do. Without it a deleted lesson — plan 04-03's
+    // scratch proof lesson included — would leave rows naming a turn that no
+    // longer exists, and the rate would count a model's mistakes forever.
+    q.deleteRejectionsByLesson.run(id);
     // Usage before turns: a usage row names the turn it was recorded against,
     // so clearing usage first means no state inside the transaction has a row
     // pointing at a turn that is already gone.
@@ -799,6 +816,56 @@ export function listUsage(filter: { turn?: string; lesson?: string; learner?: st
 export function closeUsage(turnId: string) {
   if (listUsage({ turn: turnId }).length) return;
   recordUsage(turnId, { cost_source: 'unknown' });
+}
+
+// ---------- tool-calling reliability, per provider and model ----------
+
+/** One tool call whose arguments failed the full server-side schema. Append-only; `driver` and `model` are the turn's own. */
+export type ToolRejectionRow = { id: number; turn_id: string; driver: string; model: string | null; tool: string; ts: number };
+
+/** How often one model produces a call Derive cannot accept, and which tool it fails on. `rate` is null when that pair has made no call at all: null, never a zero that would read as perfect. */
+export type ToolRejectionRate = { rejected: number; executed: number; rate: number | null; by_tool: Record<string, number> };
+
+/**
+ * Record one schema-rejected tool call against a turn.
+ *
+ * The driver and the model are read off the turn here and never taken from the
+ * caller — the rule `recordUsage` states, for the same reason: so no later
+ * phase can file a rejection under a provider its turn does not belong to.
+ *
+ * It returns nothing, and a turn this process does not know about records
+ * nothing instead of throwing. Both are the same requirement (04 D-21): this
+ * measurement has no runtime effect. It does not refuse, nudge, re-rank or
+ * retry, and it must never replace the correctable tool error the model is
+ * about to receive with an error of its own.
+ */
+export function recordToolRejection(turnId: string, tool: string): void {
+  const turn = getTurn(turnId);
+  if (!turn) return;
+  q.insertToolRejection.run(turn.id, turn.driver, turn.model, tool, Date.now());
+}
+
+/**
+ * The rejection rate of one provider and model.
+ *
+ * The model is the unit (04 D-20): tool-calling reliability is a property of
+ * the model, and a provider figure is the sum of its models. Two indexed reads,
+ * grouped in SQLite — the rejections by tool, and the calls that did execute as
+ * the denominator. Read by the conformance harness and by nothing else: there
+ * is no route, no event type and no learner-facing surface for it.
+ */
+export function toolRejectionRate(driver: string, model: string | null): ToolRejectionRate {
+  const rows = q.rejectionsOfModel.all(driver, model) as { tool: string; n: number }[];
+  const by_tool = Object.fromEntries(rows.map((r) => [r.tool, r.n]));
+  const rejected = rows.reduce((n, r) => n + r.n, 0);
+  const executed = ((q.executedOfModel.get(driver, model) as { n: number } | undefined)?.n ?? 0) as number;
+  const total = rejected + executed;
+  return { rejected, executed, rate: total ? rejected / total : null, by_tool };
+}
+
+/** The rejections recorded against one turn, in the order they happened. For tests and for a per-lesson read; the report asks by provider and model. */
+export function toolRejectionsOf(turnId: string): ToolRejectionRow[] {
+  return q.rejectionsOfTurn.all(turnId) as ToolRejectionRow[];
 }
 
 // ---------- the owned loop's resumable state ----------

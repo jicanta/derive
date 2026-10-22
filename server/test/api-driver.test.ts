@@ -18,7 +18,7 @@ delete process.env.DERIVE_MODEL;
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.TAVILY_API_KEY;
 
-const { createLesson, deleteSetting, getLesson, lastTurn, learnerProfile, listEvents, listNodes, listUsage, loadTurnMessages, recordedToolResult, saveTurnMessages, setSessionId, setSetting } = await import('../src/db.js');
+const { createLesson, deleteSetting, getLesson, lastTurn, learnerProfile, listEvents, listNodes, listUsage, loadTurnMessages, recordedToolResult, saveTurnMessages, setSessionId, setSetting, toolRejectionRate, toolRejectionsOf } = await import('../src/db.js');
 const { librarySection } = await import('../src/library.js');
 const { materialsSection } = await import('../src/materials.js');
 const { systemPrompt } = await import('../src/prompt.js');
@@ -1526,5 +1526,121 @@ describe('a turn ends with what the whole lesson has cost', () => {
     // nothing to say, and the caller renders no segment rather than an empty
     // one.
     assert.equal(lessonCost(id), null);
+  });
+});
+
+/**
+ * The tool-rejection count (04 D-19): one row per call whose arguments failed
+ * the full server-side schema, and nothing else.
+ *
+ * It is measured here rather than in `usage.test.ts` — where the rest of the
+ * ledger's cases live — because only this file can make a malformed call
+ * actually reach the loop: the recording site is inside the owned loop's tool
+ * `execute`, and a stub model is the one way to produce a bad call there. The
+ * ledger's own rules (where the provider and model come from, the indexed read,
+ * the delete) are asserted beside the usage rows.
+ */
+describe('how often a model produces a call derive cannot accept', () => {
+  it('records exactly one row for a schema-rejected call, under the turn\'s own provider and model', async () => {
+    const id = randomUUID();
+    createLesson(id, 'One node is not a plan, and it is counted');
+    const model = new MockLanguageModelV4({
+      modelId: 'claude-opus-5-5',
+      doStream: [
+        step([
+          { type: 'stream-start', warnings: [] },
+          toolCall('count-1', 'set_plan', '{"goal":"Understand lines","nodes":[{"id":"a","label":"A line is a function","kind":"goal","summary":"A line is a function of one variable."}]}'),
+          finish('tool-calls', 'tool_use'),
+        ]),
+        step([
+          { type: 'stream-start', warnings: [] },
+          { type: 'text-start', id: 't1' },
+          { type: 'text-delta', id: 't1', delta: 'Three nodes, then.' },
+          { type: 'text-end', id: 't1' },
+          finish('stop', 'end_turn'),
+        ]),
+      ],
+    });
+    await turnWith(id, model, 'teach me');
+
+    const turn = lastTurn(id)!;
+    const rows = toolRejectionsOf(turn.id);
+    assert.equal(rows.length, 1, 'a schema-rejected call was not counted exactly once');
+    assert.equal(rows[0].tool, 'set_plan', 'the row must name the tool the model failed on, not just that it failed');
+    // Off the turn, never from the caller: the same rule recordUsage states.
+    assert.equal(rows[0].driver, turn.driver);
+    assert.equal(rows[0].model, turn.model);
+    assert.equal(toolRejectionRate(turn.driver, turn.model).by_tool.set_plan >= 1, true);
+
+    // D-21: no runtime effect. The model still received the correctable tool
+    // error, and the turn still ended ok.
+    assert.match(toolErrorsOf(id)[0], /^set_plan: nodes: /);
+    assert.equal(lastTurn(id)!.status, 'ok');
+  });
+
+  it('counts nothing for a well-formed call', async () => {
+    const id = randomUUID();
+    createLesson(id, 'A call the schema accepts');
+    const model = new MockLanguageModelV4({
+      modelId: 'claude-opus-5-5',
+      doStream: [
+        step([
+          { type: 'stream-start', warnings: [] },
+          toolCall('good-1', 'set_phase', '{"phase":"teach"}'),
+          finish('tool-calls', 'tool_use'),
+        ]),
+        step([
+          { type: 'stream-start', warnings: [] },
+          { type: 'text-start', id: 't1' },
+          { type: 'text-delta', id: 't1', delta: 'Teaching now.' },
+          { type: 'text-end', id: 't1' },
+          finish('stop', 'end_turn'),
+        ]),
+      ],
+    });
+    await turnWith(id, model, 'teach me');
+
+    const turn = lastTurn(id)!;
+    assert.equal(toolErrorsOf(id).length, 0, 'a well-formed call was refused');
+    // The rate counts bad calls, not calls. A count that moved here would make
+    // every provider look unreliable in proportion to how much it taught.
+    assert.equal(toolRejectionsOf(turn.id).length, 0);
+  });
+
+  it('counts nothing for a call the replay guard answers from the record', async () => {
+    const id = randomUUID();
+    createLesson(id, 'The same call id, twice');
+    const model = new MockLanguageModelV4({
+      modelId: 'claude-opus-5-5',
+      doStream: [
+        step([
+          { type: 'stream-start', warnings: [] },
+          toolCall('replay-1', 'set_phase', '{"phase":"teach"}'),
+          finish('tool-calls', 'tool_use'),
+        ]),
+        // The same call id again, this time with arguments the schema refuses.
+        // D-07's guard answers it from the record before validation is reached,
+        // which is the point: a call that already succeeded is not re-validated,
+        // so a resumed turn cannot inflate the count of a model that got it
+        // right the first time.
+        step([
+          { type: 'stream-start', warnings: [] },
+          toolCall('replay-1', 'set_phase', '{"phase":"nonsense"}'),
+          finish('tool-calls', 'tool_use'),
+        ]),
+        step([
+          { type: 'stream-start', warnings: [] },
+          { type: 'text-start', id: 't1' },
+          { type: 'text-delta', id: 't1', delta: 'Done.' },
+          { type: 'text-end', id: 't1' },
+          finish('stop', 'end_turn'),
+        ]),
+      ],
+    });
+    await turnWith(id, model, 'teach me');
+
+    const turn = lastTurn(id)!;
+    assert.equal(toolErrorsOf(id).length, 0, 'the replayed call was validated instead of being answered from the record');
+    assert.equal(toolRejectionsOf(turn.id).length, 0);
   });
 });

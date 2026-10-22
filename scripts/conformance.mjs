@@ -206,6 +206,16 @@ function answerFor(type, payload) {
 /** How long one row's whole replay may take before it is recorded as a failure. */
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
+/**
+ * What the Ollama adapter passes for `reliableToolCalling`, recorded in every
+ * run header. False, fixed in `server/src/drivers/adapters.ts`, and stated here
+ * because the report would otherwise be readable as healthier than it is: that
+ * layer retries and normalises a malformed tool call behind Derive's back, so
+ * with it on the rejection count below would measure the wrapper rather than
+ * the model — the one thing a conformance harness must not do.
+ */
+const RELIABLE_TOOL_CALLING = false;
+
 const USAGE = `derive conformance: replay one scripted lesson per reachable provider and report whether the method held.
 
   node scripts/conformance.mjs [options]
@@ -465,6 +475,9 @@ async function runRow(ctx, row, spec) {
     ...(reason ? { reason: ctx.safe(reason) } : {}),
     verdicts,
     cumulative_nodes: { done: cumulative.done.length, missed: cumulative.missed.length, pending: cumulative.pending.length },
+    // Schema-rejected calls only, for this provider and this model (D-19,
+    // D-20). It is a diagnostic about a model, never shown to a learner.
+    rejections: db.toolRejectionRate(row.id, model),
     ms: Date.now() - started,
   };
 }
@@ -477,17 +490,18 @@ function markdownFor(report) {
   const lines = [
     `# Derive conformance — ${report.run.started}`,
     '',
-    `Derive ${report.run.version} · run \`${report.run.id}\` · think \`${report.run.think}\` · timeout ${Math.round(report.run.timeout_ms / 1000)}s · logins ${report.run.logins_included ? 'included' : 'skipped'}`,
+    `Derive ${report.run.version} · run \`${report.run.id}\` · think \`${report.run.think}\` · reliableToolCalling \`${report.run.reliable_tool_calling}\` · timeout ${Math.round(report.run.timeout_ms / 1000)}s · logins ${report.run.logins_included ? 'included' : 'skipped'}`,
     '',
-    'Every provider appears exactly once: either its three verdicts, or an explicit skipped line with the reason. A model that failed a verdict is a finding, not a bug in the harness.',
+    'Every provider appears exactly once: either its three verdicts, or an explicit skipped line with the reason. A model that failed a verdict is a finding, not a bug in the harness. Rejected counts tool calls whose arguments failed the full server-side schema — nothing else.',
     '',
-    '| Provider | Model | Result | Pretest | Gate | Cumulative | Detail |',
-    '| --- | --- | --- | --- | --- | --- | --- |',
+    '| Provider | Model | Result | Pretest | Gate | Cumulative | Rejected | Detail |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- |',
   ];
   const cell = (v) => (v === true ? 'held' : v === false ? 'no' : '—');
+  const rejected = (r) => (r.rejections ? `${r.rejections.rejected}/${r.rejections.rejected + r.rejections.executed} calls` : '—');
   for (const r of report.rows) {
     lines.push(
-      `| ${r.label} | ${r.model ?? '—'} | ${mark[r.status] ?? r.status} | ${cell(r.verdicts?.pretest)} | ${cell(r.verdicts?.gate)} | ${cell(r.verdicts?.cumulative)} | ${r.reason ?? ''} |`,
+      `| ${r.label} | ${r.model ?? '—'} | ${mark[r.status] ?? r.status} | ${cell(r.verdicts?.pretest)} | ${cell(r.verdicts?.gate)} | ${cell(r.verdicts?.cumulative)} | ${rejected(r)} | ${r.reason ?? ''} |`,
     );
   }
   const counts = ['passed', 'failed', 'skipped'].map((s) => `${report.rows.filter((r) => r.status === s).length} ${s}`);
@@ -536,6 +550,7 @@ async function main(argv) {
     finished: started,
     version: JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version,
     think: opts.think === 'false' ? false : opts.think,
+    reliable_tool_calling: RELIABLE_TOOL_CALLING,
     logins_included: opts.logins,
     timeout_ms: opts.timeoutMs,
     script: { topic: TOPIC, goal_node: GOAL_NODE, quizzes: QUIZZES.length },

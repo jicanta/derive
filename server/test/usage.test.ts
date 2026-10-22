@@ -27,24 +27,25 @@ const scratch = mkdtempSync(join(tmpdir(), 'derive-usage-'));
 process.env.DERIVE_DATA_DIR = scratch;
 process.env.DERIVE_BACKEND = 'claude';
 
-const { COST_SOURCES, createLesson, lastTurn, listEvents, listUsage } = await import('../src/db.js');
+const { COST_SOURCES, createLesson, db, deleteLesson, lastTurn, listEvents, listUsage, recordToolRejection, toolRejectionRate, toolRejectionsOf } = await import('../src/db.js');
 const { runTurn } = await import('../src/agent.js');
 const { setDriverOverride } = await import('../src/driver.js');
 const { fakeDriver, setFakeScript } = await import('../src/drivers/fake.js');
 
 type FakeStep = import('../src/drivers/fake.js').FakeStep;
 type UsageRow = import('../src/db.js').UsageRow;
+type ProviderId = import('../src/providers.js').ProviderId;
 
 after(() => rmSync(scratch, { recursive: true, force: true }));
 
-/** One lesson, one turn on the fake driver, and the usage rows it left behind. */
-async function turnWith(script: FakeStep[]) {
+/** One lesson, one turn on the fake driver, and the usage rows it left behind. `tutor` names what the turn row records as its model, the way the Settings teaching proof names the row it pressed. */
+async function turnWith(script: FakeStep[], tutor?: { provider: ProviderId; model: string | null }) {
   const id = randomUUID();
   createLesson(id, 'What a turn costs');
   setFakeScript(script);
   setDriverOverride(fakeDriver);
   try {
-    await runTurn(id, 'teach me');
+    await runTurn(id, 'teach me', tutor ? { tutor } : {});
   } finally {
     setDriverOverride(null);
   }
@@ -150,6 +151,86 @@ describe('usage is accounting, not narrative', () => {
     assert.deepEqual(listEvents(id).map((e) => e.type), ['turn_start', 'turn_end']);
     for (const e of listEvents(id)) assert.ok(!/usage|token|cost/i.test(e.type), `${e.type} is a usage event`);
     assert.ok(!/input_tokens|cost_source/.test(JSON.stringify(listEvents(id))));
+  });
+});
+
+/**
+ * The tool-rejection ledger: how often one model produces a call Derive cannot
+ * accept, and which tool it fails on.
+ *
+ * The cases that the recording happens at the one schema-rejection site, once
+ * per bad call and never for a well-formed or a replayed one, live in
+ * `api-driver.test.ts` beside the stub-model harness that can actually make a
+ * malformed call reach the loop. These are the ledger's own rules: where the
+ * provider and the model come from, that the read is one indexed query, and
+ * that the rows leave with their lesson.
+ */
+describe('the tool-rejection ledger', () => {
+  it('takes the provider and the model off the turn, never from the caller', async () => {
+    const { turn } = await turnWith([call(10, 2), { kind: 'end', payload: { ok: true } }]);
+
+    recordToolRejection(turn.id, 'quiz');
+    const rows = toolRejectionsOf(turn.id);
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].tool, 'quiz');
+    // The same rule recordUsage states: no caller can file a rejection under a
+    // provider or a model its turn does not belong to.
+    assert.equal(rows[0].driver, turn.driver);
+    assert.equal(rows[0].model, turn.model);
+  });
+
+  it('records nothing, and throws nothing, for a turn this process does not know', () => {
+    const before = toolRejectionsOf('no-such-turn').length;
+
+    // D-21: no runtime effect. A throw here would replace the correctable tool
+    // error the model is about to receive with an error about Derive's own
+    // bookkeeping.
+    assert.doesNotThrow(() => recordToolRejection('no-such-turn', 'quiz'));
+    assert.equal(toolRejectionsOf('no-such-turn').length, before);
+  });
+
+  it('answers the rate per provider and model, with the model as the unit', async () => {
+    const weakTurn = await turnWith([call(1, 1), { kind: 'end', payload: { ok: true } }], { provider: 'ollama', model: 'a-weak-model' });
+    const carefulTurn = await turnWith([call(1, 1), { kind: 'end', payload: { ok: true } }], { provider: 'ollama', model: 'a-careful-model' });
+    recordToolRejection(weakTurn.turn.id, 'quiz');
+    recordToolRejection(weakTurn.turn.id, 'quiz');
+    recordToolRejection(weakTurn.turn.id, 'set_plan');
+
+    const weak = toolRejectionRate(weakTurn.turn.driver, 'a-weak-model');
+    const careful = toolRejectionRate(carefulTurn.turn.driver, 'a-careful-model');
+
+    assert.equal(weak.rejected, 3);
+    assert.deepEqual(weak.by_tool, { quiz: 2, set_plan: 1 });
+    // D-20: one model's figure says nothing about another on the same provider.
+    assert.equal(careful.rejected, 0);
+    // Null rather than zero for a pair that has made no call at all: a zero
+    // there would read as a model that never got one wrong.
+    assert.equal(careful.rate, null);
+  });
+
+  it('reads the rate through an index rather than scanning the table', () => {
+    const plan = (db.prepare('EXPLAIN QUERY PLAN SELECT tool, COUNT(*) AS n FROM tool_rejections WHERE driver = ? AND model IS ? GROUP BY tool ORDER BY tool').all('ollama', 'a-weak-model') as { detail: string }[])
+      .map((r) => r.detail)
+      .join(' ');
+
+    // The report asks this once per provider and model; a scan per group is how
+    // a diagnostic starts costing more than the thing it diagnoses.
+    assert.match(plan, /USING .*INDEX tool_rejections_provider/, `the per-provider read does not use its index: ${plan}`);
+  });
+
+  it('leaves with its lesson, in the same transaction the usage rows leave in', async () => {
+    const { id, turn } = await turnWith([call(3, 3), { kind: 'end', payload: { ok: true } }]);
+    recordToolRejection(turn.id, 'quiz');
+    assert.equal(toolRejectionsOf(turn.id).length, 1);
+
+    deleteLesson(id);
+
+    // A row naming a turn that no longer exists would keep counting a model's
+    // mistakes after the lesson they happened in was removed — including plan
+    // 04-03's scratch proof lesson, which is deleted in the request that made it.
+    assert.equal(toolRejectionsOf(turn.id).length, 0);
+    assert.equal(listUsage({ turn: turn.id }).length, 0);
   });
 });
 
