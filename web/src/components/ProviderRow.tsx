@@ -394,7 +394,12 @@ export function ProviderRow({
   const [result, setResult] = useState<TestResult | null>(null);
   const [capability, setCapability] = useState<CapabilityResult | null>(null);
   const [teachTesting, setTeachTesting] = useState(false);
-  const [teaching, setTeaching] = useState<TeachingTest | null>(null);
+  // The result and the model it was run on, never the result alone. The whole
+  // value of PROV-11 is that a learner can trust the line before spending a
+  // session, so a pass attributed to a model that has never been tested is the
+  // one failure this feature cannot afford — and it is one model change away if
+  // the line does not say which model it belongs to.
+  const [teaching, setTeaching] = useState<{ model: string; result: TeachingTest } | null>(null);
 
   useEffect(() => setModel(effective), [effective]);
   useEffect(
@@ -488,16 +493,29 @@ export function ProviderRow({
    * sentence where the server's would be, exactly as the connection test does.
    */
   const testTeaching = async () => {
+    // Read before the run, so the result is filed under the model that was
+    // actually proved rather than under whatever the row holds by the time it
+    // comes back.
+    const ran = effective;
     setTeachTesting(true);
     setTeaching(null);
     try {
-      setTeaching(await api.testTeaching(row.id));
+      setTeaching({ model: ran, result: await api.testTeaching(row.id) });
     } catch (e) {
-      setTeaching({ ok: false, reason: (e as Error).message, ms: 0 });
+      setTeaching({ model: ran, result: { ok: false, reason: (e as Error).message, ms: 0 } });
     } finally {
       setTeachTesting(false);
     }
   };
+
+  /**
+   * The proof's result, but only while the row still holds the model it was run
+   * on. One check rather than a `setTeaching(null)` in every place the model can
+   * move: a save, a fetched id picked from the list, a rescan that replaces the
+   * row, and a parent refresh through `onChange` all change `effective`, and any
+   * of them would otherwise leave `Pass · …` beside a model nothing has tested.
+   */
+  const proof = teaching && teaching.model === effective ? teaching.result : null;
 
   const unusable = row.status === 'not configured' || row.status === 'checking';
   const useTitle = providerLocked ? PROVIDER_LOCK : unusable ? 'Nothing to use yet: log in or paste a key first' : undefined;
@@ -642,12 +660,12 @@ export function ProviderRow({
         <p role="status" className={`mt-2 ${resultLine} text-teal-400 animate-pulse motion-reduce:animate-none`}>
           running one node and a graded quiz
         </p>
-      ) : teaching ? (
-        <p role="status" title={teachingText(teaching)} className={`mt-2 ${resultLine} ${teaching.ok ? 'text-moss-400' : 'text-rust-400'}`}>
-          {teachingText(teaching)}
+      ) : proof ? (
+        <p role="status" title={teachingText(proof)} className={`mt-2 ${resultLine} ${proof.ok ? 'text-moss-400' : 'text-rust-400'}`}>
+          {teachingText(proof)}
         </p>
       ) : null}
-      {teaching && !teaching.ok && teaching.hint && <p className="mt-2 text-[14px] leading-relaxed text-ink-300">{teaching.hint}</p>}
+      {proof && !proof.ok && proof.hint && <p className="mt-2 text-[14px] leading-relaxed text-ink-300">{proof.hint}</p>}
     </div>
   );
 }
