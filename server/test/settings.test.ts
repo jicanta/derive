@@ -132,10 +132,11 @@ describe('settings over HTTP', () => {
   });
 
   it('refuses a row whose driver has not arrived, and an id it does not know', async () => {
-    // Ollama, not OpenAI: the four key-and-gateway rows gained their adapters with the owned loop, and the three local rows are the ones still waiting for one.
-    const unwired = await api('/api/settings/active', { provider: 'ollama' });
+    // llama.cpp, not Ollama: the Ollama row gained its adapter with plan 04-01,
+    // so the rows still waiting for one are LM Studio and llama.cpp.
+    const unwired = await api('/api/settings/active', { provider: 'llamacpp' });
     assert.equal(unwired.status, 400);
-    assert.equal(unwired.json.error, 'teaching on Ollama arrives with the next release');
+    assert.equal(unwired.json.error, 'teaching on llama.cpp arrives with the next release');
     const unknown = await api('/api/settings/active', { provider: 'nope' });
     assert.equal(unknown.status, 404);
     assert.equal(unknown.json.error, 'unknown provider');
@@ -223,8 +224,8 @@ describe('settings over HTTP', () => {
       ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible', 'ollama', 'lmstudio', 'llamacpp'],
     );
     assert.match(r.json.defaults_as_of, /^\d{4}-\d{2}-\d{2}$/);
-    // Every key-and-gateway row joined the two logins when the owned loop reached it; the three local rows flip in Phase 4 with their own adapters.
-    assert.deepEqual(r.json.rows.filter((row) => row.teaches).map((row) => row.id), ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible']);
+    // Every key-and-gateway row joined the two logins when the owned loop reached it; Ollama joined them with plan 04-01's adapter, and the two OpenAI-compatible local rows flip in the same phase.
+    assert.deepEqual(r.json.rows.filter((row) => row.teaches).map((row) => row.id), ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible', 'ollama']);
     const byId = new Map(r.json.rows.map((row) => [row.id, row]));
     assert.equal(byId.get('anthropic')!.default_model, 'claude-opus-5-5');
     assert.equal(byId.get('openai')!.default_model, 'gpt-6-astra');
@@ -1058,7 +1059,7 @@ describe('the resolver, in process', () => {
 
   it('ignores a stored provider that does not teach and falls to detection', () => {
     fresh();
-    setSetting(ACTIVE_PROVIDER, 'ollama');
+    setSetting(ACTIVE_PROVIDER, 'llamacpp');
     const t = resolveTutor();
     assert.equal(t.source, 'detected');
     assert.equal(t.provider, 'claude-code');
@@ -1132,16 +1133,19 @@ describe('the resolver, in process', () => {
       PROVIDERS.map((p) => p.id),
       ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible', 'ollama', 'lmstudio', 'llamacpp'],
     );
-    assert.deepEqual(PROVIDERS.filter((p) => p.teaches).map((p) => p.id), ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible']);
+    assert.deepEqual(PROVIDERS.filter((p) => p.teaches).map((p) => p.id), ['claude-code', 'codex', 'anthropic', 'openai', 'gemini', 'openrouter', 'openai-compatible', 'ollama']);
     assert.deepEqual(PROVIDERS.filter((p) => p.optionalKey).map((p) => p.id), ['lmstudio', 'llamacpp']);
   });
 
   it('gives every teaching row a model id its provider will actually serve', () => {
-    // Three rows carry no catalogue default on purpose: the two logins take
-    // their own CLI's default, and only the learner knows what their own
-    // endpoint serves — the adapter refuses that row with its own sentence
-    // rather than sending an empty model id.
-    const ownDefault = ['claude-code', 'codex', 'openai-compatible'];
+    // Four rows carry no catalogue default on purpose: the two logins take
+    // their own CLI's default, and on the learner's own endpoint or their own
+    // machine only the learner knows what is actually served — the adapter
+    // refuses those rows with their own sentence rather than sending an empty
+    // model id. The local rows additionally may not name one at all: a model
+    // name in shipped code would be a recommendation Derive has no business
+    // making about what the learner pulled.
+    const ownDefault = ['claude-code', 'codex', 'openai-compatible', 'ollama'];
     for (const p of PROVIDERS.filter((x) => x.teaches)) {
       if (ownDefault.includes(p.id)) {
         assert.equal(p.defaultModel, null, `${p.id} names a default model that is not the catalogue's to name`);

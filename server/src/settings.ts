@@ -59,6 +59,31 @@ export const modelKey = (id: string) => `model:${id}`;
 /** The settings key holding a provider's stored base URL. */
 export const baseUrlKey = (id: string) => `base_url:${id}`;
 
+/** The settings key holding the context window Derive asks a local Ollama model for. */
+export const numCtxKey = (id: string) => `num_ctx:${id}`;
+
+// The window a model's *maximum* is checked against before it may teach (D-04).
+// It is the smallest window the method physically fits in: the offline-local
+// system prompt measures ~9,747 estimated tokens plus ~3,349 for the compact
+// `api` tool surface, a ~13,096-token floor before a word of lesson, and
+// 0.8 × 16384 = 13,107 usable. Eleven tokens of slack is a floor, not a
+// working default — which is why the next constant exists.
+export const NUM_CTX_FLOOR = 16_384;
+
+// What the learner-editable `num_ctx` field defaults to. Double the floor,
+// because a real lesson needs room past the prompt: at the floor every local
+// lesson would refuse on sight. Amendment A-01 of 04-01-PLAN.md records the
+// measurement that separated this number from the floor above; D-03's own
+// wording already separates the two ("a fixed 16k floor … defaulting to
+// 16384"), so these are deliberately two constants and never one.
+export const NUM_CTX_DEFAULT = 32_768;
+
+/** The context window Derive asks a local model for: the learner's stored value, else NUM_CTX_DEFAULT. Same stored-or-default shape as `localBase`. */
+export function numCtxFor(id: string): number {
+  const stored = Number(getSetting(numCtxKey(id)));
+  return Number.isInteger(stored) && stored > 0 ? stored : NUM_CTX_DEFAULT;
+}
+
 /**
  * OLLAMA_HOST as a base URL. Ollama's own CLI accepts a bare host, a host:port
  * or a URL there, so a missing scheme reads as http:// and a missing port as

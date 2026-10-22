@@ -348,8 +348,9 @@ app.delete('/api/learners/:id', async (c) => {
 
 /**
  * The fields a settings write may carry. The model id is bounded to the
- * characters real ids use — local servers name models like `qwen/qwen3-8b:latest`,
- * so `/` and `:` are allowed — and it is never rendered into prompt text; it
+ * characters real ids use — local servers name models in a
+ * `publisher/model:tag` shape, so `/` and `:` are allowed — and it is never
+ * rendered into prompt text; it
  * reaches only the turn's model field. An empty string clears the stored value.
  * A key is only ever written: keys.ts checks and stores it, and the answer
  * describes it as `{ set, hint }`.

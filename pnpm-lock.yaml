@@ -202,6 +202,9 @@ importers:
       ai:
         specifier: 7.0.126
         version: 7.0.126(zod@4.6.5)
+      ai-sdk-ollama:
+        specifier: 4.4.0
+        version: 4.4.0(ai@7.0.126(zod@4.6.5))(zod@4.6.5)
       fflate:
         specifier: 0.8.3
         version: 0.8.3
@@ -1184,6 +1187,12 @@ packages:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
 
+  ai-sdk-ollama@4.4.0:
+    resolution: {integrity: sha512-w78z2oWVK93N9Q2g6F8kvfm+nhvfnNv960itKnGM/RsfBhhJ5xnlyFCdvfQ4gRC0rWlwl0eelvNdxaX9h3NpvA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      ai: ^7.0.103
+
   ai@7.0.126:
     resolution: {integrity: sha512-7egcwpnVR2xn3YlJYEX2y15X7Bv7Rc8U2h4YjCOnj5KZL6Pr/BQFzJuF+9fkm3SefmpgkaYRXzrvhafVjxGZww==}
     engines: {node: '>=22'}
@@ -1788,6 +1797,10 @@ packages:
   json-schema@0.4.0:
     resolution: {integrity: sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA==}
 
+  jsonrepair@3.15.0:
+    resolution: {integrity: sha512-wy8OTjwsJwQRnQJkKnMJJ9vcytRdBPAgIF/Hy6+s1dAj42BHMKiyL8JzEieIl3JY7idt8eyHwBWTO8mh/+mtwA==}
+    hasBin: true
+
   katex@0.16.47:
     resolution: {integrity: sha512-Eeo8Ys1doU1z+x8AZsPpQu+p/QcZBI5PeOo7QGQdy2x2m0MU/hYagBbGOmXwr5KVbEfVuWv9LpnQWeehogurjg==}
     hasBin: true
@@ -2156,6 +2169,9 @@ packages:
   object-inspect@1.13.4:
     resolution: {integrity: sha512-W67iLl4J2EXEGTbfeHCffrjDfitvLANg0UlX3wFUUSTx92KXRFegMHUVgSqE+wvhAbi4WqjGg9czysTV2Epbew==}
     engines: {node: '>= 0.4'}
+
+  ollama@0.6.4:
+    resolution: {integrity: sha512-KzM6b5Sq0TgipeMTdImuELr/V4eNqrTf37PRzUTHCPPieFmboYw6qPn+pX7+lg0nSP1jsKwy4AFkiQFXhqHeZA==}
 
   on-finished@2.4.1:
     resolution: {integrity: sha512-oVlzkg3ENAhCk2zdv7IJwd/QUD4z2RxRwpkcGY8psCVcCYZNq4wYnVWALHM+brtuJjePWiYF/ClmuDr8Ch5+kg==}
@@ -2565,6 +2581,9 @@ packages:
 
   web-namespaces@2.0.1:
     resolution: {integrity: sha512-bKr1DkiNa2krS7qxNtdrtHAmzuYGFQLiQ13TsorsdT6ULTkPLKuu5+GsFpDlg6JFjUTwX2DyhMPG2be8uPrqsQ==}
+
+  whatwg-fetch@3.6.20:
+    resolution: {integrity: sha512-EqhiFU6daOA8kpjOWTL0olhVOF3i7OrFzSYiGsEMB8GcXS+RrzauAERX65xMeNWVqxA6HXH2m69Z9LaKKdisfg==}
 
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
@@ -3303,6 +3322,16 @@ snapshots:
       mime-types: 3.0.2
       negotiator: 1.1.0
 
+  ai-sdk-ollama@4.4.0(ai@7.0.126(zod@4.6.5))(zod@4.6.5):
+    dependencies:
+      '@ai-sdk/provider': 4.0.21
+      '@ai-sdk/provider-utils': 5.0.53(zod@4.6.5)
+      ai: 7.0.126(zod@4.6.5)
+      jsonrepair: 3.15.0
+      ollama: 0.6.4
+    transitivePeerDependencies:
+      - zod
+
   ai@7.0.126(zod@4.6.5):
     dependencies:
       '@ai-sdk/gateway': 4.0.102(zod@4.6.5)
@@ -3980,6 +4009,8 @@ snapshots:
 
   json-schema@0.4.0: {}
 
+  jsonrepair@3.15.0: {}
+
   katex@0.16.47:
     dependencies:
       commander: 8.3.0
@@ -4526,6 +4557,10 @@ snapshots:
 
   object-inspect@1.13.4: {}
 
+  ollama@0.6.4:
+    dependencies:
+      whatwg-fetch: 3.6.20
+
   on-finished@2.4.1:
     dependencies:
       ee-first: 1.1.1
@@ -5008,6 +5043,8 @@ snapshots:
       tsx: 4.23.13
 
   web-namespaces@2.0.1: {}
+
+  whatwg-fetch@3.6.20: {}
 
   which@2.0.2:
     dependencies:

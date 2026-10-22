@@ -568,7 +568,11 @@ describe('the learner model moved onto its provider', () => {
   });
 
   it('falls back to claude-code when the stored provider is one that cannot teach', () => {
-    const file = atVersion5([{ model: 'claude-opus-5-5' }], 'ollama');
+    // llama.cpp, not Ollama: the Ollama row teaches from plan 04-01 on, so a
+    // model id stored against it migrates onto Ollama rather than falling back.
+    // The fallback branch this case is about needs a row that genuinely cannot
+    // teach, which is what llama.cpp still is here.
+    const file = atVersion5([{ model: 'claude-opus-5-5' }], 'llamacpp');
     migrate(file);
     assert.deepEqual(JSON.parse(prefsOf(file, 'l0')!), { model: { 'claude-code': 'claude-opus-5-5' } });
   });

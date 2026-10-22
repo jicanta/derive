@@ -30,12 +30,14 @@ import { createOpenAI, openai } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { JSONValue, LanguageModel, LanguageModelUsage, ProviderMetadata, Tool } from 'ai';
+import { createOllama } from 'ai-sdk-ollama';
 import { costOf, type CostRow } from '../cost.js';
 import type { CostSource } from '../db.js';
 import { priceTable } from '../prices.js';
 import { v1 } from '../probe.js';
 import { labelOf, type ProviderId } from '../providers.js';
 import { searchReady } from '../search.js';
+import { numCtxFor } from '../settings.js';
 import type { ToolDialect } from '../tools.js';
 
 /**
@@ -157,6 +159,25 @@ function tableCost(provider: ProviderId, usage: LanguageModelUsage, model: strin
   };
   const { usd, source } = costOf([row], priceTable());
   return { cost_usd: usd, cost_source: source, searches };
+}
+
+/**
+ * What a turn on the learner's own machine cost: nothing, and how firmly
+ * Derive knows that.
+ *
+ * Amendment A-02 of `04-01-PLAN.md`, resolving a conflict the research notes
+ * and the approved UI-SPEC disagreed on. A local turn is free, so the figure is
+ * never a number. The *label* is the whole decision: a request that reported
+ * any token count reads `not billed` (`cost_source: 'subscription'` in
+ * `cost.ts`'s locked vocabulary) because Derive knows exactly what it cost;
+ * one that reported none reads `not reported` (`'unknown'`), because then it
+ * genuinely does not. Saying `not reported` on a turn that did report counts
+ * would claim ignorance Derive does not have.
+ */
+function localCost(usage: LanguageModelUsage): CostRead {
+  const counted =
+    reported(usage.inputTokenDetails?.noCacheTokens) ?? reported(usage.inputTokens) ?? reported(usage.outputTokens) ?? reported(usage.totalTokens);
+  return { cost_usd: null, cost_source: counted === null ? 'unknown' : 'subscription', searches: null };
 }
 
 /**
@@ -398,6 +419,63 @@ export function adapterFor(provider: ProviderId): Adapter {
     case 'codex':
       throw new Error(`${labelOf(provider)} runs on its own CLI and never through this loop`);
     case 'ollama':
+      return {
+        // D-08: compaction is keyed on the provider being local, never on the
+        // model's own size. A learner's 70B on a 128k window and their 3B on a
+        // 16k one are the same row, and asking the row rather than the model
+        // keeps the decision in one place.
+        dialect: 'compact',
+        // A local server caches nothing across requests and takes no
+        // breakpoint, so there is nothing to attach. A decision, not an
+        // omission.
+        cacheHook: () => undefined,
+        // Ollama's own web search needs an Ollama account key, which the
+        // offline path by definition has none of, so 03 D-20 puts this row on
+        // the pluggable fallback path. This is also the explicit resolution of
+        // the Phase-3 deferred Ollama-search backend: the row answers null, and
+        // `04-CONTEXT.md` §Deferred places the backend itself outside this
+        // phase.
+        search: () => null,
+        model: (key, base, modelId) => {
+          // Only the learner knows which model they pulled onto their own
+          // machine, so the catalogue carries no default for this row and an
+          // empty id is refused here rather than going out as one. Same voice
+          // as the openai-compatible row above.
+          if (!modelId) throw new Error('Choose a model for Ollama first');
+          return createOllama({
+            baseURL: base ?? 'http://127.0.0.1:11434',
+            // A locally-started Ollama usually wants no key at all; one is sent
+            // only when the learner stored it, and only to the address they
+            // stored it against.
+            ...(key ? { apiKey: key } : {}),
+            fetch: noRedirectFetch,
+          })(modelId, {
+            // The whole reason this row is not on the OpenAI-compatible route.
+            // Ollama's OpenAI-compatible endpoint carries no `options` object,
+            // so that route silently gets Ollama's 4,096-token default — and
+            // the first thing a 4k window drops is the method's gate,
+            // discipline and checks text, with nothing erroring. This is the
+            // failure PROV-06 exists to prevent.
+            options: { num_ctx: numCtxFor('ollama') },
+            // Every tool-capable model in Ollama's library also carries
+            // `thinking`, and reasoning reaches neither the learner nor SQLite
+            // (03 D-09) — so paying for it out of a 16k window buys nothing.
+            think: false,
+            // That layer retries and normalises a malformed tool call behind
+            // Derive's back. Plan 04-04's schema-rejection count would then
+            // measure the wrapper rather than the model, which is the one thing
+            // a conformance harness must not do.
+            reliableToolCalling: false,
+          });
+        },
+        // Amendment A-02: a free turn that reported counts is `not billed`,
+        // because Derive knows exactly what it cost — nothing. `not reported`
+        // is reserved for a turn that reported no counts at all, which is a
+        // different claim. Never a `cost_usd` figure: there is no money here to
+        // report, and no fifth `cost_source` value (Phase 1 D-16 fixes the
+        // union at four).
+        cost: (_pm, usage) => localCost(usage),
+      };
     case 'lmstudio':
     case 'llamacpp':
       throw new Error(`${labelOf(provider)} has no owned-loop adapter yet`);

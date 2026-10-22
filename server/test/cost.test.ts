@@ -286,13 +286,13 @@ describe('the estimator', () => {
   it('lets a prompt through while it is under the headroom', () => {
     const window = windowOf('anthropic', 'claude-opus-5-5') ?? 0;
     const chars = Math.floor(window * HEADROOM_FRACTION * CHARS_PER_TOKEN) - 3000;
-    assert.deepEqual(headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: '', messages: '', prompt: 'x'.repeat(chars) }, PRICES), { refuse: false });
+    assert.deepEqual(headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: '', messages: '', prompt: 'x'.repeat(chars), tools: '' }, PRICES), { refuse: false });
   });
 
   it('refuses before the request once the prompt passes the headroom', () => {
     const window = windowOf('anthropic', 'claude-opus-5-5') ?? 0;
     const chars = Math.ceil(window * HEADROOM_FRACTION * CHARS_PER_TOKEN) + 3000;
-    const check = headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: 'x'.repeat(chars), messages: '', prompt: '' }, PRICES);
+    const check = headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: 'x'.repeat(chars), messages: '', prompt: '', tools: '' }, PRICES);
     assert.equal(check.refuse, true, 'a prompt past 80% of a known window is refused with Derive own sentence rather than the provider error');
     assert.equal(check.refuse === true ? check.reason : null, REFUSAL, 'the sentence is the UI-SPEC copy, byte for byte');
   });
@@ -300,12 +300,69 @@ describe('the estimator', () => {
   it('sums the three texts rather than measuring only the newest one', () => {
     const window = windowOf('anthropic', 'claude-opus-5-5') ?? 0;
     const third = Math.ceil((window * HEADROOM_FRACTION * CHARS_PER_TOKEN) / 3) + 1000;
-    const check = headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: 'x'.repeat(third), messages: 'y'.repeat(third), prompt: 'z'.repeat(third) }, PRICES);
+    const check = headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: 'x'.repeat(third), messages: 'y'.repeat(third), prompt: 'z'.repeat(third), tools: '' }, PRICES);
     assert.equal(check.refuse, true, 'the system prompt, the history and the new message all occupy the window');
   });
 
   it('abstains rather than guessing when the window is not in the table', () => {
-    const check = headroomCheck({ provider: 'openai-compatible', model: 'some-endpoint-model', instructions: 'x'.repeat(8_000_000), messages: '', prompt: '' }, PRICES);
+    const check = headroomCheck({ provider: 'openai-compatible', model: 'some-endpoint-model', instructions: 'x'.repeat(8_000_000), messages: '', prompt: '', tools: '' }, PRICES);
     assert.deepEqual(check, { refuse: false }, "refusing a learner's perfectly capable endpoint on a guessed window would be worse than letting that endpoint's own error through");
+  });
+
+  it('counts the serialised tool surface, which a small local window is a fifth of', () => {
+    // The gap PROV-06 exists to close: the sixteen `api` tools are 3,349
+    // estimated tokens in the compact dialect, 20% of a 16,384 window the
+    // estimate used to be blind to. The same text is allowed as `prompt` and
+    // refused as `tools` only if `tools` is not counted at all.
+    const window = 16_384;
+    const under = Math.floor(window * HEADROOM_FRACTION * CHARS_PER_TOKEN) - 300;
+    const allowed = headroomCheck({ provider: 'ollama', model: 'a-local-model', instructions: 'x'.repeat(under), messages: '', prompt: '', tools: '', window }, PRICES);
+    assert.deepEqual(allowed, { refuse: false }, 'the case rests on the instructions alone fitting');
+
+    const refused = headroomCheck({ provider: 'ollama', model: 'a-local-model', instructions: 'x'.repeat(under), messages: '', prompt: '', tools: 'y'.repeat(3_000), window }, PRICES);
+    assert.equal(refused.refuse, true, 'the tool text the request carries must count toward the estimate');
+  });
+
+  it('allows an estimate exactly at the headroom and refuses one token over', () => {
+    // 20480 rather than the 16384 floor because 16384 × 0.8 × 3 is 39321.6: the
+    // boundary is only observable at a window whose headroom lands on a whole
+    // number of characters, and 20480 × 0.8 × 3 = 49152 exactly.
+    const window = 20_480;
+    const exact = window * HEADROOM_FRACTION * CHARS_PER_TOKEN;
+    assert.ok(Number.isInteger(exact), 'the boundary case rests on the headroom landing on a whole number of characters');
+    assert.deepEqual(
+      headroomCheck({ provider: 'ollama', model: 'a-local-model', instructions: 'x'.repeat(exact), messages: '', prompt: '', tools: '', window }, PRICES),
+      { refuse: false },
+      'exactly at the headroom is inside it: the comparison is <=',
+    );
+    const over = headroomCheck({ provider: 'ollama', model: 'a-local-model', instructions: 'x'.repeat(exact), messages: '', prompt: '', tools: 'x'.repeat(CHARS_PER_TOKEN), window }, PRICES);
+    assert.equal(over.refuse, true, 'one estimated token past the headroom is refused');
+  });
+
+  it('lets a caller-supplied window outrank a table row for the same provider and model', () => {
+    const big = windowOf('anthropic', 'claude-opus-5-5') ?? 0;
+    assert.equal(big, 1_000_000, 'the precedence case rests on the table carrying a large window for this model');
+    const chars = Math.ceil(16_384 * HEADROOM_FRACTION * CHARS_PER_TOKEN) + 3_000;
+
+    // Under the table's million-token window, so the table alone would allow it.
+    assert.deepEqual(
+      headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: 'x'.repeat(chars), messages: '', prompt: '', tools: '' }, PRICES),
+      { refuse: false },
+      'the listed window is what the table-only path measures against',
+    );
+
+    // A window the caller observed is an observation rather than a listing, so
+    // it wins — and the refusal it produces is the num_ctx one, not the
+    // lesson-growth one.
+    const check = headroomCheck({ provider: 'anthropic', model: 'claude-opus-5-5', instructions: 'x'.repeat(chars), messages: '', prompt: '', tools: '', window: 16_384 }, PRICES);
+    assert.equal(check.refuse, true, 'a caller-supplied window takes precedence over the table');
+    const reason = check.refuse === true ? check.reason : '';
+    assert.ok(reason.includes('Settings'), 'a window the learner set is raised in Settings');
+    assert.ok(!reason.includes('Home'), 'the two refusals carry one link each and must never be conflated');
+  });
+
+  it('still abstains when neither the table nor the caller has a window', () => {
+    const check = headroomCheck({ provider: 'llamacpp', model: 'a-model-the-server-was-started-with', instructions: 'x'.repeat(8_000_000), messages: '', prompt: '', tools: '' }, PRICES);
+    assert.deepEqual(check, { refuse: false }, 'a local server whose capability read found no window abstains exactly as an unlisted endpoint does');
   });
 });

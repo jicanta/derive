@@ -171,9 +171,9 @@ export const PROVIDERS: readonly ProviderSpec[] = [
     endpoint: 'http://127.0.0.1:11434',
     modelsPath: '/api/tags',
     port: 11434,
-    teaches: false,
+    teaches: true,
     optionalKey: false,
-    note: unwired('Ollama'),
+    note: "Runs the app's tutor on a model on this machine — no key, no network, nothing billed. Set the window Derive asks for in the num_ctx field below.",
   },
   {
     id: 'lmstudio',

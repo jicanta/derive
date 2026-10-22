@@ -34,7 +34,7 @@ import { priceTable } from '../prices.js';
 import { hintFor, providerSentence } from '../probe.js';
 import { labelOf, type ProviderId } from '../providers.js';
 import { safeMessage } from '../secrets.js';
-import { baseUrlKey, currentTutor, effectiveKey } from '../settings.js';
+import { baseUrlKey, currentTutor, effectiveKey, numCtxFor } from '../settings.js';
 import { TOOL_LABELS, descriptionFor, jsonSchemaOf, toolsFor, validateToolInput, type ToolDialect } from '../tools.js';
 import { adapterFor, nativeSearch, searchCountOf, searchMode, type CostRead } from './adapters.js';
 
@@ -508,7 +508,22 @@ async function runTurn(provider: ProviderId, ctx: TurnContext, sink: EventSink) 
   // request will carry; measuring the serialised history rather than its prose
   // over-counts by the JSON envelope, which is the direction this estimate is
   // meant to be wrong in.
-  const headroom = headroomCheck({ provider, model: ctx.model ?? null, instructions: ctx.instructions, messages: JSON.stringify(prior), prompt: ctx.prompt }, priceTable());
+  // The tool text the request is about to carry, serialised in the same
+  // (surface, dialect) pair it will go out in — so the estimate measures what
+  // the provider will actually be shown rather than the registry's own full
+  // projection. Deterministic for a pair, and on a 16k local window it is a
+  // fifth of what the check is measuring.
+  const toolText = JSON.stringify(
+    toolsFor('api')
+      .filter((s) => !omit.has(s.name))
+      .map((s) => ({ name: s.name, description: descriptionFor(s, 'api', adapter.dialect), schema: jsonSchemaOf(s, 'api', adapter.dialect) })),
+  );
+  // One resolver, so a reader can see there is exactly one and not a per-row
+  // guess. Ollama is the only row Derive sets the window on: D-05 leaves LM
+  // Studio and llama.cpp serving whatever they were started with, and plan
+  // 04-02's capability read is what supplies their window here.
+  const window = provider === 'ollama' ? numCtxFor(provider) : undefined;
+  const headroom = headroomCheck({ provider, model: ctx.model ?? null, instructions: ctx.instructions, messages: JSON.stringify(prior), prompt: ctx.prompt, tools: toolText, window }, priceTable());
   if (headroom.refuse) {
     // Three endings, three shapes. A Stop and the step cap are *continuable*
     // (`{ ok: true, interrupted: true }`: the lesson stays resumable and the
