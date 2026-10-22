@@ -31,6 +31,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { JSONValue, LanguageModel, LanguageModelUsage, ProviderMetadata, Tool } from 'ai';
 import { createOllama } from 'ai-sdk-ollama';
+import { OLLAMA_THINK } from '../config.js';
 import { costOf, type CostRow } from '../cost.js';
 import type { CostSource } from '../db.js';
 import { priceTable } from '../prices.js';
@@ -460,7 +461,11 @@ export function adapterFor(provider: ProviderId): Adapter {
             // Every tool-capable model in Ollama's library also carries
             // `thinking`, and reasoning reaches neither the learner nor SQLite
             // (03 D-09) — so paying for it out of a 16k window buys nothing.
-            think: false,
+            // False unless the conformance harness asked otherwise: research
+            // assumption A7 (that no tool-capable model stops calling tools
+            // with thinking off) needs a real server, and that harness is its
+            // only detector. See OLLAMA_THINK in config.ts.
+            think: OLLAMA_THINK,
             // That layer retries and normalises a malformed tool call behind
             // Derive's back. Plan 04-04's schema-rejection count would then
             // measure the wrapper rather than the model, which is the one thing

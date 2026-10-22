@@ -16,7 +16,8 @@
     "test": "pnpm --filter server test",
     "method": "node scripts/render-method.mjs",
     "method:check": "node scripts/check-method.mjs",
-    "check": "node --env-file-if-exists=.env scripts/doctor.mjs"
+    "check": "node --env-file-if-exists=.env scripts/doctor.mjs",
+    "conformance": "node --env-file-if-exists=.env scripts/conformance.mjs"
   },
   "engines": {
     "node": ">=22.5"

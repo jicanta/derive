@@ -74,3 +74,21 @@ export const ENV_KEYS: Readonly<Record<EnvKeyName, string | undefined>> = {
 };
 /** Where Ollama listens when not on its default port, in the form Ollama's own CLI reads (a host, host:port or URL). Locks the Ollama row's address: the row is probed there and reads `set from environment`. */
 export const OLLAMA_HOST = process.env.OLLAMA_HOST || undefined;
+
+/**
+ * What an Ollama turn asks for on `think`. False by default, which is the
+ * setting every lesson has always run under: reasoning reaches neither the
+ * learner nor SQLite, so paying for it out of a 16k window buys nothing.
+ *
+ * It is a variable at all because of one open question. Research assumption A7
+ * — that every tool-capable model in Ollama's library keeps calling tools with
+ * thinking off — needs a real server to settle, and a model that stops calling
+ * tools under `think: false` cannot teach at all. The conformance harness is
+ * the detector: it sets this, records the value in the run header, and a
+ * re-run at `low` is how the difference is read off two reports. No learner
+ * surface reads it, and Settings has no field for it.
+ */
+export const OLLAMA_THINK: false | 'low' | 'medium' | 'high' = (() => {
+  const raw = process.env.DERIVE_OLLAMA_THINK;
+  return raw === 'low' || raw === 'medium' || raw === 'high' ? raw : false;
+})();

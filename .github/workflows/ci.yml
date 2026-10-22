@@ -51,12 +51,13 @@ jobs:
           CI: 'true'
 
       # tsc covers server/src and web/src only, so the standalone .mjs files —
-      # the method renderer and its CI gate, the preflight doctor, and the
-      # Claude Code hook that ships in the plugin — have no other check.
-      # `pnpm check` runs doctor.mjs for real on a developer's machine; here it
-      # would only ever report a missing Claude login, so parse them instead.
+      # the method renderer and its CI gate, the preflight doctor, the
+      # conformance harness the nightly workflow runs, and the Claude Code hook
+      # that ships in the plugin — have no other check. `pnpm check` runs
+      # doctor.mjs for real on a developer's machine; here it would only ever
+      # report a missing Claude login, so parse them instead.
       - name: Standalone scripts parse
         run: |
-          for f in scripts/render-method.mjs scripts/check-method.mjs scripts/doctor.mjs plugin/hooks/mirror.mjs; do
+          for f in scripts/render-method.mjs scripts/check-method.mjs scripts/doctor.mjs scripts/conformance.mjs plugin/hooks/mirror.mjs; do
             node --check "$f"
           done
