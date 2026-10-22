@@ -20,7 +20,8 @@ All analog paths below were checked against `git ls-files` (tracked source, no g
 | `server/src/materials.ts` (modify: outline-only render, D-09) | service | transform | same file, `materialsSection` (279+) and its char-budget helper (265–276) | exact |
 | `server/src/db.ts` (modify: rejection counter, usage read) | model/storage | CRUD | same file, `recordUsage`/`listUsage` (698–760) | exact |
 | `server/src/migrations.ts` (modify: migration 8, if a table) | migration | batch | same file, migration 6 `tool_results` (~280–296) and 7 (298–304) | exact |
-| `server/src/drivers/api.ts` (modify: pass `tools`, record rejections, `usageTotals` sibling) | service | streaming | same file, `lessonCost` (56–60), `headroomCheck` call (505–522), `validateToolInput` (455) | exact |
+| `server/src/drivers/api.ts` (modify: pass `tools`, record rejections) | service | streaming | same file, `lessonCost` (56–60), `headroomCheck` call (505–522), `validateToolInput` (455) | exact |
+| `server/src/usage.ts` (NEW: the learner-total aggregate) | service | request-response | `lessonCost` in `server/src/drivers/api.ts` (56–60) — copied for its shape, **not** added beside it | role-match (re-decided 2026-10-22, see below) |
 | `web/src/components/ProviderRow.tsx` (modify: `NumCtxField`, `TestTeaching`) | component | request-response | same file, `BaseUrlField` (210–263) and the test action (478–497) | exact |
 | `web/src/pages/Usage.tsx` (NEW) | component/page | request-response | `web/src/pages/You.tsx` (1–70: load-on-mount, `error` string state) | role-match |
 | `web/src/main.tsx` (modify: `/usage` route) | config | — | same file (lines 13–22) | exact |
@@ -276,7 +277,9 @@ export function listUsage(filter: { turn?: string; lesson?: string; learner?: st
 ```
 `count()` (line ~712) is the "null, never zero, never an estimate" guard — reuse it for any new numeric column.
 
-**Aggregate for COST-03** — copy `lessonCost` from `server/src/drivers/api.ts:56-60` with `{ learner }` and grouping:
+**Aggregate for COST-03** — copy `lessonCost` from `server/src/drivers/api.ts:56-60` with `{ learner }` and grouping.
+
+> **Re-decided during planning, 2026-10-22 (plan 04-05 §"Why a new module rather than `drivers/api.ts`").** This map originally placed the learner-total aggregate in `drivers/api.ts` as a `usageTotals` sibling of `lessonCost`. The plan copies `lessonCost`'s **shape** but puts the function in a new `server/src/usage.ts`, for two reasons the map did not weigh: it keeps a page-shaped read out of the turn loop's file, and it keeps plan 04-05's `files_modified` disjoint from plan 04-04's, which also modifies `drivers/api.ts` (the rejection recording) — two plans writing one file would force them into the same wave. The analog below is still the analog; only the destination moved. Recorded here so this file and the plan are not later read as disagreeing.
 ```ts
 export function lessonCost(lessonId: string, extra: readonly CostRow[] = []): string | null {
   const rows = [...listUsage({ lesson: lessonId }), ...extra];
