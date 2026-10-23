@@ -358,7 +358,7 @@ export function LessonPage() {
                     return <ResourceCard key={`r-${it.seq}`} resource={it.resource} nodeLabel={labelOf(it.resource.node_id)} />;
                   case 'error':
                     return (
-                      <div key={it.seq} className="rounded-xl border border-rust-400/40 bg-rust-400/5 px-4 py-3 text-sm text-rust-400">
+                      <div key={it.seq} className="rounded-xl border border-rust-400/40 bg-rust-400/5 px-4 py-3 text-sm text-rust-400 max-w-[62ch] break-words">
                         {withNextStepLink(it.text)}
                       </div>
                     );
