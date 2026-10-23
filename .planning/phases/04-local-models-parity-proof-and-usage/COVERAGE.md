@@ -24,7 +24,7 @@
 | `GET /api/version` | OPT-OUT | not needed — `/api/tags` already proves it is Ollama answering, and no behaviour depends on the daemon version |
 | `POST /api/generate` — completion | OPT-OUT | explicitly out of scope — the tutor is a tool-calling chat loop; a completion endpoint cannot carry the method's tools |
 | `POST /api/embed` | OPT-OUT | explicitly out of scope — Derive stores no embeddings (REQUIREMENTS.md names no retrieval feature) |
-| `POST /api/pull` · `/api/push` · `/api/create` · `/api/copy` · `DELETE /api/delete` · `POST /api/blobs` | OPT-OUT | explicitly out of scope — Derive never mutates the learner's model library (04-CONTEXT.md D-05: Derive never fights a server's own configuration) |
+| Ollama model-library mutation endpoints (6) | OPT-OUT | `/api/pull` `/push` `/create` `/copy` `/delete` `/blobs` — explicitly out of scope: Derive never mutates the learner's model library (04-CONTEXT.md D-05) |
 | `GET /api/ps` — loaded instances | OPT-OUT | not needed — D-05 makes Ollama the one server Derive *tells* the window to, so what is currently loaded changes nothing Derive decides |
 | Ollama cloud `web_search` | OPT-OUT | explicitly out of scope — needs an Ollama account key the offline path has none of; 03 D-20 puts the row on the fallback search path (04-CONTEXT.md §Deferred) |
 
@@ -34,7 +34,7 @@
 |---|---|---|
 | `GET /health` — liveness | INTEGRATE | |
 | `GET /v1/models` — model list + `meta.n_ctx_train` | INTEGRATE | |
-| `GET /props` — `chat_template_caps.supports_tools`, `default_generation_settings.n_ctx` | INTEGRATE | |
+| `GET /props` — template caps + default window | INTEGRATE | reads `chat_template_caps.supports_tools` and `default_generation_settings.n_ctx` |
 | `POST /v1/chat/completions` — chat with `tools` | INTEGRATE | |
 | `POST /completion` · `/infill` | OPT-OUT | explicitly out of scope — not a tool-calling chat surface |
 | `POST /embedding` | OPT-OUT | explicitly out of scope — Derive stores no embeddings |
@@ -49,8 +49,8 @@
 | capability | decision | reason |
 |---|---|---|
 | `GET /api/v0/models` — discovery shape + `max_context_length` (older builds) | INTEGRATE | |
-| `GET /api/v1/models` — `capabilities.trained_for_tool_use`, `max_context_length`, `loaded_instances[].config.context_length` | INTEGRATE | |
-| `POST /v1/chat/completions` — chat with `tools` | INTEGRATE | |
+| `GET /api/v1/models` — tool-use + window | INTEGRATE | reads `capabilities.trained_for_tool_use`, `max_context_length`, and `loaded_instances[].config.context_length` |
+| `POST /v1/chat/completions` (LM Studio) — chat with `tools` | INTEGRATE | same OpenAI-compatible path llama.cpp exposes, but a different server — kept as its own row so each server's matrix stands alone |
 | `POST /v1/completions` · `POST /api/v0/completions` | OPT-OUT | explicitly out of scope — not a tool-calling chat surface |
 | `POST /v1/embeddings` · `POST /api/v0/embeddings` | OPT-OUT | explicitly out of scope — Derive stores no embeddings |
 | `GET /api/v0/models/{model}` — single-model detail | OPT-OUT | not needed — the list endpoints already carry every field the capability probe reads, in one request for the whole list (D-07) |
