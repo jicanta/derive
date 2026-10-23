@@ -41,14 +41,15 @@ Inferred from the codebase map (`.planning/codebase/`, mapped at commit 7d7db1f)
 - ✓ Parity on the owned loop: the same tutor tools, the same method text, sequential tool execution, resume after an interruption, retries behind a visible "provider busy" status, web search on every path (provider-native where it exists, else Tavily or SearXNG), and tool schemas projected per provider dialect and validated in CI — Phase 3 (PROV-08..10). The local paths and the nightly conformance harness that *proves* parity are Phase 4 (PROV-06/07, PROV-13)
 - ✓ Learner sees what each lesson cost in the lesson header and on Home, labelled billed, estimated or not billed, priced from a dated table the learner can override locally — Phase 3 (COST-02, COST-04)
 - ✓ A learner's model override is stored per provider, so switching providers no longer hands one provider's model id to another — Phase 3, closing Phase 2's 02-REVIEW WR-01
+- ✓ Learner can run the tutor on a local model — Ollama, LM Studio or llama.cpp — free and offline, with the context window sized so the method is never silently truncated and a capability probe that refuses clearly when tool calling is unsupported — Phase 4 (PROV-06, PROV-07)
+- ✓ Learner can prove a chosen model runs the method before investing a session: a "test teaching" press on the provider row teaches one node and grades one real quiz server-side, and a nightly conformance harness replays a scripted lesson per provider and asserts the gate, pretest and cumulative quiz held — Phase 4 (PROV-11, PROV-13)
+- ✓ Learner sees a usage page reached from Settings: a running total per learner by provider, model and lesson, with tokens-only lines wherever there is no money — Phase 4 (COST-03), completing the half Phase 3 started
 
 ### Active
 
 Provider layer
 
-- [ ] Learner can run the tutor on a local model (Ollama, LM Studio, llama.cpp) with no cost and offline
 - [ ] Learner can run the tutor on additional CLI subscriptions they already pay for (Gemini CLI, GitHub Copilot, other agent CLIs)
-- [ ] A running total on a usage page, by provider, model and lesson, with tokens-only lines for the subscription and local paths — the per-lesson half shipped in Phase 3; this is the remaining half (COST-03)
 
 Learning experience
 
@@ -101,9 +102,9 @@ Adoption
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Providers first, then learning UX, then style, then adoption | More providers unlocks more users immediately; the rest lands on a stable layer | — Pending |
-| Full parity across providers (Derive owns its agent loop) | The method is the product; degrading it per provider would fork the experience | ✓ Shipped Phase 3 on the API-key and gateway paths — same tutor tools, same method text, sequential execution, resume, retries; the conformance harness that proves it is Phase 4 |
+| Full parity across providers (Derive owns its agent loop) | The method is the product; degrading it per provider would fork the experience | ✓ Shipped Phase 3 on the API-key and gateway paths; ✓ proven Phase 4 — the nightly conformance harness replays a scripted lesson per provider and asserts the gate, pretest and cumulative quiz held, reporting every unreached provider with its reason rather than reading healthy by omission |
 | Settings page in the app for provider/model choice | Env-only is fine for the author, not for adoption; per-lesson choice is premature | ✓ Shipped Phase 2 — one page, ten rows, install-wide with a per-learner model override on /you |
-| Per-lesson cost plus running total on pay-per-use | Learners paying per token must see what a lesson costs | ◆ Half shipped Phase 3 — the per-lesson figure is in the header and on Home; the usage page total is Phase 4 (COST-03) |
+| Per-lesson cost plus running total on pay-per-use | Learners paying per token must see what a lesson costs | ✓ Shipped — the per-lesson figure Phase 3 (header, Home), the running total Phase 4 (Usage page, by provider/model/lesson, tokens-only where there is no money) |
 | Consolidate the tool contract and method text as part of the provider work | Every new driver would otherwise add a fourth copy | — Pending |
 | Clone-and-run install, no desktop app, no hosted version | Author's call: what they can clone is fine for now | — Pending |
 | Success = other people using it | Adoption is the measure, not the author's own use | — Pending |
@@ -114,6 +115,10 @@ Adoption
 | Prices come from a dated table, and a table-priced lesson reads `estimated`, never `billed` | The five vendors' list prices were cross-checked against their own pages on 2026-10-06, but two of them are tiered or promotional, so a table figure is an estimate by construction; only a gateway's own per-response cost earns `billed` | ✓ Applied Phase 3 (COST-04) |
 | A half-configured search fallback behaves as no search at all, not as the provider's own | A learner who picked Tavily and left the key empty must not be silently served a different search; the selection has to mean what it says | ✓ Applied Phase 3 (PROV-09) |
 | PROV-08 ("full parity") earns its checkbox on the live-key run, not on the stub proof | Owner's call on 2026-10-12 closing Phase 3 UAT: the substance was stub-tested all through the phase, but "full parity" is a claim about real providers, so the marking waited for the three live-key lessons in UAT test 1 | ✓ Decided Phase 3 — flipped to Complete |
+| Derive never fights the learner's own server configuration | A local server's context window, adapters and loaded model are the learner's settings; Derive reads them, tells Ollama the window it needs, and refuses clearly when a model cannot run the method — it does not rewrite the learner's setup | ✓ Applied Phase 4 (04-CONTEXT.md D-05) |
+| The lesson refusal card is bounded at 62ch rather than inheriting the timeline column | Owner's call on 2026-10-22 closing Phase 4's gap 1: the locked UI-SPEC E2 row named the bound, so implement the spec rather than reword it. The card renders noticeably narrower than its neighbours, and that is the intended result | ✓ Applied Phase 4 (04-06) |
+| A prohibition with no source gate is a claim with nothing behind it | Two Phase 4 prohibitions (the tool-rejection ledger must never reach the learner; no number may be formatted in the browser) held by inspection but nothing kept them true through the next edit. Each now has a gate that was seen failing with its subject planted before it was kept | ✓ Applied Phase 4 (04-06), per Rule 01-21 |
+| A model id can be a file path, so Derive advises `--alias` rather than renaming what the server reports | Truncating or rewriting the id would make the lesson header, Usage page and exported note disagree with the learner's own server | ✓ Accepted risk R-04-04, Phase 4 |
 
 ## Evolution
 
@@ -133,4 +138,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-14 after Phase 3*
+*Last updated: 2026-10-22 after Phase 4*

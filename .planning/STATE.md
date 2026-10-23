@@ -1,45 +1,45 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 04
-current_phase_name: Local Models, Parity Proof and Usage
-status: executing
-stopped_at: Completed 04-06-PLAN.md
-last_updated: "2026-10-23T01:27:37.001Z"
+current_phase: 5
+current_phase_name: Learning Experience
+status: planning
+stopped_at: Phase 04 complete, ready to plan Phase 5
+last_updated: "2026-10-23T02:24:57.413Z"
 last_activity: 2026-10-22
-last_activity_desc: Phase 04 execution started
-state_head: 41e9d38c6f7a023d90faf76e5967c1e9eba05e80
+last_activity_desc: Phase 04 complete, transitioned to Phase 5
+state_head: d044712df191b7ad7f5dee18b6178cbd725c6ed0
 progress:
   total_phases: 7
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 44
   completed_plans: 44
-  percent: 43
+  percent: 57
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-14)
+See: .planning/PROJECT.md (updated 2026-10-22)
 
 **Core value:** A learner can sit down with any model they have access to and be taught the Derive way: the dependency graph, the understanding gate, the review loop, with nothing lost between providers.
 **Simplicity rule (binding):** one screen, one next step. The default UI shows the lesson and what to do next; everything else lives behind Settings. No feature ships without a one-sentence reason tied to learning better.
-**Current focus:** Phase 04 — Local Models, Parity Proof and Usage
+**Current focus:** Phase 5 — Learning Experience
 
 ## Current Position
 
-Phase: 04 (Local Models, Parity Proof and Usage) — EXECUTING
-Plan: 2 of 6
-Status: Ready to execute
-Last activity: 2026-10-22 — Phase 04 execution started
+Phase: 5 — Learning Experience
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-22 — Phase 04 complete, transitioned to Phase 5
 
-Progress: [████░░░░░░] 43%
+Progress: [██████░░░░] 57%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 38
+- Total plans completed: 44
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -50,6 +50,7 @@ Progress: [████░░░░░░] 43%
 | 01 | 22 | - | - |
 | 02 | 7 | - | - |
 | 03 | 9 | - | - |
+| 04 | 6 | - | - |
 
 **Recent Trend:**
 
@@ -237,9 +238,11 @@ None yet.
 
 - [Phase 2]: Gemini CLI third-party terms are MEDIUM confidence; re-verify if that driver ever leaves v2 (the Anthropic half is settled — in-app Claude runs on an API key, the plugin keeps the subscription)
 - [Phase 3]: Two advisory reports are open and carried forward, not closed: `03-REVIEW.md` (`issues_found`) and `03-UI-REVIEW.md` (15/24 — chiefly the cost segment squeezing the lesson topic to 0px in the header at 1024px, Home's rows overlapping at 375px, the web-search card telling a default Claude Code install it has no search, and a 23px radio hit area against the 32px rule)
-- [Phase 4]: No measurement yet of which local models pass the understanding gate; the harness produces the answer
-- [Phase 4]: Two Phase 3 deferrals are owed here, both named with their seam in `03/deferred-items.md`: the Ollama search backend (`SEARCH_PROVIDERS` in `server/src/search.ts`, one entry plus one function — PROV-09's third backend) and lifting `/you`'s field string onto the shared `fields.ts` vocabulary
+- [Phase 5]: The conformance harness shipped and ran (04-04), but no local model has yet been measured against the understanding gate on a machine with a real server — the instrument exists, the data does not. The nightly produces it once Phase 4 is on the default branch
+- [Phase 5]: Two Phase 3 deferrals were owed in Phase 4 and went unpaid — still open, both named with their seam in `03/deferred-items.md`: the Ollama search backend (`SEARCH_PROVIDERS` in `server/src/search.ts` is still `['provider','tavily','searxng']` — PROV-09's third backend) and lifting `/you`'s field string onto a shared `fields.ts` vocabulary (no `fields.ts` exists)
 - [Phase 7]: npm package name not yet reserved (`derive` is taken)
+- [Phase 4]: `04-REVIEW.md` is `issues_found` and carried forward, not closed — 2 Critical, 7 Warning, 4 Info. Both Criticals are regressions the earlier `04-REVIEW-FIX` round introduced on one seam, which model a Settings-page action is about: CR-01 (`server/src/index.ts:560`) makes the activation refusal unrecoverable from the shipped UI, CR-02 (`web/src/components/ProviderRow.tsx:381,518`) can print `Pass` beside a model that was not the one tested. Fix with `/gsd-code-review 4 --fix`
+- [Phase 4]: `04-SECURITY.md` is `threats_open: 0`, but its advisory 1 stands — threat T-04-01's register promises "a test asserts a known fake key does not survive into the written report" and no such test exists; `exitCodeFor` is exported from `scripts/conformance.mjs` for exactly that and never exercised. The control is present at every recorded-sentence site, so the threat is genuinely closed at ASVS L1; the assurance artifact is what is missing
 - Phase 4: research assumption A7 is still open — whether think:false is accepted by every tool-capable Ollama model without breaking tool calling cannot be settled without a local server; plan 04-04's conformance harness is the detector and should carry think as a harness variable
 
 ### Quick Tasks Completed
@@ -259,5 +262,5 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-10-23T01:27:36.887Z
-Stopped at: Completed 04-06-PLAN.md
+Stopped at: Phase 04 complete, ready to plan Phase 5
 Resume file: None

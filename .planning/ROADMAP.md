@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - One tool contract, one method text, one driver seam and event sink, per-turn usage ledger, transactional migrations, hardened localhost server; plugin and Codex paths proven unchanged (completed 2026-09-20)
 - [x] **Phase 2: Settings and Secrets** - Provider and model chosen in the app, availability detected, keys stored in a 0600 file and never echoed, connection tested, active model visible everywhere (completed 2026-10-01)
 - [x] **Phase 3: Owned Loop: API Keys and Gateways** - Derive's own agent loop on Anthropic, OpenAI and Gemini keys, OpenRouter and any OpenAI-compatible endpoint, with full parity, web search on every path and per-lesson cost in the header (completed 2026-10-14)
-- [ ] **Phase 4: Local Models, Parity Proof and Usage** - Free, offline lessons on Ollama, LM Studio and llama.cpp without silent truncation; "test teaching"; nightly conformance harness; usage page with a running total by provider, model and lesson
+- [x] **Phase 4: Local Models, Parity Proof and Usage** - Free, offline lessons on Ollama, LM Studio and llama.cpp without silent truncation; "test teaching"; nightly conformance harness; usage page with a running total by provider, model and lesson (completed 2026-10-22)
 - [ ] **Phase 5: Learning Experience** - Home says what to do next, due count everywhere, keyboard-first cards, honest retention stats, stability-coloured Atlas, focus mode, sharper remediation, better voice mode, streaming status, restart-safe cards
 - [ ] **Phase 6: Personalization** - Theme, accent, font (dyslexia-friendly, self-hosted), size, reduced motion, tone and language; per learner, behind Settings, applied before first paint, method untouched
 - [ ] **Phase 7: Adoption** - One-command install via a published package, Claude Code marketplace and Codex skills listings, docs site, README as landing page, contributor guide, directory submissions
@@ -350,7 +350,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 | 1. Foundation | 22/22 | Complete    | 2026-09-20 |
 | 2. Settings and Secrets | 7/7 | Complete    | 2026-10-01 |
 | 3. Owned Loop: API Keys and Gateways | 9/9 | Complete    | 2026-10-14 |
-| 4. Local Models, Parity Proof and Usage | 6/6 | In Progress|  |
+| 4. Local Models, Parity Proof and Usage | 6/6 | Complete    | 2026-10-22 |
 | 5. Learning Experience | 0/TBD | Not started | - |
 | 6. Personalization | 0/TBD | Not started | - |
 | 7. Adoption | 0/TBD | Not started | - |

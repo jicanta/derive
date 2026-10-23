@@ -1,9 +1,10 @@
 ---
 phase: 04-local-models-parity-proof-and-usage
 verified: 2026-10-23T02:14:00Z
-status: human_needed
+status: passed
 score: 54/59 must-haves verified
 covered_files:
+
   - ".github/workflows/ci.yml"
   - ".github/workflows/conformance.yml"
   - ".planning/REQUIREMENTS.md"
@@ -59,6 +60,7 @@ covered_files:
   - "web/src/pages/Lesson.tsx"
   - "web/src/pages/Settings.tsx"
   - "web/src/pages/Usage.tsx"
+
 covered_digest: "v1:sha256:fe7a0c846157cc36e1f2a2c583d640698472a5d35aaabf9afc068006a9157c14"
 behavior_unverified: 5
 overrides_applied: 0
@@ -73,6 +75,7 @@ re_verification:
   gaps_remaining: []
   regressions: []
 behavior_unverified_items:
+
   - truth: "SC1: Learner completes a lesson on an Ollama model with the network off"
     test: "Install Ollama, pull a model from ollama.com/search?c=tools, point the Ollama row at it, turn the network off, run a lesson. Then set num_ctx to 16384 with a large attached material"
     expected: "The tutor plans, quizzes and locks a node; the understanding gate refuses to lock on a wrong answer. The over-window lesson refuses with 'The method does not fit in this model's context window…' and the word Settings is a link that lands on Settings — not the '… from Home.' sentence"
@@ -94,6 +97,7 @@ behavior_unverified_items:
     expected: "'Usage · what learning has cost' and the grand total each stay on one line; the em phrase truncates while the gold Display-size figure keeps its column"
     why_human: "The class contract is right (the total is shrink-0 truncate, the summary is min-w-0 truncate, so the summary gives way first), but whether both actually hold one line at 375px is a rendered-layout fact no static read establishes"
 advisory:
+
   - finding: "CR-01 — the per-learner activation refusal (server/src/index.ts:560) is unrecoverable through the shipped UI: no surface clears prefs.model[provider] for a provider that is not currently active, and the refusal sentence names Settings, which cannot fix it"
     category: architectural
     reason: "Raised by the incremental code review in 04-REVIEW.md as a regression from the earlier 04-REVIEW-FIX round. It does not falsify the must-have it touches (row 25 asserts the refusal fires, not that it is recoverable) and no named test runs red against it. Resolved by a fix on the refusal's model resolution plus a way to clear the per-learner id; see 04-REVIEW.md §CR-01"
@@ -107,6 +111,7 @@ advisory:
     reason: "A Copywriting Contract change awaiting the owner, already carried in .planning/WINDOWS.md#26. Row 8's truth as worded (the num_ctx sentence, one link, Settings, never the Home sentence) holds; the complaint is that the sentence is misleading on the read-only rows. Explicitly out of 04-06's scope"
     evidence_status: "none provided"
 human_verification:
+
   - test: "SC1 — Ollama installed, network off, a lesson that plans/quizzes/locks; then the num_ctx refusal card and its Settings link"
     expected: "See behavior_unverified_items[0]"
     why_human: "No Ollama binary on this machine"

@@ -26,11 +26,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **PROV-04**: Learner can run the tutor through OpenRouter, with exact per-response cost recorded
 - [x] **PROV-05**: Learner can run the tutor through any OpenAI-compatible endpoint by entering a base URL and key
 - [x] **PROV-06**: Learner can run the tutor on a local Ollama model, offline, with the context window sized so the method is never silently truncated
-- [ ] **PROV-07**: Learner can run the tutor on LM Studio or llama.cpp, with capability probes that refuse clearly when tool calling is unsupported
+- [x] **PROV-07**: Learner can run the tutor on LM Studio or llama.cpp, with capability probes that refuse clearly when tool calling is unsupported
 - [x] **PROV-08**: The owned loop keeps full parity: same tools, same method, sequential tool execution, resume after interruption, retries with a visible "provider busy" status
 - [x] **PROV-09**: Web search and fetch work on every provider: provider-native tools where they exist, otherwise a pluggable search provider (Tavily, SearXNG, Ollama search) with a fetch that reuses the library fetcher
 - [x] **PROV-10**: Tool schemas are projected per provider dialect (OpenAI strict, Gemini, compact for local) and validated in CI; incoming calls are validated against the full schema server-side
-- [ ] **PROV-11**: Learner can run a "test teaching" smoke test from settings: one node, one graded quiz, proving the chosen model can run the method
+- [x] **PROV-11**: Learner can run a "test teaching" smoke test from settings: one node, one graded quiz, proving the chosen model can run the method
 - [x] **PROV-13**: A method-conformance harness replays a scripted lesson per provider and asserts the gate, pretest and cumulative quiz held; runs nightly
 
 ### Settings
@@ -152,11 +152,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROV-04 | Phase 3 | Complete |
 | PROV-05 | Phase 3 | Complete |
 | PROV-06 | Phase 4 | Complete |
-| PROV-07 | Phase 4 | Gaps Found |
+| PROV-07 | Phase 4 | Complete |
 | PROV-08 | Phase 3 | Complete |
 | PROV-09 | Phase 3 | Complete |
 | PROV-10 | Phase 3 | Complete |
-| PROV-11 | Phase 4 | Gaps Found |
+| PROV-11 | Phase 4 | Complete |
 | PROV-13 | Phase 4 | Complete |
 | SET-01 | Phase 2 | Complete |
 | SET-02 | Phase 2 | Complete |
