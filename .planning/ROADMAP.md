@@ -255,7 +255,7 @@ Plans:
   4. A nightly conformance harness replays a scripted lesson on every configured provider and reports whether the understanding gate, the pretest and the cumulative quiz held
   5. The Usage page, reached from Settings, shows one thing: a running total per learner by provider, model and lesson, with tokens-only lines for subscription and local paths
 
-**Plans**: 5/5 plans executed in 5 waves, one per requirement, each led by a tracer that proves its slice end to end before anything expands sideways. Verification found 4 gaps (2 UI-SPEC E2 states on the lesson refusal card, 2 declared-but-absent source gates); `04-06-PLAN.md` closes all four in one wave. Fully serialised: `server/src/index.ts`, `server/src/db.ts`, `server/src/drivers/api.ts`, `server/src/capability.ts` and `web/src/components/ProviderRow.tsx` are the spines every later slice extends, and each plan runs the whole-tree `pnpm method:check` / `pnpm typecheck` / `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files. **No local model server exists on the execution machine** (no `ollama`, `lms` or `llama-server` binary; nothing on 11434 or 1234; port 8080 answers 200 text/html from an unrelated dashboard), so every server-metadata parser is a pure function tested from the JSON quoted in `04-RESEARCH.md`, the loop is driven structurally through `setModelOverride` / `setDriverOverride`, and Success Criteria 1 and 2 are carried as end-of-phase UAT `<human-check>` items with install commands rather than claimed from a stub.
+**Plans**: 6/6 plans executed in 5 waves, one per requirement, each led by a tracer that proves its slice end to end before anything expands sideways. Verification found 4 gaps (2 UI-SPEC E2 states on the lesson refusal card, 2 declared-but-absent source gates); `04-06-PLAN.md` closes all four in one wave. Fully serialised: `server/src/index.ts`, `server/src/db.ts`, `server/src/drivers/api.ts`, `server/src/capability.ts` and `web/src/components/ProviderRow.tsx` are the spines every later slice extends, and each plan runs the whole-tree `pnpm method:check` / `pnpm typecheck` / `pnpm build` / `pnpm test` gate, which observes the working tree rather than one plan's files. **No local model server exists on the execution machine** (no `ollama`, `lms` or `llama-server` binary; nothing on 11434 or 1234; port 8080 answers 200 text/html from an unrelated dashboard), so every server-metadata parser is a pure function tested from the JSON quoted in `04-RESEARCH.md`, the loop is driven structurally through `setModelOverride` / `setDriverOverride`, and Success Criteria 1 and 2 are carried as end-of-phase UAT `<human-check>` items with install commands rather than claimed from a stub.
 
 Plans:
 
@@ -281,7 +281,7 @@ Plans:
 
 **Gap closure** *(from `04-VERIFICATION.md`, 52/59 — run with `--gaps-only`)*
 
-- [ ] 04-06-PLAN.md — `max-w-[62ch]` and `break-words` on the lesson refusal card so the locked UI-SPEC E2 overflow and long-text rows describe the element that actually renders, plus the two source gates the PROV-13 values prohibition and the COST-03 prohibition each declared and neither had (PROV-06, PROV-13, COST-03, wave 1)
+- [x] 04-06-PLAN.md — `max-w-[62ch]` and `break-words` on the lesson refusal card so the locked UI-SPEC E2 overflow and long-text rows describe the element that actually renders, plus the two source gates the PROV-13 values prohibition and the COST-03 prohibition each declared and neither had (PROV-06, PROV-13, COST-03, wave 1)
 
 **UI hint**: yes
 **Research**: `--research-phase` recommended — which tool-capable local models actually complete a Derive lesson (expect small models to fail the gate often); minimum `num_ctx` (floor 16k from a prompt estimate, checked against `/api/show`); LM Studio and llama.cpp template support (`/v1/models`, `/props`, `--jinja`). Use `ai-sdk-ollama` on the native API because it is the only route that sets `num_ctx`; compact tool descriptions and material-outline-only for local providers, gate text never removed; record tool rejection rate per provider in usage; the usage page needs no research.
@@ -350,7 +350,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 | 1. Foundation | 22/22 | Complete    | 2026-09-20 |
 | 2. Settings and Secrets | 7/7 | Complete    | 2026-10-01 |
 | 3. Owned Loop: API Keys and Gateways | 9/9 | Complete    | 2026-10-14 |
-| 4. Local Models, Parity Proof and Usage | 5/5 | In Progress|  |
+| 4. Local Models, Parity Proof and Usage | 6/6 | In Progress|  |
 | 5. Learning Experience | 0/TBD | Not started | - |
 | 6. Personalization | 0/TBD | Not started | - |
 | 7. Adoption | 0/TBD | Not started | - |

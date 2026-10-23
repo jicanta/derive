@@ -44,6 +44,14 @@ Expected results:
 - Rows whose secret you set read a real verdict instead of `no key in the environment`.
 - A row where a model actually failed a verdict makes the job red. That is the harness working: a weak model failing the gate is the expected, useful finding the roadmap predicts.
 
+### The lesson refusal card wraps (added by 04-06)
+
+The sixth item to see with your own eyes, beside the five `behavior_unverified` items in `04-VERIFICATION.md`. Plan 04-06 put `max-w-[62ch] break-words` on the refusal card; both classes are asserted statically, but whether the rendered card actually wraps is a layout fact no static read establishes.
+
+- [ ] Open a lesson, trigger the `num_ctx` refusal on a read-only local row (llama.cpp or LM Studio) whose model id is a file path, and confirm the card wraps the id across lines with **no horizontal scrollbar** on the timeline.
+
+Expected: the refusal sentence wraps inside roughly 62 characters — noticeably narrower than its neighbouring timeline items, which is the intended result of the locked UI-SPEC E2 contract, not a regression — and the injected `Settings` link still renders underlined and still navigates.
+
 ---
 
 **Once all items complete:** Mark status as "Complete" at top of file.

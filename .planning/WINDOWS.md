@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 28
+open_count: 29
 waived_count: 0
 fixed_count: 0
-total_count: 28
-last_updated: 2026-10-22T22:20:44.072Z
+total_count: 29
+last_updated: 2026-10-23T01:26:15.094Z
 ---
 
 # Broken Windows Ledger
@@ -43,6 +43,7 @@ last_updated: 2026-10-22T22:20:44.072Z
 | 26 | 04 | unmet-truth | server/src/drivers/api.ts | 530 | The per-lesson window refusal on the LM Studio and llama.cpp rows uses the num_ctx sentence, whose first fix (raise num_ctx in Settings) does nothing on a row D-05 makes read-only; only its second (pick a model with room) is actionable. Neither locked UI-SPEC sentence fits a read-only row and a third is a Copywriting Contract change. Pinned by server/test/local.test.ts#measures a read-only row against the window its server reported. | open |  | 2026-10-22T20:40:59.733Z |  |
 | 27 | 04 | unrun-verify | scripts/conformance.mjs |  | The conformance replay path (quiet -> scripted turn -> card answers -> verdicts) has no automated coverage: this machine has no local model or key and D-16 forbids a fake provider. Proven only by the owner's end-of-phase UAT (pnpm conformance with a local model; a dispatched nightly run). | open |  | 2026-10-22T22:00:53.844Z |  |
 | 28 | 04 | unrun-verify | server/src/usage.ts |  | Whether LM Studio and llama.cpp report a usage object on the STREAMING path (research assumption A2) is unverified: this machine has no local server. If they do not, a local Usage line reads 'not reported' instead of tokens. The UI-SPEC covers that state and forbids a $0.00 in its place, so it degrades honestly; only the owner's end-of-phase UAT with a live local model can close it. | open |  | 2026-10-22T22:20:44.072Z |  |
+| 29 | 04 | unrun-verify | web/src/pages/Lesson.tsx | 361 | E2 refusal-card render (62ch wrap, no horizontal scroll) is a human-check carried to 04-USER-SETUP.md; both classes asserted statically but the rendered layout is unverified | open |  | 2026-10-23T01:26:15.094Z |  |
 
 ````json
 [
@@ -407,6 +408,19 @@ last_updated: 2026-10-22T22:20:44.072Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-22T22:20:44.072Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 29,
+    "kind": "unrun-verify",
+    "phase": "04",
+    "file": "web/src/pages/Lesson.tsx",
+    "line": 361,
+    "description": "E2 refusal-card render (62ch wrap, no horizontal scroll) is a human-check carried to 04-USER-SETUP.md; both classes asserted statically but the rendered layout is unverified",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-23T01:26:15.094Z",
     "resolved_at": null,
     "milestone": null
   }
