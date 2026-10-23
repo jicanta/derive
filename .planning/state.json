@@ -21,7 +21,7 @@
     {
       "number": "4",
       "name": "Local Models, Parity Proof and Usage",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "5",
@@ -41,8 +41,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 04 of 7 · 43% · executing"
+    "label": "Advance to the next step (plan phase 5)",
+    "reason": "Phase 5 of 7 — needs a plan"
   },
-  "updated_at": "2026-10-23T01:15:44.250Z"
+  "updated_at": "2026-10-23T02:24:57.429Z"
 }
