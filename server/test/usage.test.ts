@@ -13,7 +13,7 @@
 import assert from 'node:assert/strict';
 import { type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -678,5 +678,51 @@ describe('what learning has cost, as the Usage page reads it', () => {
     // side takes the learner off the turn for exactly this reason; the read
     // side takes it off the resolved request and from nowhere else.
     assert.deepEqual(await usageWithBody(b, { learner: a }), seenByB);
+  });
+});
+
+/**
+ * Two prohibitions, read off the source they govern.
+ *
+ * Both facts hold today and both were confirmed by hand. What neither had was
+ * anything that keeps them true through the next edit, which is the only
+ * reason a prohibition is worth writing down. Pure filesystem reads: no
+ * server, no database, no fixture.
+ */
+describe('what the browser is not allowed to carry', () => {
+  const webSrc = fileURLToPath(new URL('../../web/src/', import.meta.url));
+
+  it('keeps every numeric formatter out of the Usage page', () => {
+    const source = readFileSync(new URL('../../web/src/pages/Usage.tsx', import.meta.url), 'utf8');
+    // The page's own module doc names these identifiers in prose, on purpose, and so does a JSX comment further down. A gate that goes red on the correct file is a gate the next person softens or deletes.
+    const stripped = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+
+    assert.ok(stripped.includes('export function UsagePage'), 'the comment strip ate the page: every absence assertion below would pass vacuously');
+
+    const found = ['toFixed', 'toLocaleString', 'Intl.NumberFormat'].filter((id) => stripped.includes(id));
+    assert.deepEqual(found, [], `a numeric formatter reached the browser: ${found.join(', ')}. Every figure on this page is a string the server already composed.`);
+  });
+
+  it('keeps the tool-rejection ledger out of every file under web/src', () => {
+    // D-21: the rate is internal bookkeeping with no runtime effect. D-10: compaction and the telemetry are silent implementation details — the only local-path signals a learner sees are the capability and num_ctx refusal cards. A rate read into the browser breaks that as surely as a rate written there.
+    const files = readdirSync(webSrc, { recursive: true })
+      .map((e) => String(e).replaceAll('\\', '/'))
+      .filter((p) => p.endsWith('.ts') || p.endsWith('.tsx') || p.endsWith('.css'));
+
+    // A walk that silently returns nothing is how an "appears nowhere" gate passes forever while guarding nothing. Three files in three subdirectories; a rename turns this red and a human re-points it, which is the correct outcome.
+    for (const expected of ['pages/Usage.tsx', 'lib/useLesson.ts', 'components/ProviderRow.tsx']) {
+      assert.ok(files.includes(expected), `the walk of web/src did not find ${expected}; the absence assertions below would prove nothing`);
+    }
+
+    for (const file of files) {
+      const source = readFileSync(join(webSrc, file), 'utf8');
+      for (const id of ['recordToolRejection', 'toolRejectionRate', 'toolRejectionsOf', 'tool_rejections']) {
+        assert.ok(!source.includes(id), `web/src/${file} names ${id}; the tool-rejection ledger must never reach the learner`);
+      }
+    }
   });
 });
