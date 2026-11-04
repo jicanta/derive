@@ -1,10 +1,11 @@
 ---
 phase: "5"
 slug: "learning-experience"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-11-04"
+reviewed_at: "2026-11-04"
 ---
 
 # Phase 5 — UI Design Contract
@@ -551,51 +552,100 @@ are verified by reading the class strings, not by driving a headless browser.
 
 ## UI Considerations
 
-> Shape-rooted UI *state* coverage. Empty-state and error-state COPY live in §Copywriting Contract and
-> are referenced here, not restated. Rows are REPLACED, not appended, on a probe re-run.
+> Shape-rooted UI *state* coverage, produced by the ui-consideration probe
+> (`ui-consideration-probe.cjs`, 8-category closed taxonomy) over the nine surfaces this phase
+> builds. Empty-state and error-state COPY lives in §Copywriting Contract and is referenced here,
+> not restated. Rows are REPLACED, not appended, on a probe re-run.
 
-Applicable state considerations resolved: 29 covered, 2 backstop, 0 unresolved.
+**Element classification** (confirmed by the author — the prose classifier's raw proposal was
+corrected: it read E4, a React Flow node, as a `form`, and E8, a one-line label, as a
+`list-collection`; two real kinds it missed were added back, the due pill's `list-collection`
+reading because its copy pluralises over the due-node set, and focus mode's because it renders a
+filtered subset of the timeline):
 
-| Category | Element(s) | Status | Resolution / Reason |
-|----------|------------|--------|---------------------|
-| empty | E1 Home next-step block / list-collection | ✅ covered | `lessons.length === 0` → the block does not render and the shipped hero is the empty state (D-01) |
-| loading | E1 Home next-step block / list-collection | ✅ covered | Home already renders its hero before `stats`/`lessons` resolve; the block mounts when both are in hand, so no skeleton row and no row that changes copy under the learner |
-| error | E1 Home next-step block / list-collection | ✅ covered | A failed `stats` or `lessons` fetch leaves the block unrendered (Home's shipped `.catch(() => undefined)`); the hero and topic box still work, so the page is never blocked by the block |
-| populated | E1 Home next-step block / list-collection | ✅ covered | Three rows in fixed order: lead, continue, start new — same order every day (D-02) |
-| partial | E1 Home next-step block / list-collection | ✅ covered | Lessons exist but none has nodes → row 2 renders `No lesson in progress`; the block keeps its three-row shape |
-| zero-one-many | E1 Home next-step block / list-collection | ✅ covered | `0` due → `Nothing due today`; `1` → `Review 1 due`; many → `Review {n} due`. Row 2 pluralises nothing (one topic or the quiet variant) |
-| long-text | E1 Home next-step block / list-collection | ✅ covered | A long topic truncates inside `max-w-[42ch]` on row 2; the quoted topic never wraps the row to a second line |
-| overflow | E1 Home next-step block / list-collection | ✅ covered | Single column, no `auto` track, no right-hand element to collide with — structurally unable to repeat `03-UI-REVIEW` finding 2. At 375px no row exceeds 56px |
-| empty | E2 Due pill / static-content | ✅ covered | `n === 0` → nothing rendered; "nothing due" is said in Home's next-step block and the Atlas due block instead of by a dead pill |
-| loading | E2 Due pill / static-content | ✅ covered | Absent until the count is known; it never renders a `—`, a spinner or a `0` that later becomes a number |
-| error | E2 Due pill / static-content | ✅ covered | A failed count leaves the pill unrendered; no page header shows a stale or guessed figure |
-| overflow | E2 Due pill / static-content | 🧪 backstop | Held-out visual check: at 375px on the lesson header, with the pill present, the lesson topic renders ≥64px and the pill is fully visible and unclipped. This is the surface `03-UI-REVIEW` finding 1 flagged and the one D-04 knowingly crowds, so it is verified by measurement, not by inspection |
-| long-text | E2 Due pill / static-content | ✅ covered | Three digits is the realistic ceiling; the pill is `shrink-0` and `whitespace-nowrap`, and the title absorbs the loss via the header's `flex-1 basis-0` title rule |
-| empty | E3 Atlas retention block / static-content | ✅ covered | `locked === 0` → the block does not render (and the aside itself only renders when the Atlas has nodes); an all-zero fortnight renders fourteen stubs + `nothing due in the next 14 days` |
-| loading | E3 Atlas retention block / static-content | ✅ covered | The block mounts with its figures; the Atlas map and its two shipped blocks render first and are never blocked on the retention query |
-| error | E3 Atlas retention block / static-content | ✅ covered | The documented rust line from §Copywriting Contract renders inside the block only; the map, the due block and the misconceptions block are unaffected and the copy says so |
-| populated | E3 Atlas retention block / static-content | ✅ covered | Eyebrow + gold figure, caption, retention row, 14-bar strip with axis and caption — a third block in the shipped `border-t hairline pt-[18px]` rhythm |
-| partial | E3 Atlas retention block / static-content | ✅ covered | Fewer than ten review quizzes → `not enough reviews yet` replaces only the percentage; estimated knowledge, the target and the forecast still render, because only one of the four figures is a sample (D-08) |
-| zero-one-many | E3 Atlas retention block / static-content | ✅ covered | `1` locked node → `about 1 of 1 locked nodes held right now`; a single forecast review → `1 review in the next 14 days`; bars singularise in their `title` |
-| overflow | E3 Atlas retention block / static-content | ✅ covered | The strip is 286px inside 296px of aside content at every count; the aside's shipped `max-h-[calc(100%-3rem)] overflow-y-auto scroll-thin` absorbs the added height |
-| long-text | E3 Atlas retention block / static-content | ✅ covered | Every string is a fixed template over numbers; the caption wraps inside the 296px column rather than widening the aside |
-| populated | E4 Tinted locked node / static-content | ✅ covered | Fill, border, glow and ordinal alpha all ramp from the same `t`; `#17130b` text holds ≥4.83:1 at every point (measured, §Stability tint ramp) |
-| partial | E4 Tinted locked node / static-content | ✅ covered | `stability` absent → the shipped class strings are used verbatim and `animate-glow-in` still runs, so the in-lesson graph is byte-identical to today (D-10) |
-| zero-one-many | E4 Tinted locked node / static-content | ✅ covered | `stability = 0` is the faint end of the ramp, not a missing value; `null`/`undefined` is the untinted path above. The two cases are distinct and render differently |
-| long-text | E4 Tinted locked node / static-content | ✅ covered | Unchanged: the shipped `line-clamp-3 text-pretty` label in a fixed 196×64 box, with the full claim in `.node-pop` |
-| empty | E5 Help overlay / interactive-control | ✅ covered | Never empty: with no card open it still names `f` and `Esc`, and the heading drops to `Keys` |
-| populated | E5 Help overlay / interactive-control | ✅ covered | Rows are generated from the open card's kind and option count — a two-option quiz shows `1` `2`, never three |
-| overflow | E5 Help overlay / interactive-control | ✅ covered | At most six rows in a `max-w-[380px]` panel; nothing to scroll and nothing that can go stale, which is D-12's reason for refusing a longer overlay |
-| long-text | E5 Help overlay / interactive-control | ✅ covered | Every label is fixed copy from §Copywriting Contract; no learner or model string enters the overlay |
-| empty | E6 Focus mode / interactive-control | ✅ covered | No open card → last `assistant` block + composer; neither → the documented `Nothing to focus on yet. Esc to leave.` line |
-| loading | E6 Focus mode / interactive-control | ✅ covered | A turn in flight inside focus shows the gold status line in the collapsed column; focus never hides the fact that the tutor is working |
-| overflow | E6 Focus mode / interactive-control | ✅ covered | One `max-w-[680px]` column with the shipped `.scroll-thin` scroller; hiding three regions can only reduce width pressure |
-| loading | E7 Rehydrated card / interactive-control | ✅ covered | Between answering a rehydrated card and the new turn's first block, the gold status line reads `Grading your answer`; the learner is never looking at a settled screen that is secretly working |
-| error | E7 Rehydrated card / interactive-control | ✅ covered | Unresumable history → the documented quiet notice line, not a rust card. A genuinely stale prompt → the shipped disabled copy |
-| partial | E7 Rehydrated card / interactive-control | 🧪 backstop | Held-out check: with the server restarted mid-card and **no turn in flight**, the restored card renders **active** — not `disabled` with `This question is no longer active` — and submitting it grades. This is the exact dead-card state LEARN-12 exists to kill and the one a reducer that keys on `busy` silently reintroduces |
-| loading | E8 Status line / static-content | ✅ covered | Shows whenever a turn is in flight and no card is awaiting the learner, including while a submitted answer is being graded (D-16) |
-| long-text | E9 Keyboard hint rows / static-content | ✅ covered | Fixed chip strings; `hidden sm:inline` as shipped, with the overlay as the phone-width path to the same information |
+| Element | Kinds | Applicable |
+|---|---|---|
+| E1 Home next-step block | `list-collection` + `nav` | 8 |
+| E2 Due pill | `nav` + `static-content` + `list-collection` | 8 |
+| E3 Atlas retention block | `list-collection` + `static-content` + `media` | 8 |
+| E4 Stability-tinted locked node | `media` + `static-content` | 6 |
+| E5 `?` help overlay | `interactive-control` + `list-collection` + `static-content` | 8 |
+| E6 Focus mode | `interactive-control` + `list-collection` | 8 |
+| E7 Rehydrated open card | `form` + `interactive-control` | 5 |
+| E8 Streaming status line | `static-content` | 2 |
+| E9 Keyboard hint rows | `static-content` + `list-collection` | 8 |
 
+**Applicable: 61 — 52 resolved (explicit), 7 dismissed with reason, 2 backstop, 0 unresolved.**
+
+E8 is the only element for which `loading` is not raised, and that is correct rather than a gap:
+the status line **is** this phase's loading indicator, so it is the *answer* to the `loading` row on
+E1, E3, E5, E6 and E7 rather than a surface with a loading state of its own. D-16's contract — the
+line shows whenever a turn is in flight and no card awaits the learner, including while a submitted
+answer is being graded — lives in §Streaming status line and is referenced by those five rows.
+
+| Category | Element | Status | Resolution / Reason |
+|----------|---------|--------|---------------------|
+| empty | E1 Home next-step block | ✅ resolved | `lessons.length === 0` → the block does not render and the shipped hero is the empty state (D-01) |
+| loading | E1 Home next-step block | ✅ resolved | Home already renders its hero before `stats`/`lessons` resolve; the block mounts when both are in hand, so no skeleton row and no row that changes copy under the learner |
+| error | E1 Home next-step block | ✅ resolved | A failed `stats` or `lessons` fetch leaves the block unrendered (Home's shipped `.catch(() => undefined)`); the hero and topic box still work, so the page is never blocked by the block |
+| populated | E1 Home next-step block | ✅ resolved | Three rows in fixed order: lead, continue, start new — same order every day (D-02) |
+| partial | E1 Home next-step block | ✅ resolved | Lessons exist but none has nodes → row 2 renders `No lesson in progress`; the block keeps its three-row shape |
+| overflow | E1 Home next-step block | ✅ resolved | Single column, no `auto` track, no right-hand element to collide with — structurally unable to repeat `03-UI-REVIEW` finding 2. At 375px no row exceeds 56px |
+| zero-one-many | E1 Home next-step block | ✅ resolved | `0` due → `Nothing due today`; `1` → `Review 1 due`; many → `Review {n} due`. Row 2 pluralises nothing (one topic or the quiet variant) |
+| long-text | E1 Home next-step block | ✅ resolved | A long topic truncates inside `max-w-[42ch]` on row 2; the quoted topic never wraps the row to a second line |
+| empty | E2 Due pill | ✅ resolved | `n === 0` → nothing rendered; "nothing due" is said in Home's next-step block and the Atlas due block instead of by a dead pill (D-02) |
+| loading | E2 Due pill | ✅ resolved | Absent until the count is known; it never renders a `—`, a spinner or a `0` that later becomes a number |
+| error | E2 Due pill | ✅ resolved | A failed count leaves the pill unrendered; no page header shows a stale or guessed figure |
+| populated | E2 Due pill | ✅ resolved | `{n} due` in grey `font-mono text-[10px]`, ≈64px at `n < 100`, visible at **every** width on all six shared headers and Home's nav row — unlike the `md`-only cost pill, because visible-everywhere is LEARN-03's whole point |
+| partial | E2 Due pill | ⊘ dismissed | A single integer from a single query has no partial state: the count is either known (rendered) or not (the `loading` and `error` rows above). There is no half-populated shape to specify |
+| overflow | E2 Due pill | 🧪 backstop | Held-out visual check: at 375px on the lesson header, with the pill present, the lesson topic renders ≥64px and the pill is fully visible and unclipped. This is the surface `03-UI-REVIEW` finding 1 flagged and the one D-04 knowingly crowds, so it is verified by measurement, not by inspection |
+| zero-one-many | E2 Due pill | ✅ resolved | `0` → not rendered at all; `1` → `1 due` with `title="1 node due for review — start a review"`; many → `{n} due` with `nodes`. The `{n} node{s}` template in §Due pill is what carries the singular/plural, and it must not be left as a bare `nodes` |
+| long-text | E2 Due pill | ✅ resolved | Three digits is the realistic ceiling; the pill is `shrink-0` and `whitespace-nowrap`, and the title absorbs the loss via the shared header's `flex-1 basis-0` title rule |
+| empty | E3 Atlas retention block | ✅ resolved | `locked === 0` → the block does not render (and the aside itself only renders when the Atlas has nodes); an all-zero fortnight renders fourteen stubs + `nothing due in the next 14 days` |
+| loading | E3 Atlas retention block | ✅ resolved | The block mounts with its figures; the Atlas map and its two shipped blocks render first and are never blocked on the retention query |
+| error | E3 Atlas retention block | ✅ resolved | The documented rust line from §Copywriting Contract renders inside the block only; the map, the due block and the misconceptions block are unaffected and the copy says so |
+| populated | E3 Atlas retention block | ✅ resolved | Eyebrow + gold figure, caption, retention row, 14-bar strip with axis and caption — a third block in the shipped `border-t hairline pt-[18px]` rhythm |
+| partial | E3 Atlas retention block | ✅ resolved | Fewer than ten review quizzes → `not enough reviews yet` replaces only the percentage; estimated knowledge, the target and the forecast still render, because only one of the four figures is a sample (D-08) |
+| overflow | E3 Atlas retention block | ✅ resolved | The strip is 286px inside 296px of aside content at every count; the aside's shipped `max-h-[calc(100%-3rem)] overflow-y-auto scroll-thin` absorbs the added height |
+| zero-one-many | E3 Atlas retention block | ✅ resolved | `1` locked node → `about 1 of 1 locked nodes held right now`; a single forecast review → `1 review in the next 14 days`; bars singularise in their `title` |
+| long-text | E3 Atlas retention block | ✅ resolved | Every string is a fixed template over numbers; the caption wraps inside the 296px column rather than widening the aside |
+| empty | E4 Stability-tinted locked node | ✅ resolved | `stability` **absent** → the shipped untinted class strings are used verbatim and `animate-glow-in` still runs, so the in-lesson graph is byte-identical to today (D-10). `stability === 0` is the faint end of the ramp, **not** absence — the two cases are distinct and render differently, and a reducer that conflates them reintroduces the uniformly-fragile in-lesson map D-10 exists to prevent |
+| loading | E4 Stability-tinted locked node | ⊘ dismissed | No loading state exists to specify: `stability` arrives in the same node payload as `status`, so there is no frame in which a node is laid out and waiting for its tint. Were it ever absent, the untinted path above renders — not a skeleton |
+| error | E4 Stability-tinted locked node | ⊘ dismissed | A node is never blocked on its tint. A missing or non-numeric `stability` falls to the untinted path, not to an error treatment; the Atlas has no per-node error state today and this phase adds none |
+| populated | E4 Stability-tinted locked node | ✅ resolved | Fill, border, glow and ordinal alpha all ramp from the same `t`; `#17130b` text holds ≥4.83:1 at every point (measured, §Stability tint ramp) |
+| overflow | E4 Stability-tinted locked node | ✅ resolved | Unchanged: the shipped `line-clamp-3 text-pretty` label in the fixed 196×64 box (`Graph.tsx:22`, `:81`), with the full claim in `.node-pop` (`Graph.tsx:83`). The tint changes colour only, never geometry |
+| long-text | E4 Stability-tinted locked node | ✅ resolved | Same `line-clamp-3` clamp and `.node-pop` escape hatch; a long claim cannot grow the node or push the layout, which is why dagre's measurements are untouched by this phase |
+| empty | E5 `?` help overlay | ✅ resolved | Never empty: with no card open it still names `f` and `Esc`, and the heading drops from `Keys for this card` to `Keys` |
+| loading | E5 `?` help overlay | ⊘ dismissed | Nothing to load. Rows are derived synchronously from the open card already in client state, so the overlay opens on the keypress with its rows present — no spinner, and no row that changes under the learner after it is read |
+| error | E5 `?` help overlay | ⊘ dismissed | No fetch, no failure mode. The one degenerate input — an open card of a kind the row table does not name — falls to the `none open` row set (`f`, `Esc`) rather than to an empty panel or an error |
+| populated | E5 `?` help overlay | ✅ resolved | Rows are generated from the open card's kind and option count — a two-option quiz shows `1` `2`, never three |
+| partial | E5 `?` help overlay | ✅ resolved | The digit cluster renders exactly as many keys as the card has options and the letter cluster mirrors it on the same row; the row is never padded with a key that does nothing |
+| overflow | E5 `?` help overlay | ✅ resolved | At most six rows in a `max-w-[380px]` panel; nothing to scroll and nothing that can go stale, which is D-12's reason for refusing a longer overlay |
+| zero-one-many | E5 `?` help overlay | ✅ resolved | Zero rows is impossible — `f` and `Esc` are always present, so the overlay has a floor of two rows and a ceiling of six. This is why no scroll container is specified |
+| long-text | E5 `?` help overlay | ✅ resolved | Every label is fixed copy from §Copywriting Contract; no learner or model string enters the overlay |
+| empty | E6 Focus mode | ✅ resolved | No open card → last `assistant` block + composer; neither → the documented `Nothing to focus on yet. Esc to leave.` line |
+| loading | E6 Focus mode | ✅ resolved | A turn in flight inside focus shows the gold status line in the collapsed column; focus never hides the fact that the tutor is working |
+| error | E6 Focus mode | ⊘ dismissed | There is nothing to fail: focus is a valueless `data-focus` attribute plus one CSS rule, with no fetch, no storage and no endpoint (D-15). Both `f` and `Esc` leave, and because nothing is persisted a reload also clears it — so no error state can strand a learner in a stripped-down lesson |
+| populated | E6 Focus mode | ✅ resolved | The open card + the one `assistant` block immediately above it + the composer, in the shipped `max-w-[680px] mx-auto` column; the outline rail, the dependency map and the header chrome are hidden by `data-focus-hide` and the grid collapses to one column |
+| partial | E6 Focus mode | ✅ resolved | A card open with no `assistant` block above it (the first card of a lesson) → the card and the composer alone, with **no** placeholder line. The quiet `Nothing to focus on yet` line is reserved for the neither-present case, so it never appears above a card the learner can answer |
+| overflow | E6 Focus mode | ✅ resolved | One `max-w-[680px]` column with the shipped `.scroll-thin` scroller; hiding three regions can only reduce width pressure |
+| zero-one-many | E6 Focus mode | ✅ resolved | Focus shows exactly one card — that is its definition, and the timeline collapse is a filter down to one, so there is no many-item layout to specify. The `f`-toggle is what makes the one-card view cheap to leave and re-enter |
+| long-text | E6 Focus mode | ✅ resolved | A long `assistant` block scrolls in the shipped `.scroll-thin` column. Focus neither clamps nor truncates tutor prose — taking away the explanation a learner may be mid-way through is exactly what D-14 rejected |
+| empty | E7 Rehydrated open card | ✅ resolved | An unanswered rehydrated card is the normal case and renders **identically to a fresh card** — no restored badge, no banner (D-26). With no persisted prompt to rehydrate, the lesson renders exactly as it does today |
+| loading | E7 Rehydrated open card | ✅ resolved | Between answering a rehydrated card and the new turn's first block, the gold status line reads `Grading your answer`; the learner is never looking at a settled screen that is secretly working |
+| error | E7 Rehydrated open card | ✅ resolved | Unresumable history → the documented quiet notice line, not a rust card. A genuinely stale prompt → the shipped disabled copy, verbatim |
+| partial | E7 Rehydrated open card | 🧪 backstop | Held-out check: with the server restarted mid-card and **no turn in flight**, the restored card renders **active** — not `disabled` with `This question is no longer active` — and submitting it grades. This is the exact dead-card state LEARN-12 exists to kill and the one a reducer that keys on `busy` silently reintroduces |
+| long-text | E7 Rehydrated open card | ✅ resolved | Unchanged from the shipped cards: option text wraps inside the card and the explain textarea grows. This phase changes no card body geometry, so a long restored question reads as it did before the restart |
+| overflow | E8 Streaming status line | ✅ resolved | One line in the 680px timeline column. The labels are a closed server-side vocabulary (`server/src/tools.ts` `TOOL_LABELS`), the longest being `Verifying with a web search`, so at `text-sm` the line cannot reach the column edge and no wrap case is introduced |
+| long-text | E8 Streaming status line | ✅ resolved | No learner or model string ever reaches this line — it renders only from `TOOL_LABELS` plus `Thinking` and this phase's one addition, `Grading your answer`. That closed vocabulary is what makes the single-line guarantee above hold rather than being a hope |
+| empty | E9 Keyboard hint rows | ✅ resolved | A card with no options (explain, plan) renders **no digit chips** — its row is the `↵` / `⇧↵` / `? help` set from §Keyboard affordance strings. The row is never rendered as an empty strip |
+| loading | E9 Keyboard hint rows | ⊘ dismissed | The chips are fixed strings rendered with the card itself, never fetched, so the row appears with the card and cannot change under a learner who is already reading it |
+| error | E9 Keyboard hint rows | ✅ resolved | There is no failure mode, but there **is** a staleness failure and this phase fixes it: `QuizCard.tsx:214`'s shipped `title` advertises `? for I don't know`, which D-11 reassigns. The rewritten `title` and the `I don't know (0)` button title in §Keyboard affordance strings are mandatory, not optional — a hint row that names a key the card no longer honours is the one way this element can be wrong |
+| populated | E9 Keyboard hint rows | ✅ resolved | Digits and letters to pick, `↵` answer, `⇧↵` unsure, `?` help — per card, in the shipped `.kbd` chip vocabulary at `font-mono text-[11px] text-ink-500` |
+| partial | E9 Keyboard hint rows | ✅ resolved | As many digit chips as the card has options (a two-option quiz shows `1` `2`); explain shows `{words} words · say a little more` below its eight-word floor and the full row at 8+, so the row tracks what actually works right now |
+| overflow | E9 Keyboard hint rows | ✅ resolved | `hidden sm:inline` **is** the overflow strategy, kept as shipped: below `sm` the row is not rendered at all and the `?` overlay is the path to the same information; above it the chips sit on one line in the 680px column |
+| zero-one-many | E9 Keyboard hint rows | ✅ resolved | The chip count tracks the option count exactly — two options render two chips, three render three — rather than a fixed `1` `2` `3` strip. The method produces 2–3 quiz options and up to 4 for ask (`method/30-quiz-options.md`), and a card with one option would render one chip rather than a padded row |
+| long-text | E9 Keyboard hint rows | ✅ resolved | Fixed chip strings with no interpolated learner or model text, so the row has no long-text case of its own; the one variable string is explain's `{words} words` counter, which is at most three digits |
 ---
 
 ## Registry Safety
@@ -612,12 +662,16 @@ third-party registry is used by this phase, so the registry vetting gate is **no
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: FLAG — `PageHeader`'s Back slot is icon-only on all six pages with no accessible name. Non-blocking; the recommended fix is an `aria-label` worded from the `to` target (so Usage→Settings reads correctly), which the planner should land with the shared header.
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: FLAG — four roles declared, but three further shipped sizes (19.2px, 11px, 10px) are reused by *new* surfaces, so the effective scale for this phase is six. No change requested: D-01 locks the next-step rows to the shipped `Home.tsx:233` rhythm and D-06 locks the retention block into the shipped aside rhythm, so normalising would contradict locked answers. Phase 6 owns font and size.
+- [x] Dimension 5 Spacing: FLAG — four declared values (6px, 10px, 14px, the literal `pt-[18px]`) are off the 4px grid and used by new elements. No change requested for the same reason: D-04 locks the pill to the shipped cost pill byte-for-byte and D-06 locks the block into the three-block `pt-[18px]` rhythm. Recorded as a 2px sub-rhythm the project already carries.
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Approval:** APPROVED 2026-11-04 by gsd-ui-checker — 4 PASS, 3 non-blocking FLAGs, 0 BLOCKs. No revision iterations were needed.
+
+**Note for the planner:** `lucide-react 1.47.0` in §Design System is correct against `web/package.json` (`^1.47.0`). CLAUDE.md's Key Dependencies entry still reads `lucide-react 0.475` and is the stale value — do not "correct" this spec toward it.
+
+**UI-consideration probe:** run post-verification against the 8-category closed taxonomy. 61 applicable across 9 surfaces — 52 resolved (explicit), 7 dismissed with reason, 2 backstop, 0 unresolved. See §UI Considerations.
