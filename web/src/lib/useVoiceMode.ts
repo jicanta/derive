@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import type { TimelineItem } from './types';
-import { isSpeaking, listen, parseSpokenChoice, speak, spokenChoices, spokenQuiz, spokenText, stopSpeaking, voiceSupport, type ListenHandle } from './voice';
+import { isSpeaking, listen, parseSpokenChoice, sentences, speak, spokenChoices, spokenQuiz, spokenText, stopSpeaking, voiceSupport, type ListenHandle } from './voice';
 
 const KEY = 'derive.voice';
 const APPROVE = /^(yes|yeah|yep|ok|okay|sure|approve|approved|looks (good|right|fine)|go ahead|teach me|sí|si|dale|vamos|perfecto|de acuerdo)[.!]?$/i;
@@ -42,7 +42,10 @@ export function useVoiceMode({
   const [speaking, setSpeaking] = useState(false);
   const [dictation, setDictation] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const spoken = useRef(new Set<string>());
+  // How much of each item has been said: for a prose block, the number of
+  // characters already spoken, because the same block comes back with more text
+  // on every delta flush; for everything else, just a mark that it was said.
+  const spoken = useRef(new Map<string, number>());
   const handle = useRef<ListenHandle | null>(null);
   const activeRef = useRef<ActiveCard>(activeCard);
   activeRef.current = activeCard;
@@ -50,6 +53,10 @@ export function useVoiceMode({
   idleRef.current = { busy, external };
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+  const streaming = items.some((it) => it.kind === 'assistant' && it.streaming);
+  const streamingRef = useRef(streaming);
+  streamingRef.current = streaming;
+  const sawStreaming = useRef(false);
 
   const stopListening = useCallback(() => {
     handle.current?.stop();
@@ -105,7 +112,13 @@ export function useVoiceMode({
 
   /** After the tutor has been heard: open the mic if there is something to answer. */
   const afterSpeech = useCallback(() => {
-    if (!enabledRef.current || isSpeaking()) return;
+    // `isSpeaking()` has no notion of "more text is coming": with one utterance
+    // per sentence the queue drains in the gap between two sentences of the same
+    // paragraph, and arming there would point the recognizer at the tutor's own
+    // voice and at the learner's room while nobody has been asked anything. The
+    // symptom is the mic indicator flickering mid-explanation. The mic waits for
+    // the block to finish — do not simplify this guard away.
+    if (!enabledRef.current || isSpeaking() || streamingRef.current) return;
     setSpeaking(false);
     const card = activeRef.current;
     const { busy: b, external: ext } = idleRef.current;
@@ -120,6 +133,8 @@ export function useVoiceMode({
     },
     [afterSpeech],
   );
+  const afterSpeechRef = useRef(afterSpeech);
+  afterSpeechRef.current = afterSpeech;
 
   // Switching on: nothing already on screen is read back, except a card that is waiting.
   useEffect(() => {
@@ -131,7 +146,7 @@ export function useVoiceMode({
     }
     for (const it of items) {
       const k = keyOf(it);
-      if (k) spoken.current.add(k);
+      if (k) spoken.current.set(k, it.kind === 'assistant' ? spokenText(it.text).length : 1);
       if (it.kind === 'quiz' && !it.result) spoken.current.delete(k);
       if (it.kind === 'ask' && it.answer === undefined) spoken.current.delete(k);
       if (it.kind === 'explain' && it.answer === undefined) spoken.current.delete(k);
@@ -147,19 +162,30 @@ export function useVoiceMode({
       const k = keyOf(it);
       if (!k) continue;
       switch (it.kind) {
-        case 'assistant':
-          if (it.streaming || !it.text.trim()) continue;
-          spoken.current.add(k);
-          say(spokenText(it.text));
+        case 'assistant': {
+          // Streaming blocks are read too, a sentence at a time, so the tutor
+          // starts talking about a sentence in instead of after the paragraph.
+          // The recorded offset is what makes that idempotent: deltas merge on a
+          // 60 ms flush and a block is rewritten under its original seq, so the
+          // same key arrives with longer text again and again, and only the text
+          // past the last-said character may ever be queued.
+          const prose = spokenText(it.text);
+          const from = spoken.current.get(k) ?? 0;
+          if (from >= prose.length) break;
+          const { complete, next } = sentences(prose, from);
+          if (!complete.length) break;
+          spoken.current.set(k, next);
+          for (const s of complete) say(s);
           break;
+        }
         case 'quiz': {
           if (!spoken.current.has(k)) {
-            spoken.current.add(k);
+            spoken.current.set(k, 1);
             if (!it.result) say(spokenQuiz(it.quiz.question, it.quiz.options));
           }
           const rk = `${k}:result`;
           if (it.result && !spoken.current.has(rk)) {
-            spoken.current.add(rk);
+            spoken.current.set(rk, 1);
             if (it.result.result !== 'skipped') {
               const verdict = it.result.result === 'correct' ? 'Correct.' : it.result.result === 'incorrect' ? 'Not quite.' : 'No problem.';
               say(`${verdict} ${spokenText(it.result.explanation)}`);
@@ -169,17 +195,17 @@ export function useVoiceMode({
         }
         case 'ask':
           if (spoken.current.has(k)) continue;
-          spoken.current.add(k);
+          spoken.current.set(k, 1);
           if (it.answer === undefined) say(spokenChoices(it.ask.question, it.ask.options));
           break;
         case 'explain':
           if (spoken.current.has(k)) continue;
-          spoken.current.add(k);
+          spoken.current.set(k, 1);
           if (it.answer === undefined) say(`${spokenText(it.explain.prompt)} Explain it in your own words; I will stop listening after a longer pause.`);
           break;
         case 'plan':
           if (spoken.current.has(k)) continue;
-          spoken.current.add(k);
+          spoken.current.set(k, 1);
           if (it.approved === undefined) {
             const truths = it.plan.nodes.filter((n) => n.kind === 'truth').map((n) => n.label);
             const rest = it.plan.nodes.filter((n) => n.kind !== 'truth').map((n) => n.label);
@@ -188,14 +214,30 @@ export function useVoiceMode({
           break;
         case 'node_start':
           if (spoken.current.has(k)) continue;
-          spoken.current.add(k);
+          spoken.current.set(k, 1);
           say(`Next: ${it.label}.`);
           break;
         default:
-          spoken.current.add(k);
+          spoken.current.set(k, 1);
       }
     }
   }, [items, enabled, say]);
+
+  // The block's last sentence is often said while the block is still arriving,
+  // and then no utterance is left to resolve and open the mic. So arming also
+  // happens on the edge where streaming stops — which is the moment the guard in
+  // `afterSpeech` has been waiting for.
+  useEffect(() => {
+    if (!enabled) return;
+    if (streaming) {
+      sawStreaming.current = true;
+      return;
+    }
+    if (!sawStreaming.current) return;
+    sawStreaming.current = false;
+    const t = setTimeout(() => afterSpeechRef.current(), 200);
+    return () => clearTimeout(t);
+  }, [enabled, streaming]);
 
   // A card that appears while nothing is being said (e.g. after a reconnect) still opens the mic.
   useEffect(() => {

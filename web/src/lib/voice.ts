@@ -72,6 +72,66 @@ export function spokenChoices(question: string, options: string[]): string {
   return `${spokenText(question)}${opts}`;
 }
 
+// ---------- sentences ----------
+
+/**
+ * Words whose full stop ends the word, not the sentence. Committed data like
+ * the rest of this file's vocabulary: a new one is a one-line reviewable diff.
+ */
+const ABBREVIATIONS = ['e.g', 'i.e', 'etc', 'vs', 'cf', 'dr', 'mr', 'mrs', 'ms', 'fig', 'no', 'approx'];
+
+/** Where a sentence may end, in the scripts the tutor writes in. */
+const SENTENCE_ENDS = '.!?…。！？';
+
+/**
+ * The tutor's prose cut into complete sentences, so a block can be spoken while
+ * it is still arriving instead of after the whole paragraph. Returns the
+ * sentences found at or after `from` and the index of the first unconsumed
+ * character — never a trailing fragment, because the caller would otherwise say
+ * half a thought now and the same half again when the rest arrived.
+ *
+ * A sentence shorter than 24 characters is not said on its own: it waits and is
+ * prepended to the next one, so a bare "Yes." is not its own utterance with its
+ * own pause before and after it. The floor is lifted at the end of the text,
+ * where there is no next sentence to wait for and the alternative is never
+ * saying it at all.
+ *
+ * A full stop does not end a sentence when it belongs to a decimal (`3.14`), to
+ * an initialism (`e.g.`, `U.S.`) or to one of the abbreviations above. The scan
+ * is a single pass forward with no backtracking.
+ */
+export function sentences(text: string, from = 0): { complete: string[]; next: number } {
+  const complete: string[] = [];
+  const hasMore = (at: number) => {
+    for (let j = at; j < text.length; j++) if (!/\s/.test(text[j])) return true;
+    return false;
+  };
+  let start = Math.min(Math.max(from, 0), text.length);
+  let next = start;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (!SENTENCE_ENDS.includes(c)) continue;
+    const after = text[i + 1];
+    if (after !== undefined && !/\s/.test(after)) continue;
+    if (c === '.' && !endsSentence(text, i)) continue;
+    const chunk = text.slice(start, i + 1).trim();
+    if (chunk && chunk.length < 24 && hasMore(i + 1)) continue;
+    if (chunk) complete.push(chunk);
+    start = i + 1;
+    next = start;
+  }
+  return { complete, next };
+}
+
+/** False when the full stop at `i` belongs to a decimal, an initialism or an abbreviation. */
+function endsSentence(text: string, i: number): boolean {
+  const prev = text[i - 1];
+  if (prev !== undefined && /[0-9]/.test(prev)) return false;
+  if (prev !== undefined && /[A-Za-z]/.test(prev) && text[i - 2] === '.') return false;
+  const word = /[A-Za-z.]+$/.exec(text.slice(0, i))?.[0] ?? '';
+  return !ABBREVIATIONS.includes(word.toLowerCase());
+}
+
 // ---------- speaking ----------
 
 let queue: { text: string; resolve: () => void }[] = [];
