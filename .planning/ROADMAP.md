@@ -300,9 +300,32 @@ Plans:
   4. On a failed quiz the tutor names and re-quizzes the weakest prerequisite, distractors draw on the learner's recorded misconceptions, warm-up and cumulative quiz are named in the UI — and the conformance harness still passes on every provider
   5. Voice mode auto-arms the mic after a question and speaks in sentence chunks in the learner's language; open cards are persisted and rehydrated so a server restart leaves no dead card in the browser
 
-**Plans**: TBD
+**Plans**: 8 plans in 4 waves. The two shared-surface risks lead, per the research's recommended slice order: the `prompts` table (it rewrites the prompt service, the held-card bookkeeping and the companion path at once) and, once the retention read exists, the `due` registry entry (it moves five pinned counts and the method render, and CI fails on all of them). The waves are driven by file ownership rather than by logic — `server/src/index.ts`, `server/src/db.ts`, `server/src/actions.ts` and `web/src/pages/Lesson.tsx` are each wanted by four or more plans, so same-wave plans hold disjoint files and the rest serialise behind them. **Success Criterion 2's prefetch clause now overstates what ships:** D-17's "the next card is prefetched" is implemented as in-turn pipelining of the review and warm-up queues plus the streaming status line, because a turn throws while another is active and no tool can prepare a card without showing it. That narrowing is recorded in 05-06, not matched silently.
+
+Plans:
+
+**Wave 1**
+
+- [ ] 05-01-PLAN.md — The `prompts` table and a restored card that is alive (the phase tracer: migration → prompt service → route → web type → lesson page → restart gate) (wave 1)
+- [ ] 05-02-PLAN.md — Voice speaks sentence by sentence while the block streams, in the learner's language, through a committed locale table (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 05-03-PLAN.md — Answering a restored card grades and starts a fresh turn; the `Grading your answer` status line; the reducer extracted and its event vocabulary pinned (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 05-04-PLAN.md — Honest retention stats in the Atlas aside, and locked gold that deepens with memory stability (wave 3)
+- [ ] 05-05-PLAN.md — One keyboard scheme on all four cards, the `?` help overlay, and focus mode (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 05-06-PLAN.md — Sharper remediation: one named prerequisite, enforced, with the learner's own misconceptions as distractor material (wave 4)
+- [ ] 05-07-PLAN.md — The due count everywhere: one shared page header, and Home leading with the next step (wave 4)
+- [ ] 05-08-PLAN.md — `derive due` in both terminals, as an MCP command and `/derive:due` (wave 4)
+
 **UI hint**: yes
-**Research**: Not needed — Anki, Math Academy and Duolingo patterns are documented and the FSRS data already exists. Held cards live in a `prompts` table via the Phase 1 migration runner; focus mode is a `data-focus` attribute on `<html>` next to the Phase 6 style attributes; add `voice.test.ts` and an `applyEvent` reducer test. Graph reuse across lessons stays deferred to v2.
+**Research**: Not needed for the domain — Anki, Math Academy and Duolingo patterns are documented and the FSRS data already exists — but `05-RESEARCH.md` was produced to verify the landing points, and it corrects three of the four hints below. The `prompts` table is **migration 11, not 12**. There are **no Phase 6 `<html>` style attributes yet**: Phase 5 is the first code in the repo to touch the document element and therefore establishes the convention rather than joining it. `voice.test.ts` and the reducer test cannot live in `web/`, which has no test runner, no `test` script and no importable `tsx`; both go in `server/test/` and import the web module across the package boundary, which a probe proved runs under the shipped runner with no new dependency. Graph reuse across lessons stays deferred to v2 — that hint is accurate.
 
 ### Phase 6: Personalization
 
