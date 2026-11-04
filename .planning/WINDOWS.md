@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 29
+open_count: 31
 waived_count: 0
 fixed_count: 0
-total_count: 29
-last_updated: 2026-10-23T01:26:15.094Z
+total_count: 31
+last_updated: 2026-11-04T23:47:17.218Z
 ---
 
 # Broken Windows Ledger
@@ -44,6 +44,8 @@ last_updated: 2026-10-23T01:26:15.094Z
 | 27 | 04 | unrun-verify | scripts/conformance.mjs |  | The conformance replay path (quiet -> scripted turn -> card answers -> verdicts) has no automated coverage: this machine has no local model or key and D-16 forbids a fake provider. Proven only by the owner's end-of-phase UAT (pnpm conformance with a local model; a dispatched nightly run). | open |  | 2026-10-22T22:00:53.844Z |  |
 | 28 | 04 | unrun-verify | server/src/usage.ts |  | Whether LM Studio and llama.cpp report a usage object on the STREAMING path (research assumption A2) is unverified: this machine has no local server. If they do not, a local Usage line reads 'not reported' instead of tokens. The UI-SPEC covers that state and forbids a $0.00 in its place, so it degrades honestly; only the owner's end-of-phase UAT with a live local model can close it. | open |  | 2026-10-22T22:20:44.072Z |  |
 | 29 | 04 | unrun-verify | web/src/pages/Lesson.tsx | 361 | E2 refusal-card render (62ch wrap, no horizontal scroll) is a human-check carried to 04-USER-SETUP.md; both classes asserted statically but the rendered layout is unverified | open |  | 2026-10-23T01:26:15.094Z |  |
+| 30 | 05 | unmet-truth | server/src/index.ts |  | Answering a card restored from a previous boot is refused with the shipped 409 rather than graded; 05-03 adds the re-derived grading branch that closes it | open |  | 2026-11-04T23:47:17.077Z |  |
+| 31 | 05 | deviation | server/src/db.ts |  | deleteLearner has no learner-scoped prompts DELETE (impossible after its lesson loop); covered by the counting case in server/test/tx.test.ts instead | open |  | 2026-11-04T23:47:17.218Z |  |
 
 ````json
 [
@@ -421,6 +423,32 @@ last_updated: 2026-10-23T01:26:15.094Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-23T01:26:15.094Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 30,
+    "kind": "unmet-truth",
+    "phase": "05",
+    "file": "server/src/index.ts",
+    "line": null,
+    "description": "Answering a card restored from a previous boot is refused with the shipped 409 rather than graded; 05-03 adds the re-derived grading branch that closes it",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-04T23:47:17.077Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 31,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "server/src/db.ts",
+    "line": null,
+    "description": "deleteLearner has no learner-scoped prompts DELETE (impossible after its lesson loop); covered by the counting case in server/test/tx.test.ts instead",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-04T23:47:17.218Z",
     "resolved_at": null,
     "milestone": null
   }

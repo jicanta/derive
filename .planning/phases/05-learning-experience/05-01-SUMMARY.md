@@ -25,7 +25,7 @@ actuals:
   tokens: 106438       # chars/4 over the 11 files actually changed — the scale the plan's raw_tokens: 120000 used
   diff_tokens: 14574   # chars/4 over the realized diff alone
   tasks: 2
-  commits: 2
+  commits: 4           # MEASURED: git rev-list --count 0315d039..HEAD — 2 production + 2 docs (SUMMARY, state/roadmap/ledger)
 plan_head_before: 0315d039e1ec6439719081d9df2f79c920b685e4
 
 tech-stack:
@@ -162,7 +162,7 @@ status: complete
 1. **Task 1 (tracer): a card opened before a restart is still open after it** — `b7eb489` (feat)
 2. **Task 2: the held bookkeeping and the 409 move onto the table** — `f17134f` (refactor)
 
-**Plan metadata:** see the `docs(05-01)` commit that carries this file.
+**Plan metadata:** `55cac5a` (docs: this SUMMARY) and `ee6144f` (docs: STATE.md, ROADMAP.md, WINDOWS.md).
 
 ## Files Created/Modified
 
@@ -294,3 +294,10 @@ None - no external service configuration required.
 ---
 *Phase: 05-learning-experience*
 *Completed: 2026-11-04*
+
+## Self-Check: PASSED
+
+Every file named in `key-files.modified` exists on disk, and all three commits
+(`b7eb489`, `f17134f`, `55cac5a`) are in the log. The plan-level verification
+was re-run whole: `pnpm method:check` (6 rendered copies match `method/`),
+`pnpm typecheck`, `pnpm build` and `pnpm test` (505 pass / 0 fail).
