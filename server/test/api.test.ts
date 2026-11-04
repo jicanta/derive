@@ -1117,3 +1117,78 @@ describe('the capability route, over HTTP', () => {
   });
 
 });
+
+describe('a card that was open when the server stopped', () => {
+  /**
+   * The restart gate for LEARN-12. Two boots of the real built server over one
+   * data directory, because that is the only place the question lives: a card
+   * is open in a *file*, or it is open in a process that has just died. The
+   * install token survives with the directory, so the second boot authenticates
+   * with the same header the first one wrote.
+   */
+  const restartDir = mkdtempSync(join(tmpdir(), 'derive-restart-'));
+  const boots: ChildProcess[] = [];
+
+  after(() => {
+    for (const b of boots) b.kill();
+    rmSync(restartDir, { recursive: true, force: true });
+  });
+
+  /** One request against a named base, carrying the token the scratch dir holds. */
+  const at = async <T = Record<string, unknown>>(host: string, path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<{ status: number; json: T }> => {
+    const tok = readFileSync(join(restartDir, 'token'), 'utf8').trim();
+    const res = await fetch(`${host}${path}`, { method, headers: { 'content-type': 'application/json', 'x-derive-token': tok }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: res.status, json: (await res.json()) as T };
+  };
+
+  const stop = (child: ChildProcess) =>
+    new Promise<void>((res) => {
+      child.once('exit', () => res());
+      child.kill();
+    });
+
+  const CARD = {
+    question: 'Which claim follows from the one below it?',
+    options: ['the one that follows', 'the tempting one that does not'],
+    correct: [0],
+    explanation: 'because the step is bounded',
+    purpose: 'probe',
+  };
+
+  let lesson = '';
+  let promptId = '';
+  let second = '';
+
+  it('is still open, with its id and its kind, after a respawn on the same data dir', async () => {
+    const one = await startDeriveServer(entry, {}, { dataDir: restartDir });
+    boots.push(one.child);
+    const made = await at<{ id: string }>(one.base, '/api/external/lessons', { topic: 'why the step size is bounded', answer_in: 'terminal' });
+    assert.equal(made.status, 201, JSON.stringify(made.json));
+    lesson = made.json.id;
+    const opened = await at<{ status: string; prompt_id: string }>(one.base, `/api/external/lessons/${lesson}/quiz`, CARD);
+    assert.equal(opened.status, 200, JSON.stringify(opened.json));
+    assert.equal(opened.json.status, 'pending');
+    promptId = opened.json.prompt_id;
+    assert.ok(promptId, 'the card must have an id to be found again');
+
+    await stop(one.child);
+
+    const two = await startDeriveServer(entry, {}, { dataDir: restartDir });
+    boots.push(two.child);
+    second = two.base;
+    const view = await at<{ busy: boolean; pending: { id: string; kind: string; held: boolean } | null }>(two.base, `/api/lessons/${lesson}`);
+    assert.equal(view.status, 200, JSON.stringify(view.json));
+    assert.ok(view.json.pending, 'the card is gone: nothing in the file said one was open');
+    assert.equal(view.json.pending?.id, promptId);
+    assert.equal(view.json.pending?.kind, 'quiz');
+    // `busy` keeps meaning "a turn is running". The terminal that opened this
+    // card is not running any more, so a live status line would be a lie — the
+    // card's own liveness reaches the browser through `pending`.
+    assert.equal(view.json.busy, false, 'a restarted companion lesson must not report a terminal that is gone as busy');
+    // The row is the only place the answer key is allowed to live.
+    const wire = JSON.stringify(view.json);
+    for (const key of ['correct', 'explanation', 'rubric']) {
+      assert.ok(!new RegExp(`"${key}"\\s*:`).test(wire), `the lesson view carried "${key}" before the learner committed`);
+    }
+  });
+});

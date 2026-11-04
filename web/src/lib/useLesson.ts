@@ -12,6 +12,7 @@ import type {
   PlanPayload,
   QuizPayload,
   QuizResultPayload,
+  PendingPrompt,
   ResourceEvent,
   StoredEvent,
   TimelineItem,
@@ -31,10 +32,17 @@ export type LessonState = {
   verified: number;
   /** What the last turn ran on, for the header pill: seeded from the lesson view, updated by each turn_start. Null before any turn. */
   tutor: { provider: string; model: string | null } | null;
+  /**
+   * The card the server says is open, from its prompts table. Seeded on init
+   * and left alone afterwards: within a session the timeline already says
+   * which card is unanswered, and this is what tells the page a card restored
+   * from before a restart is live rather than inert.
+   */
+  pending: PendingPrompt | null;
 };
 
 type Action =
-  | { type: 'init'; lesson: Lesson; nodes: NodeRow[]; materials: Material[]; events: StoredEvent[]; busy: boolean; tutor: { provider: string; model: string | null } | null }
+  | { type: 'init'; lesson: Lesson; nodes: NodeRow[]; materials: Material[]; events: StoredEvent[]; busy: boolean; pending: PendingPrompt | null; tutor: { provider: string; model: string | null } | null }
   | { type: 'event'; ev: StoredEvent }
   | { type: 'connected'; value: boolean }
   | { type: 'error'; text: string };
@@ -52,6 +60,7 @@ const initial: LessonState = {
   lastCost: null,
   verified: 0,
   tutor: null,
+  pending: null,
 };
 
 function rowsToNodes(rows: NodeRow[]): GraphNode[] {
@@ -233,6 +242,7 @@ function reducer(s: LessonState, a: Action): LessonState {
       st.items = st.items.map((i) => (i.kind === 'assistant' ? { ...i, streaming: false } : i));
       st.busy = a.busy;
       st.tutor = a.tutor;
+      st.pending = a.pending;
       st.status = a.busy ? (a.lesson.mode === 'external' ? 'Teaching in your terminal' : 'Thinking') : null;
       return st;
     }
@@ -263,7 +273,7 @@ export function useLesson(id: string | undefined) {
       .then((d) => {
         if (cancelled) return;
         lastSeq.current = d.events.reduce((m, e) => Math.max(m, e.seq), 0);
-        dispatch({ type: 'init', lesson: d.lesson, nodes: d.nodes, materials: d.materials ?? [], events: d.events, busy: d.busy, tutor: d.tutor ?? null });
+        dispatch({ type: 'init', lesson: d.lesson, nodes: d.nodes, materials: d.materials ?? [], events: d.events, busy: d.busy, pending: d.pending ?? null, tutor: d.tutor ?? null });
         // A same-origin EventSource sends the derive_session cookie like any other request, so the stream needs nothing added to its URL.
         es = new EventSource(`/api/lessons/${id}/stream?after=${lastSeq.current}`);
         es.onopen = () => dispatch({ type: 'connected', value: true });

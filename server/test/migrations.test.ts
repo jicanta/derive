@@ -630,7 +630,7 @@ describe('the table the conformance harness counts bad tool calls in', () => {
 
 describe('the window setting that was stored on a row Derive never sends one to', () => {
   it('pins LATEST_VERSION, so a migration that forgets to bump the number is visible', () => {
-    assert.equal(LATEST_VERSION, 10);
+    assert.equal(LATEST_VERSION, 11);
   });
 
   it('deletes a window stored on LM Studio or llama.cpp and leaves the Ollama one alone', () => {

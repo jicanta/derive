@@ -369,6 +369,55 @@ export const MIGRATIONS: Migration[] = [
       db.exec("DELETE FROM settings WHERE key IN ('num_ctx:lmstudio', 'num_ctx:llamacpp')");
     },
   },
+  {
+    version: 11,
+    name: 'prompts',
+    up(db) {
+      // An open card — a quiz, an open question, a plan awaiting approval, a
+      // teach-back — lived in a Map until now, so stopping the server with one
+      // on screen killed it: the learner came back to a question they were
+      // part-way through and found it inert, and the companion paths lost the
+      // "a card is already open" refusal with it. This table is where a card
+      // lives instead, and it is the single answer to "is a card open on this
+      // lesson" for the app and the terminal alike.
+      //
+      // The learner-safe half of a card is already in the `events` table and
+      // stays there; nothing here duplicates it for the browser. What this row
+      // adds is the grading context the server needs and the learner must not
+      // see before they commit: a quiz's `correct` indices and its
+      // `explanation`, a teach-back's `rubric`. No route projects this row —
+      // `lessonView` allow-lists `id`, `kind` and `held` and nothing else — and
+      // no event, markdown export or Obsidian mirror carries it. `payload` is
+      // written through the same `redactDeep` the event log uses, so the table
+      // inherits that scrubbing rather than opting out of it.
+      //
+      // A settled prompt is flagged rather than deleted. The refusal means "a
+      // card is open *and unsettled*", and the terminal mirror drops the
+      // model's prose copy of a card by comparing it against the rendered text
+      // in `card`, which it still needs once the answer is in. Those rows are
+      // swept on the boot pass beside the stale-turn close: a settled row can
+      // no longer be answered, and its card text is only useful inside a
+      // terminal session that the restart has already ended.
+      //
+      // No backfill. An open prompt from before this table existed is already
+      // lost — that is the debt being paid here, not data to recover.
+      db.exec(`
+        CREATE TABLE prompts (
+          id TEXT PRIMARY KEY,
+          lesson_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          card TEXT,
+          held INTEGER NOT NULL DEFAULT 0,
+          settled INTEGER NOT NULL DEFAULT 0,
+          answer TEXT,
+          opened_at INTEGER NOT NULL,
+          settled_at INTEGER
+        );
+        CREATE INDEX prompts_lesson ON prompts (lesson_id);
+      `);
+    },
+  },
 ];
 
 /**

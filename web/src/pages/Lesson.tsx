@@ -1,5 +1,5 @@
 import { ArrowLeft, Download, FileText, Terminal, Volume2, VolumeX } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AskCard } from '../components/AskCard';
 import { Composer } from '../components/Composer';
@@ -75,7 +75,27 @@ export function LessonPage() {
     if (stick && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [state.items, state.status, stick]);
 
+  /** Whether the timeline still shows that card as unanswered. */
+  const unanswered = useCallback(
+    (promptId: string) =>
+      state.items.some(
+        (i) =>
+          (i.kind === 'quiz' && i.quiz.id === promptId && !i.result) ||
+          (i.kind === 'ask' && i.ask.id === promptId && i.answer === undefined) ||
+          (i.kind === 'explain' && i.explain.id === promptId && i.answer === undefined) ||
+          (i.kind === 'plan' && i.plan.id === promptId && i.approved === undefined),
+      ),
+    [state.items],
+  );
+
   const activePromptId = useMemo(() => {
+    // The server's prompts table is where openness lives, so the card it names
+    // is read first and is live whether or not a turn is running. That is a
+    // card restored after a restart: the `!state.busy` fall-back below is the
+    // line that used to render it inert, and it is the one LEARN-12 turns on.
+    // The timeline still has the last word on whether it was answered, so a
+    // seeded card the learner has since settled does not linger.
+    if (state.pending && unanswered(state.pending.id)) return state.pending.id;
     if (!state.busy) return null;
     const last = [...state.items].reverse().find((i) => i.kind === 'quiz' || i.kind === 'ask' || i.kind === 'plan' || i.kind === 'explain');
     if (!last) return null;
@@ -83,7 +103,7 @@ export function LessonPage() {
     if (last.kind === 'ask') return last.answer === undefined ? last.ask.id : null;
     if (last.kind === 'explain') return last.answer === undefined ? last.explain.id : null;
     return last.approved === undefined ? last.plan.id : null;
-  }, [state.items, state.busy]);
+  }, [state.items, state.busy, state.pending, unanswered]);
   const waiting = activePromptId !== null;
 
   /** The open card, for voice replies: what kind it is and what its options are. */

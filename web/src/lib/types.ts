@@ -218,6 +218,16 @@ export type LessonSummary = Lesson & {
   cost: string | null;
 };
 
+/**
+ * The card this lesson is waiting on, as the server allow-lists it.
+ *
+ * Hand-mirrored from `lessonView` in `server/src/index.ts`, and deliberately
+ * three fields: the row behind it also holds the quiz answer key and the
+ * teach-back rubric, which must not cross to the browser before the learner
+ * has committed. Null when no card is open.
+ */
+export type PendingPrompt = { id: string; kind: 'quiz' | 'ask' | 'plan' | 'explain'; held: boolean };
+
 /** One lesson in full, as the Lesson page reads it: the row, its graph, its material, the whole event log, and what the last turn ran on. */
 export type LessonView = {
   lesson: Lesson;
@@ -225,7 +235,8 @@ export type LessonView = {
   materials: Material[];
   events: StoredEvent[];
   busy: boolean;
-  pending: boolean;
+  /** The open card, read from the server's prompts table, so a card survives a restart of it. */
+  pending: PendingPrompt | null;
   /** What the last turn ran on, for the header pill. Null before any turn. */
   tutor: { provider: string; model: string | null } | null;
   /** The lesson's total as the learner reads it, already formatted server-side, or null when the lesson has no usage rows and there is nothing to show. */

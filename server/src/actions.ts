@@ -193,13 +193,20 @@ function dependencyRecord(lessonId: string, nodeId: string): string {
 }
 
 type Open<T> = { id: string; done: Promise<T> };
-type OpenOpts = { hold?: boolean };
+/**
+ * `hold` makes the card outlive the turn that opened it (a companion lesson
+ * answered from the terminal). `key` is the grading half of the card — a
+ * quiz's answer key and explanation, a teach-back's rubric — which goes into
+ * the prompts row and never into the event, a route response, an export or
+ * the vault mirror.
+ */
+type OpenOpts = { hold?: boolean; key?: Record<string, unknown> };
 
 export function openQuiz(lessonId: string, a: QuizArgs, opts: OpenOpts = {}): Open<Record<string, unknown>> {
   const multi = a.correct.length > 1;
   const purpose = purposeOf(lessonId, a.node_id, a.purpose);
   const tests = testsOf(a.tests);
-  const { id, wait } = openPrompt(lessonId, 'quiz', { question: a.question, options: a.options, multi, node_id: a.node_id ?? null, purpose, tests }, opts);
+  const { id, wait } = openPrompt(lessonId, 'quiz', { question: a.question, options: a.options, multi, node_id: a.node_id ?? null, purpose, tests }, { ...opts, key: { correct: a.correct, explanation: a.explanation } });
   const done = wait.then((raw) => {
     const ans = raw as { selected?: number[]; idk?: boolean; sure?: boolean; note?: string; interrupted?: boolean; steer?: string };
     if (ans.interrupted) return { result: 'interrupted', note: 'The learner stopped the turn.' };
@@ -384,7 +391,7 @@ export function phase(lessonId: string, a: { phase: 'probe' | 'plan' | 'teach' }
  * words; the model grades it against the rubric it wrote beforehand.
  */
 export function openExplain(lessonId: string, a: { prompt: string; node_id?: string | null; rubric: string }, opts: OpenOpts = {}): Open<Record<string, unknown>> {
-  const { id, wait } = openPrompt(lessonId, 'explain', { prompt: a.prompt, node_id: a.node_id ?? null }, opts);
+  const { id, wait } = openPrompt(lessonId, 'explain', { prompt: a.prompt, node_id: a.node_id ?? null }, { ...opts, key: { rubric: a.rubric } });
   const done = wait.then((raw) => {
     const ans = raw as { text?: string; interrupted?: boolean; steer?: string };
     if (ans.interrupted) return { result: 'interrupted' };

@@ -111,6 +111,35 @@ export type TurnMessagesRow = {
   updated_at: number;
 };
 
+/**
+ * One card waiting on the learner, as the file remembers it.
+ *
+ * The browser's copy of a card is the `quiz`/`ask`/`plan`/`explain` event, and
+ * that is still where it reads it from. This row is the half that event must
+ * never carry: the grading context — a quiz's answer key and explanation, a
+ * teach-back's rubric — inside `payload`, which no route projects. A settled
+ * row is flagged rather than deleted (`settled = 1`, with `answer` and
+ * `settled_at` written) because the refusal means "open *and* unsettled" and
+ * the terminal mirror still needs `card` after the answer; those rows are
+ * swept on the boot pass.
+ */
+export type PromptRow = {
+  id: string;
+  lesson_id: string;
+  kind: string;
+  /** JSON: everything the card was opened with, the answer key included. Server-side only. */
+  payload: string;
+  /** The rendered card text shown in a terminal, or null for a browser-answered card. */
+  card: string | null;
+  /** 1 when the card outlives the turn that opened it (a companion lesson answered from the terminal). */
+  held: number;
+  settled: number;
+  /** JSON: what the learner answered, and once graded, the result the model is owed. */
+  answer: string | null;
+  opened_at: number;
+  settled_at: number | null;
+};
+
 const q = {
   insertLesson: db.prepare(
     'INSERT INTO lessons (id, topic, mode, learner_id, answer_in, driver, scratch, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -200,6 +229,25 @@ const q = {
   // for one request, so the lesson is the honest scope to ask in.
   getToolResult: db.prepare('SELECT tool, output FROM tool_results WHERE lesson_id = ? AND call_id = ? ORDER BY ts LIMIT 1'),
   deleteToolResultsByLesson: db.prepare('DELETE FROM tool_results WHERE lesson_id = ?'),
+  insertPrompt: db.prepare('INSERT INTO prompts (id, lesson_id, kind, payload, card, held, settled, opened_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)'),
+  // The lesson's unsettled rows, oldest first. There is normally one; the list
+  // is what `cancelPending` walks, and `openPromptRow` takes the newest of it.
+  unsettledPromptsOf: db.prepare('SELECT * FROM prompts WHERE lesson_id = ? AND settled = 0 ORDER BY opened_at, rowid'),
+  // The companion path's one slot per lesson: the newest held card, settled or
+  // not, because `answer` and `collect` both have to reach a card the learner
+  // already answered in the browser.
+  heldPromptOf: db.prepare('SELECT * FROM prompts WHERE lesson_id = ? AND held = 1 ORDER BY opened_at DESC, rowid DESC LIMIT 1'),
+  promptById: db.prepare('SELECT * FROM prompts WHERE id = ?'),
+  // Settling is guarded on `settled = 0`, so the first answer is the true one
+  // and a second call cannot rewrite a graded result.
+  settlePrompt: db.prepare('UPDATE prompts SET settled = 1, answer = ?, settled_at = ? WHERE id = ? AND settled = 0'),
+  setPromptAnswer: db.prepare('UPDATE prompts SET answer = ? WHERE id = ?'),
+  setPromptCard: db.prepare('UPDATE prompts SET card = ?, held = 1 WHERE id = ?'),
+  // The text of the last few cards shown in a terminal, settled ones included:
+  // the mirror drops the model's prose copy of a card by comparing against it.
+  promptCardsOf: db.prepare('SELECT card FROM prompts WHERE lesson_id = ? AND card IS NOT NULL ORDER BY opened_at DESC, rowid DESC LIMIT 6'),
+  sweepSettledPrompts: db.prepare('DELETE FROM prompts WHERE settled = 1'),
+  deletePromptsByLesson: db.prepare('DELETE FROM prompts WHERE lesson_id = ?'),
   insertMaterial: db.prepare(
     'INSERT INTO materials (id, lesson_id, name, kind, unit, pages, chars, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   ),
@@ -463,11 +511,17 @@ export function deleteLearner(id: string) {
     // outlive the lesson row it names. These two are what catch those.
     q.deleteUsageOfLearner.run(id);
     q.deleteTurnsOfLearner.run(id);
-    // turn_messages and tool_results need no learner-scoped clear of their own.
-    // Both are keyed by lesson, both are cleared by the loop above, and their
-    // only writers — saveTurnMessages and recordToolResult — refuse to write at
-    // all without the lesson or turn row they read their scope off, so no row
-    // of either can exist that the loop cannot reach.
+    // turn_messages, tool_results and prompts need no learner-scoped clear of
+    // their own. All three are keyed by lesson, all three are cleared by the
+    // loop above (deleteLesson runs deletePromptsByLesson inside the same
+    // transaction this one joins), and their only writers — saveTurnMessages,
+    // recordToolResult and openPrompt — refuse to write at all without the
+    // lesson or turn row they read their scope off, so no row of any of them
+    // can exist that the loop cannot reach. A learner-scoped DELETE here would
+    // have to run after the loop had already removed the lessons it reads the
+    // learner off, so it could only ever be a no-op claiming to be a guarantee.
+    // `server/test/tx.test.ts` counts the prompt rows across a learner delete
+    // rather than trusting that reasoning.
     q.deleteLearner.run(id);
   });
 }
@@ -509,6 +563,9 @@ export function deleteLesson(id: string) {
     q.deleteMaterialsByLesson.run(id);
     q.deleteMemoryByLesson.run(id);
     q.deleteMisByLesson.run(id);
+    // A prompts row names the lesson it was opened against, so it goes with
+    // the lesson: an orphan would hold a card open on a lesson that is gone.
+    q.deletePromptsByLesson.run(id);
     q.deleteQuiz.run(id);
     q.deleteNodes.run(id);
     q.deleteEvents.run(id);
@@ -545,6 +602,68 @@ export function sweepScratchLessons(): string[] {
   const ids = (q.scratchLessons.all() as { id: string }[]).map((r) => r.id);
   for (const id of ids) deleteLesson(id);
   return ids;
+}
+
+/** Record a card as open. `payload` is the whole thing the card was opened with, answer key included; it never leaves the server. */
+export function insertPrompt(p: { id: string; lessonId: string; kind: string; payload: unknown; card?: string | null; held?: boolean }) {
+  q.insertPrompt.run(p.id, p.lessonId, p.kind, JSON.stringify(p.payload ?? {}), p.card ?? null, p.held ? 1 : 0, Date.now());
+}
+
+/** The lesson's one open card, or undefined. This is the only answer to "is a card open on this lesson". */
+export function openPromptRow(lessonId: string): PromptRow | undefined {
+  const rows = q.unsettledPromptsOf.all(lessonId) as PromptRow[];
+  return rows.at(-1);
+}
+
+/** Every unsettled card of a lesson, oldest first. `cancelPending` walks this; everything else wants `openPromptRow`. */
+export function unsettledPromptRows(lessonId: string): PromptRow[] {
+  return q.unsettledPromptsOf.all(lessonId) as PromptRow[];
+}
+
+/** The companion path's one slot: the lesson's newest held card, settled or not. */
+export function heldPromptRow(lessonId: string): PromptRow | undefined {
+  return q.heldPromptOf.get(lessonId) as PromptRow | undefined;
+}
+
+export function promptRow(id: string): PromptRow | undefined {
+  return q.promptById.get(id) as PromptRow | undefined;
+}
+
+/** Flag a card answered. False when there was no unsettled row with that id, which is what the routes turn into a 409. */
+export function settlePromptRow(id: string, answer: unknown): boolean {
+  const r = q.settlePrompt.run(JSON.stringify(answer ?? {}), Date.now(), id);
+  return Number(r.changes) > 0;
+}
+
+/** Rewrite a settled row's `answer` blob — how the graded result, and the fact the model has collected it, are recorded. */
+export function setPromptAnswer(id: string, answer: unknown) {
+  q.setPromptAnswer.run(JSON.stringify(answer ?? {}), id);
+}
+
+/** Record the rendered card text a terminal was shown, and mark the card as held by that terminal. */
+export function setPromptCard(id: string, card: string) {
+  q.setPromptCard.run(card, id);
+}
+
+/** The text of the lesson's last few terminal cards, newest first, settled ones included. */
+export function promptCards(lessonId: string): string[] {
+  return (q.promptCardsOf.all(lessonId) as { card: string }[]).map((r) => r.card);
+}
+
+/**
+ * Drop every settled card, on the boot pass.
+ *
+ * A settled row cannot be answered again, and the only thing it is still good
+ * for is letting the terminal mirror recognise the model's prose copy of its
+ * card — inside a session a restart has already ended. Returns how many went.
+ */
+export function sweepSettledPrompts(): number {
+  return Number(q.sweepSettledPrompts.run().changes);
+}
+
+/** Every card of a lesson, open or settled. Called inside deleteLesson's transaction. */
+export function deletePromptsByLesson(lessonId: string) {
+  q.deletePromptsByLesson.run(lessonId);
 }
 
 export function setSessionId(id: string, sessionId: string) {

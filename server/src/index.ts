@@ -50,6 +50,7 @@ import {
   stats,
   sweepOrphanMaterials,
   sweepScratchLessons,
+  sweepSettledPrompts,
   turnStatusOf,
   type GraphNodeInput,
   type MaterialRow,
@@ -64,7 +65,7 @@ import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief 
 import { pricesFileError } from './prices.js';
 import { PRICES_AS_OF } from './pricing.js';
 import { detect, listModels, testConnection } from './probe.js';
-import { answerPrompt, cancelPending, hasPending, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
+import { answerPrompt, cancelPending, isLivePrompt, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
 import { DEFAULTS_AS_OF, labelOf, PROVIDERS, providerOf, providerOfDriver, type ProviderSpec } from './providers.js';
 import { SEARCH_BASE_URL, SEARCH_PROVIDERS, SEARCH_SETTING, searchProvider, testSearch } from './search.js';
 import { registerSecret, safeMessage } from './secrets.js';
@@ -93,6 +94,16 @@ for (const id of sweepScratchLessons()) console.warn(`[boot] removed a leftover 
 for (const t of closeOpenTurns('interrupted')) {
   if (getLesson(t.lesson_id)?.mode === 'agent') emit(t.lesson_id, 'turn_end', { ok: true, interrupted: true, reason: 'server restarted' });
 }
+
+/**
+ * Cards that were already answered are dropped on the same pass. An unsettled
+ * card is the one thing kept across a restart on purpose — that is LEARN-12 —
+ * but a settled row cannot be answered again, and the only thing it was still
+ * good for is letting the terminal mirror recognise the model's prose copy of
+ * its card inside a session this restart has just ended.
+ */
+const sweptPrompts = sweepSettledPrompts();
+if (sweptPrompts) console.warn(`[boot] dropped ${sweptPrompts} answered card${sweptPrompts === 1 ? '' : 's'}`);
 
 /**
  * What `ensureToken()` returned at start. Not a credential: it is compared
@@ -279,15 +290,21 @@ const learnerOf = (c: Context, fromBody?: unknown): string => {
 
 /**
  * External (Claude Code) lessons are "busy" from the moment their turn opens
- * until the Stop hook posts the end of it, and while a card is open. Every
- * lesson of every listing asks this, so it is one indexed read of the lesson's
- * most recent turn rather than a scan of its whole event log.
+ * until the Stop hook posts the end of it. Every lesson of every listing asks
+ * this, so it is one indexed read of the lesson's most recent turn rather than
+ * a scan of its whole event log.
+ *
+ * `busy` means exactly one thing: a turn is running. It used to also mean "a
+ * card is open", which was harmless while an open card could not outlive the
+ * process — and a lie the moment one could: a companion lesson reopened after
+ * a restart would report `Teaching in your terminal` for a terminal that is
+ * no longer running. A card's liveness reaches the browser through
+ * `lessonView.pending` instead, which is read from the prompts table.
  */
 const busy = (id: string) => {
   if (isBusy(id)) return true;
   const lesson = getLesson(id);
   if (lesson?.mode !== 'external') return false;
-  if (hasPending(id)) return true;
   return lastTurn(id)?.status === 'running';
 };
 
@@ -300,7 +317,20 @@ const lessonView = (id: string) => {
   // `cost` seeds the header pill the way `tutor` seeds the provider and the
   // model: one indexed read of the lesson's usage rows, formatted once by the
   // shared formatter, so the header and the Home row can never disagree.
-  return { lesson, nodes: listNodes(id), materials: listMaterials(id), busy: busy(id), pending: hasPending(id), tutor: last ? { provider: providerOfDriver(last.driver), model: last.model } : null, cost: lessonCost(id) };
+  // `pending` is the open card, and only ever these three fields: the row it
+  // is read from also holds the answer key, so the projection is an allow-list
+  // rather than a spread. It is what makes a card restored after a restart
+  // render live instead of inert.
+  const open = pendingPrompt(id);
+  return {
+    lesson,
+    nodes: listNodes(id),
+    materials: listMaterials(id),
+    busy: busy(id),
+    pending: open ? { id: open.id, kind: open.kind, held: open.held } : null,
+    tutor: last ? { provider: providerOfDriver(last.driver), model: last.model } : null,
+    cost: lessonCost(id),
+  };
 };
 
 sweepOrphanMaterials();
@@ -887,7 +917,8 @@ app.get('/api/lessons/:id/stream', (c) => {
     const send = (ev: { seq: number; type: string; payload: unknown; ts: number }) =>
       stream.writeSSE({ event: ev.type, data: JSON.stringify(ev), id: ev.seq > 0 ? String(ev.seq) : undefined });
     for (const ev of listEvents(id)) if (ev.seq > after) await send(ev);
-    await send({ seq: -1, type: 'ready', payload: { busy: busy(id), pending: hasPending(id) }, ts: Date.now() });
+    const open = pendingPrompt(id);
+    await send({ seq: -1, type: 'ready', payload: { busy: busy(id), pending: open ? { id: open.id, kind: open.kind, held: open.held } : null }, ts: Date.now() });
     let closed = false;
     const unsub = subscribe(id, (ev) => {
       if (!closed) void send(ev).catch(() => undefined);
@@ -939,6 +970,13 @@ app.post('/api/lessons/:id/answer', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { prompt_id?: string } & Record<string, unknown>;
   if (!body.prompt_id) return c.json({ error: 'prompt_id required' }, 400);
   const { prompt_id, ...answer } = body;
+  // A card restored from the table has no Promise in this process to resolve:
+  // the grading closure died with the boot that opened it, so grading has to
+  // be re-derived from the row (`promptPayload`). Until that branch exists,
+  // settling the row here would close the card and drop the answer on the
+  // floor, which is worse than saying nothing is waiting — so the route keeps
+  // the sentence it has always answered with.
+  if (!isLivePrompt(prompt_id)) return c.json({ error: 'no such pending prompt (the turn may have ended; send a message instead)' }, 409);
   const ok = answerPrompt(id, prompt_id, answer);
   if (!ok) return c.json({ error: 'no such pending prompt (the turn may have ended; send a message instead)' }, 409);
   return c.json({ ok: true });
