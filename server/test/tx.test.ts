@@ -23,7 +23,7 @@ import { after, describe, it } from 'node:test';
 const scratch = mkdtempSync(join(tmpdir(), 'derive-tx-'));
 process.env.DERIVE_DATA_DIR = scratch;
 
-const { addMemory, appendEvent, closeOpenTurns, createLearner, createLesson, db, deleteLearner, deleteLesson, endTurn, finishTurn, getLesson, getTurn, listNodes, listUsage, loadTurnMessages, recordQuiz, recordToolResult, recordUsage, recordedToolResult, replaceGraph, saveTurnMessages, setNodeStatus, startTurn, withTx } =
+const { addMemory, appendEvent, closeOpenTurns, createLearner, createLesson, db, deleteLearner, deleteLesson, endTurn, finishTurn, getLesson, getTurn, insertPrompt, listNodes, listUsage, loadTurnMessages, recordQuiz, recordToolResult, recordUsage, recordedToolResult, replaceGraph, saveTurnMessages, setNodeStatus, settlePromptRow, startTurn, withTx } =
   await import('../src/db.js');
 
 type GraphNodeInput = import('../src/db.js').GraphNodeInput;
@@ -268,6 +268,39 @@ describe('the usage ledger', () => {
       others,
       'every other learner’s ledger is untouched',
     );
+  });
+});
+
+/** A quiz card as the prompts row stores it: the learner-safe half plus the answer key that may never leave the server. */
+const CARD = { question: 'Which claim follows?', options: ['the one that does', 'the one that does not'], correct: [0], explanation: 'because the step is bounded' };
+const promptRowsOf = (lessonId: string) => rowsOf('SELECT count(*) AS n FROM prompts WHERE lesson_id = ?', lessonId);
+
+describe('the cards a lesson was waiting on', () => {
+  it('leaves no prompt row behind a deleted lesson or a deleted learner', () => {
+    const learner = createLearner('Mid-card');
+    const id = lessonWithHistory('prompts-cascade', learner.id);
+    // One still open and one already answered: a settled row is flagged rather
+    // than deleted, so it is exactly the row a cascade could forget.
+    insertPrompt({ id: 'prompts-cascade-open', lessonId: id, kind: 'quiz', payload: CARD, held: true });
+    insertPrompt({ id: 'prompts-cascade-done', lessonId: id, kind: 'ask', payload: { question: 'and what then?' } });
+    settlePromptRow('prompts-cascade-done', { answer: { text: 'this' } });
+    assert.equal(promptRowsOf(id), 2);
+
+    deleteLesson(id);
+    assert.equal(promptRowsOf(id), 0, 'a card cannot outlive the lesson it was opened against');
+
+    // And through the learner, whose delete reaches these rows by way of its
+    // lesson loop rather than a learner-scoped clear of its own — the loop is
+    // the only point at which the lesson a prompt names is still readable.
+    const second = lessonWithHistory('prompts-cascade-learner', learner.id);
+    insertPrompt({ id: 'prompts-cascade-learner-open', lessonId: second, kind: 'quiz', payload: CARD, held: true });
+    assert.equal(promptRowsOf(second), 1);
+
+    deleteLearner(learner.id);
+    assert.equal(promptRowsOf(second), 0, 'a card cannot outlive the learner whose lesson opened it');
+    // Counted over the whole table too: an answer key surviving under any
+    // lesson id is the defect, not just one under this one.
+    assert.equal(rowsOf('SELECT count(*) AS n FROM prompts'), 0);
   });
 });
 

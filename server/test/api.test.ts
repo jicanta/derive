@@ -1171,6 +1171,15 @@ describe('a card that was open when the server stopped', () => {
     promptId = opened.json.prompt_id;
     assert.ok(promptId, 'the card must have an id to be found again');
 
+    // The refusal while the first card is open, so the half of it that the
+    // restart below re-asserts is known to work before the restart.
+    const second1 = await at<{ error: string }>(one.base, `/api/external/lessons/${lesson}/quiz`, CARD);
+    assert.equal(second1.status, 409, JSON.stringify(second1.json));
+    assert.equal(
+      second1.json.error,
+      "A card is already open (quiz). Wait for the learner's reply and pass it to `answer` before asking anything else.",
+    );
+
     await stop(one.child);
 
     const two = await startDeriveServer(entry, {}, { dataDir: restartDir });
@@ -1190,5 +1199,17 @@ describe('a card that was open when the server stopped', () => {
     for (const key of ['correct', 'explanation', 'rubric']) {
       assert.ok(!new RegExp(`"${key}"\\s*:`).test(wire), `the lesson view carried "${key}" before the learner committed`);
     }
+  });
+
+  it('still refuses a second card on that lesson, in the shipped sentence, after the restart', async () => {
+    // The one-card-open refusal used to be decided by a Map, so the restart
+    // above would have let the model open a second card over the first and
+    // leave the learner with two. The table is what answers it now.
+    const again = await at<{ error: string }>(second, `/api/external/lessons/${lesson}/quiz`, CARD);
+    assert.equal(again.status, 409, JSON.stringify(again.json));
+    assert.equal(
+      again.json.error,
+      "A card is already open (quiz). Wait for the learner's reply and pass it to `answer` before asking anything else.",
+    );
   });
 });

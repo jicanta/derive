@@ -34,6 +34,7 @@ import {
   getLesson,
   getMaterial,
   getSetting,
+  heldPromptRow,
   lastExternalLesson,
   lastTurn,
   listEvents,
@@ -42,9 +43,12 @@ import {
   listMaterials,
   listMisconceptions,
   listNodes,
+  promptCards,
   renameLearner,
   updateLearnerPrefs,
   setAnswerIn,
+  setPromptAnswer,
+  setPromptCard,
   setSetting,
   startTurn,
   stats,
@@ -54,6 +58,7 @@ import {
   turnStatusOf,
   type GraphNodeInput,
   type MaterialRow,
+  type PromptRow,
 } from './db.js';
 import { capabilityList, capabilityOf, capabilityRefusal, forgetCapabilities, knownCapability, rememberMetadata, testTeaching } from './capability.js';
 import { emit, subscribe } from './events.js';
@@ -65,7 +70,7 @@ import { firstTurnPrompt, materialAttachedPrompt, reviewTurnPrompt, warmupBrief 
 import { pricesFileError } from './prices.js';
 import { PRICES_AS_OF } from './pricing.js';
 import { detect, listModels, testConnection } from './probe.js';
-import { answerPrompt, cancelPending, isLivePrompt, pendingId, pendingPrompt, type PromptKind } from './prompts.js';
+import { answerPrompt, cancelPending, isLivePrompt, pendingId, pendingPrompt, promptPayload, settledAnswer, type PromptKind } from './prompts.js';
 import { DEFAULTS_AS_OF, labelOf, PROVIDERS, providerOf, providerOfDriver, type ProviderSpec } from './providers.js';
 import { SEARCH_BASE_URL, SEARCH_PROVIDERS, SEARCH_SETTING, searchProvider, testSearch } from './search.js';
 import { registerSecret, safeMessage } from './secrets.js';
@@ -904,7 +909,6 @@ app.delete('/api/lessons/:id', async (c) => {
   const id = c.req.param('id');
   await interrupt(id);
   cancelPending(id, { held: true });
-  held.delete(id);
   deleteLesson(id);
   return c.json({ ok: true });
 });
@@ -1325,7 +1329,7 @@ app.get('/api/external/lessons/:id/materials', (c) => {
 app.get('/api/external/active', (c) => {
   const l = lastExternalLesson();
   if (!l) return c.json({ error: 'no external lesson' }, 404);
-  return c.json({ ...l, url: `${baseUrl(c.req.url)}/lesson/${l.id}`, pending: pendingId(l.id), held: held.get(l.id)?.id ?? null });
+  return c.json({ ...l, url: `${baseUrl(c.req.url)}/lesson/${l.id}`, pending: pendingId(l.id), held: heldCard(l.id)?.row.id ?? null });
 });
 
 /** External lessons have no prompt of ours to prepend notices to, so they ride along on the next tool result. */
@@ -1336,17 +1340,48 @@ const withNotices = <T>(lessonId: string, result: T): T => {
 
 /**
  * Cards answered from the terminal. In a lesson with answer_in = terminal a
- * blocking tool opens the card, records it here and returns at once; the
- * model shows the card and ends its turn. The learner's next message comes
- * back through the `answer` action, which settles the card and returns the
- * graded result, exactly what the blocking tool would have returned. A
- * click in the browser settles it too; the result then waits here until
- * the model collects it (through `answer`, or the hook on the next prompt).
+ * blocking tool opens the card, writes its rendered text onto the card's own
+ * prompts row and returns at once; the model shows the card and ends its
+ * turn. The learner's next message comes back through the `answer` action,
+ * which settles the card and returns the graded result, exactly what the
+ * blocking tool would have returned. A click in the browser settles it too;
+ * the result is recorded on the row and waits there until the model collects
+ * it (through `answer`, or the hook on the next prompt).
+ *
+ * All of that used to live in a Map keyed by lesson, which meant a restart
+ * dropped the card *and* the "a card is already open" refusal with it. The
+ * row is the single answer now, so the companion paths get restart safety
+ * from the same table the browser reads.
+ *
+ * What stays in this process is only the half that cannot be written down:
+ * the Promise the blocking tool is parked on. `grading` is never asked
+ * whether a card is open — that is `pendingPrompt`, which reads the table —
+ * and the result is copied onto the row as soon as it resolves, so a card
+ * answered in the browser is still collectable without it.
  */
-type Held = { id: string; kind: PromptKind; optionCount: number; done: Promise<Record<string, unknown>>; settled: Record<string, unknown> | null; openedAt: number };
-const held = new Map<string, Held>();
-/** The text of the last few cards shown in a terminal, so the mirror can drop the model's copy of them. */
-const recentCards = new Map<string, string[]>();
+const grading = new Map<string, Promise<Record<string, unknown>>>();
+
+/** The lesson's current terminal card and its graded result, or null once the model has collected it. */
+function heldCard(lessonId: string): { row: PromptRow; result: Record<string, unknown> | null } | null {
+  const row = heldPromptRow(lessonId);
+  if (!row) return null;
+  const settled = row.settled ? settledAnswer(row.id) : null;
+  if (settled?.collected) return null;
+  return { row, result: settled?.result ?? null };
+}
+
+/** Note that the model has been handed a card's result, so the hook does not collect it a second time. The row stays for its card text. */
+function collectCard(promptId: string) {
+  const settled = settledAnswer(promptId);
+  if (settled) setPromptAnswer(promptId, { ...settled, collected: true });
+  grading.delete(promptId);
+}
+
+/** How many options a card offered, read back off its row: what `parseReply` needs to turn "B" into an index. */
+function optionsOf(row: PromptRow): number {
+  const options = promptPayload(row.id)?.options;
+  return Array.isArray(options) ? options.length : 0;
+}
 
 const flat = (s: string) => s.replace(/[*_`>#]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
@@ -1357,7 +1392,7 @@ const flat = (s: string) => s.replace(/[*_`>#]/g, '').replace(/\s+/g, ' ').trim(
  * card are dropped so the learner does not read every question twice.
  */
 function withoutCards(lessonId: string, text: string): string {
-  const cards = (recentCards.get(lessonId) ?? []).map(flat);
+  const cards = promptCards(lessonId).map(flat);
   if (!cards.length) return text;
   const kept = text
     .split(/\n\s*\n/)
@@ -1371,13 +1406,18 @@ function withoutCards(lessonId: string, text: string): string {
   return kept.join('\n\n').trim();
 }
 
-function holdCard(lessonId: string, kind: PromptKind, open: { id: string; done: Promise<Record<string, unknown>> }, payload: Record<string, unknown>, optionCount: number, nodeLabel?: string | null) {
-  const h: Held = { id: open.id, kind, optionCount, done: open.done, settled: null, openedAt: Date.now() };
-  held.set(lessonId, h);
+function holdCard(lessonId: string, kind: PromptKind, open: { id: string; done: Promise<Record<string, unknown>> }, payload: Record<string, unknown>, nodeLabel?: string | null) {
   const card = actions.renderCard(kind, payload, nodeLabel);
-  recentCards.set(lessonId, [...(recentCards.get(lessonId) ?? []).slice(-5), card]);
-  void open.done.then((r) => {
-    if (held.get(lessonId) === h) h.settled = r;
+  // The rendered text goes onto the row rather than into a side map: after a
+  // restart the mirror still has to recognise the model's prose copy of it,
+  // and so does the next card's de-duplication.
+  setPromptCard(open.id, card);
+  grading.set(open.id, open.done);
+  void open.done.then((result) => {
+    // Recorded beside the learner's answer so `answer` and `collect` can hand
+    // it back even when the process that graded it is gone.
+    const settled = settledAnswer(open.id);
+    if (settled) setPromptAnswer(open.id, { ...settled, result });
   });
   const what = kind === 'quiz' ? 'the letter they reply with' : kind === 'plan' ? '"yes" or their requested changes' : 'their reply';
   return {
@@ -1431,8 +1471,11 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
   if (invalid) return c.json({ error: invalid }, 400);
   const terminal = a.answer_in === 'terminal' || (a.answer_in !== 'browser' && lesson.answer_in === 'terminal');
   try {
-    if (terminal && (action === 'quiz' || action === 'ask' || action === 'set_plan' || action === 'explain_back') && held.get(id) && !held.get(id)!.settled) {
-      return c.json({ error: `A card is already open (${held.get(id)!.kind}). Wait for the learner's reply and pass it to \`answer\` before asking anything else.` }, 409);
+    // One card at a time, decided by the prompts table rather than by a map:
+    // the same condition, expressed where it survives a restart.
+    const alreadyOpen = pendingPrompt(id);
+    if (terminal && (action === 'quiz' || action === 'ask' || action === 'set_plan' || action === 'explain_back') && alreadyOpen) {
+      return c.json({ error: `A card is already open (${alreadyOpen.kind}). Wait for the learner's reply and pass it to \`answer\` before asking anything else.` }, 409);
     }
     switch (action) {
       case 'quiz': {
@@ -1450,7 +1493,7 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         if (gap) return c.json({ error: gap }, 400);
         if (terminal) {
           const open = actions.openQuiz(id, args, { hold: true });
-          return c.json(withNotices(id, holdCard(id, 'quiz', open, { question: args.question, options: args.options, multi: args.correct.length > 1, purpose: args.purpose ?? undefined, tests: args.tests ?? undefined }, args.options.length, nodeLabelOf(id, args.node_id))));
+          return c.json(withNotices(id, holdCard(id, 'quiz', open, { question: args.question, options: args.options, multi: args.correct.length > 1, purpose: args.purpose ?? undefined, tests: args.tests ?? undefined }, nodeLabelOf(id, args.node_id))));
         }
         return c.json(withNotices(id, await actions.quiz(id, args)));
       }
@@ -1458,7 +1501,7 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         const args = v as { question: string; options?: string[] };
         if (terminal) {
           const open = actions.openAsk(id, args, { hold: true });
-          return c.json(withNotices(id, holdCard(id, 'ask', open, { question: args.question, options: args.options ?? [] }, args.options?.length ?? 0)));
+          return c.json(withNotices(id, holdCard(id, 'ask', open, { question: args.question, options: args.options ?? [] })));
         }
         return c.json(withNotices(id, await actions.ask(id, args)));
       }
@@ -1466,7 +1509,7 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         const args = v as unknown as { goal: string; nodes: GraphNodeInput[] };
         if (terminal) {
           const open = actions.openPlan(id, args, { hold: true });
-          return c.json(withNotices(id, holdCard(id, 'plan', open, { goal: args.goal, nodes: args.nodes }, 0)));
+          return c.json(withNotices(id, holdCard(id, 'plan', open, { goal: args.goal, nodes: args.nodes })));
         }
         return c.json(withNotices(id, await actions.setPlan(id, args)));
       }
@@ -1474,37 +1517,42 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         const args = v as { prompt: string; rubric: string; node_id?: string };
         if (terminal) {
           const open = actions.openExplain(id, args, { hold: true });
-          return c.json(withNotices(id, holdCard(id, 'explain', open, { prompt: args.prompt }, 0, nodeLabelOf(id, args.node_id))));
+          return c.json(withNotices(id, holdCard(id, 'explain', open, { prompt: args.prompt }, nodeLabelOf(id, args.node_id))));
         }
         return c.json(withNotices(id, await actions.explainBack(id, args)));
       }
       case 'answer': {
         // The learner's terminal reply for the open card (or the result of a browser answer, once).
-        const h = held.get(id);
+        const card = heldCard(id);
         const reply = String(v.reply ?? '').trim();
-        if (!h || (v.prompt_id && v.prompt_id !== h.id)) {
-          return c.json({ error: 'No card is waiting for a reply in this lesson (the server may have restarted). Ask again with a fresh quiz, ask, set_plan or explain_back.' }, 409);
-        }
-        if (h.settled) {
-          held.delete(id);
-          return c.json(withNotices(id, { ...h.settled, answered_in: 'browser' }));
+        const gone = 'No card is waiting for a reply in this lesson (the server may have restarted). Ask again with a fresh quiz, ask, set_plan or explain_back.';
+        if (!card || (v.prompt_id && v.prompt_id !== card.row.id)) return c.json({ error: gone }, 409);
+        if (card.result) {
+          collectCard(card.row.id);
+          return c.json(withNotices(id, { ...card.result, answered_in: 'browser' }));
         }
         if (!reply) return c.json({ error: 'The card is still open and the learner has not answered in the browser. Pass their reply, or wait for their next message.' }, 409);
-        const parsed = actions.parseReply(h.kind, reply, h.optionCount);
-        if (!answerPrompt(id, h.id, parsed)) {
-          held.delete(id);
+        // A card the table restored has no Promise in this process to await:
+        // the grading closure went with the boot that opened it, and
+        // re-deriving it from the row is its own step. Until then the model is
+        // told to ask again rather than handed an ungraded silence.
+        const done = grading.get(card.row.id);
+        if (!done) return c.json({ error: gone }, 409);
+        const parsed = actions.parseReply(card.row.kind as PromptKind, reply, optionsOf(card.row));
+        if (!answerPrompt(id, card.row.id, parsed)) {
+          collectCard(card.row.id);
           return c.json({ error: 'The card was closed before the reply arrived. Ask again.' }, 409);
         }
-        const result = await h.done;
-        held.delete(id);
+        const result = await done;
+        collectCard(card.row.id);
         return c.json(withNotices(id, { ...result, answered_in: 'terminal' }));
       }
       case 'collect': {
         // The UserPromptSubmit hook asks whether a held card was answered in the browser since the model last looked.
-        const h = held.get(id);
-        if (!h?.settled) return c.json({ settled: null });
-        held.delete(id);
-        return c.json({ settled: { kind: h.kind, ...h.settled } });
+        const card = heldCard(id);
+        if (!card?.result) return c.json({ settled: null });
+        collectCard(card.row.id);
+        return c.json({ settled: { kind: card.row.kind, ...card.result } });
       }
       case 'answer_in': {
         // The enum in the tool's own shape is what rejects anything else, above.
@@ -1554,8 +1602,8 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         // The turn is over. Cards the model was blocking on are cancelled;
         // a held card stays open for the learner's next message.
         cancelPending(id);
-        const h = held.get(id);
-        const payload = { ok: true, source: lesson.driver ?? 'claude-code', held: h && !h.settled ? h.id : null };
+        const card = heldCard(id);
+        const payload = { ok: true, source: lesson.driver ?? 'claude-code', held: card && !card.result ? card.row.id : null };
         const turn = lastTurn(id);
         if (turn) {
           // The terminal ran the model; nothing about the requests it made
