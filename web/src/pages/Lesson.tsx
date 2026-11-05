@@ -5,6 +5,7 @@ import { AskCard } from '../components/AskCard';
 import { Composer } from '../components/Composer';
 import { ExplainCard } from '../components/ExplainCard';
 import { Graph } from '../components/Graph';
+import { KeyHelp } from '../components/KeyHelp';
 import { Markdown } from '../components/Markdown';
 import { OutlineRail } from '../components/OutlineRail';
 import { topoOrder } from '../lib/order';
@@ -26,6 +27,8 @@ export function LessonPage() {
   const [stick, setStick] = useState(true);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [vault, setVault] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [focus, setFocus] = useState(false);
   const external = state.lesson?.mode === 'external';
   const terminal = external && state.lesson?.answer_in === 'terminal';
   const driver = state.lesson?.driver === 'codex' ? 'codex cli' : 'claude code';
@@ -147,6 +150,45 @@ export function LessonPage() {
     }
     setTimeout(() => setExportMsg(null), 3000);
   };
+
+  /**
+   * The lesson's own keys, and the one place Escape is decided.
+   *
+   * The guard order is the one every keydown handler in this codebase uses —
+   * bail inside a text field or a contenteditable, bail on a modifier — so a
+   * question mark typed into the composer or a teach-back stays prose.
+   *
+   * Escape has one documented order, evaluated top-down: the help overlay if
+   * it is open, else focus mode if it is on, else the turn in flight. The last
+   * step calls the same `stop` the composer's own button does rather than a
+   * second implementation of stopping, so Escape is never more destructive
+   * than the visible control.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === '?') {
+        e.preventDefault();
+        setHelp((v) => !v);
+      } else if (e.key === 'Escape') {
+        if (help) {
+          e.preventDefault();
+          setHelp(false);
+        } else if (focus) {
+          e.preventDefault();
+          setFocus(false);
+        } else if (state.busy) {
+          e.preventDefault();
+          void stop().catch(() => undefined);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [help, focus, state.busy]);
 
   if (state.error) {
     return (
@@ -456,6 +498,12 @@ export function LessonPage() {
           </div>
         </aside>
       </div>
+
+      {/* One overlay for the page, reading whichever card is open. There is no
+          card to be a sibling of in the nothing-open state, which the contract
+          still gives rows for, so the lesson level is the only mount that can
+          serve it. */}
+      {help && <KeyHelp kind={activeCard?.kind ?? null} options={activeCard?.options.length ?? 0} onClose={() => setHelp(false)} />}
     </div>
   );
 }
