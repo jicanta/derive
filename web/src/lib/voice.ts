@@ -28,7 +28,11 @@ export const voiceSupport = {
   listen: !!Recognition,
 };
 
-export const voiceLang = () => (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
+/** The tag pushed in by `setVoiceLang`, or null while nobody has chosen one. */
+let prefLang: string | null = null;
+
+/** The language to speak and listen in: the learner's, then the browser's, then English. */
+export const voiceLang = () => prefLang || (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
 
 /**
  * Markdown as it should be heard: no fences, no link targets, no emphasis
@@ -154,6 +158,19 @@ function pickVoice(): SpeechSynthesisVoice | null {
     all.find((v) => v.default) ??
     null;
   return voice;
+}
+
+/**
+ * Speak and listen in this tag from now on; null means fall back to the
+ * browser's own language. This also drops the memoised voice: `pickVoice` caches
+ * its choice in a module-level binding that is otherwise only invalidated when
+ * the browser's voice list changes, so without the reset the first-picked voice
+ * would keep talking after the learner changed language.
+ */
+export function setVoiceLang(tag: string | null) {
+  if (prefLang === tag) return;
+  prefLang = tag;
+  voice = undefined;
 }
 
 if (voiceSupport.speak) {

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import type { TimelineItem } from './types';
-import { isSpeaking, listen, parseSpokenChoice, sentences, speak, spokenChoices, spokenQuiz, spokenText, stopSpeaking, voiceSupport, type ListenHandle } from './voice';
+import { localeOf } from './locales';
+import { isSpeaking, listen, parseSpokenChoice, sentences, setVoiceLang, speak, spokenChoices, spokenQuiz, spokenText, stopSpeaking, voiceSupport, type ListenHandle } from './voice';
 
 const KEY = 'derive.voice';
 const APPROVE = /^(yes|yeah|yep|ok|okay|sure|approve|approved|looks (good|right|fine)|go ahead|teach me|sí|si|dale|vamos|perfecto|de acuerdo)[.!]?$/i;
@@ -22,6 +23,7 @@ export function useVoiceMode({
   activeCard,
   answer,
   send,
+  lang,
 }: {
   lessonId: string | undefined;
   items: TimelineItem[];
@@ -30,6 +32,8 @@ export function useVoiceMode({
   activeCard: ActiveCard;
   answer: (promptId: string, a: Record<string, unknown>) => Promise<unknown>;
   send: (text: string) => Promise<unknown>;
+  /** The learner's `prefs.language`, as they typed it. Unknown text keeps the browser's own language. */
+  lang?: string | null;
 }) {
   const [enabled, setEnabled] = useState<boolean>(() => {
     try {
@@ -135,6 +139,13 @@ export function useVoiceMode({
   );
   const afterSpeechRef = useRef(afterSpeech);
   afterSpeechRef.current = afterSpeech;
+
+  // The learner's free text, resolved through the committed table before it
+  // reaches either speech engine. `voice.ts` has no access to learner state, so
+  // the tag is pushed in from here.
+  useEffect(() => {
+    setVoiceLang(localeOf(lang ?? ''));
+  }, [lang]);
 
   // Switching on: nothing already on screen is read back, except a card that is waiting.
   useEffect(() => {
