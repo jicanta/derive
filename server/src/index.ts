@@ -948,6 +948,11 @@ app.post('/api/lessons/:id/message', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { text?: string };
   const text = body.text?.trim();
   if (!text) return c.json({ error: 'text required' }, 400);
+  // The learner's own exit from an open remediation, taken before the message
+  // is routed anywhere: all three branches below are the learner typing, and a
+  // learner who wants to move on must always be able to say so. The method
+  // holds against the model, never against them.
+  actions.clearRemediation(id);
   if (lesson.mode === 'external') {
     // Companion mode: the conversation lives in the terminal. A message
     // while a card is open answers it the way a typed reply does in the
@@ -1622,6 +1627,12 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
         // The cast names what the shape already proved; the enum, option-count
         // and correct-index checks that used to live here are the schema's now.
         const args = v as unknown as actions.QuizArgs;
+        // Before the teaching gate and before any card is opened: a check just
+        // missed and the server named one prerequisite, so a question anywhere
+        // else is refused in the method's own voice. The sentence reaches the
+        // learner too, because this answers it as a 400 with the message intact.
+        const blocked = actions.remediationRefusal(id, args.node_id);
+        if (blocked) return c.json(withNotices(id, blocked), 400);
         const gate = { node_id: args.node_id ?? undefined, already_held: a.already_held === true };
         // A pretest comes before the teaching by design; only the check that locks a node needs prose before it.
         let gap = args.purpose === 'pretest' ? null : teachingGap(id, gate);

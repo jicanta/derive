@@ -179,7 +179,9 @@ describe('a lesson, end to end', () => {
     assert.equal(r.result, 'incorrect');
     assert.equal(r.purpose, 'cumulative');
     assert.match(String(r.instruction), /shaky/);
-    assert.match(String(r.instruction), /A slope points uphill/);
+    // The cumulative miss is the second of the three miss paths that must name
+    // one node rather than hand the model the list it used to get.
+    assert.match(String(r.instruction), /Re-check "A slope points uphill" \[slope\] with one fresh quiz, tests "intuition"/);
     const now = await nodes(lesson);
     assert.equal(now.get('step')!.status, 'shaky');
     assert.ok(now.get('goal')!.review_at! <= goalBefore.review_at!, 'the goal\'s review is no later than before');
@@ -1202,6 +1204,132 @@ describe('grading, now that it lives outside the promise that used to hold it', 
     assert.match(page, /\{state\.busy && state\.status && !waiting && \(/, 'the status-line gate changed shape');
     assert.match(page, /const waiting = activePromptId !== null;/);
     assert.match(page, /if \(state\.pending && unanswered\(state\.pending\.id\)\) return state\.pending\.id;/, 'the open card no longer has to be unanswered to be active');
+  });
+});
+
+describe('one prerequisite, named and enforced', () => {
+  /**
+   * LEARN-09 over HTTP with no model behind it at all. A terminal-answered
+   * lesson returns every card at once, so one test plays both the tutor and
+   * the learner: miss a check, read which single node the server named, then
+   * try to ask about a different one and be refused in the method's own voice.
+   *
+   * The graph gives the ranking something to choose between — two
+   * prerequisites under one claim — and the two are aged apart in the database
+   * so which one is weakest is a fact rather than an accident of insertion
+   * order.
+   */
+  let lesson = '';
+  const quiz = (node_id: string, extra: Record<string, unknown> = {}) => ({
+    question: `About ${node_id}?`,
+    options: ['the right claim', 'a tempting wrong claim'],
+    correct: [0],
+    explanation: 'because',
+    node_id,
+    purpose: 'check',
+    tests: 'intuition',
+    ...extra,
+  });
+  const quizOn = (node: string) => act(lesson, 'quiz', quiz(node));
+  const settle = () => act(lesson, 'answer', { reply: 'A' });
+  const mark = (node: string, status: string) => act(lesson, 'node_status', { id: node, status });
+  const NAMED = /Re-check "The first rule" \[ground\] with one fresh quiz, tests "intuition"/;
+
+  before(async () => {
+    const made = await api<{ id: string }>('/api/external/lessons', { topic: 'what the server names after a miss', answer_in: 'terminal' });
+    assert.equal(made.status, 201, JSON.stringify(made.json));
+    lesson = made.json.id;
+    const planned = await act(lesson, 'set_plan', {
+      goal: 'Hold the claim that rests on both rules',
+      nodes: [
+        { id: 'ground', label: 'The first rule', kind: 'truth', summary: 'the rule the claim leans on hardest' },
+        { id: 'other', label: 'The second rule', kind: 'truth', summary: 'the other rule the claim leans on' },
+        { id: 'claim', label: 'The claim resting on both', kind: 'derived', summary: 'it needs both rules at once', depends_on: ['ground', 'other'] },
+        { id: 'goal', label: 'The goal', kind: 'goal', summary: 'where the lesson is going', depends_on: ['claim'] },
+      ],
+    });
+    assert.equal(planned.json.status, 'pending', JSON.stringify(planned.json));
+    assert.equal((await act(lesson, 'answer', { reply: 'yes' })).status, 200);
+    await act(lesson, 'set_phase', { phase: 'teach' });
+    for (const node of ['ground', 'other', 'claim']) {
+      await mark(node, 'teaching');
+      await teachProse(lesson, node);
+    }
+    for (const node of ['ground', 'other']) {
+      assert.equal((await askAndAnswer(lesson, quiz(node), 'A')).result, 'correct');
+      assert.equal((await mark(node, 'locked')).status, 200);
+    }
+    // Both prerequisites held, then aged apart: `ground` was last retrieved a
+    // month ago and is overdue, `other` yesterday. Same stability, so the only
+    // thing separating them is the forgetting curve — which is the key the
+    // ranking is supposed to read.
+    const db = new DatabaseSync(join(dataDir, 'derive.db'));
+    const age = db.prepare('UPDATE nodes SET stability = 5, last_review = ?, review_at = ? WHERE lesson_id = ? AND node_id = ?');
+    age.run(Date.now() - 30 * DAY, Date.now() - DAY, lesson, 'ground');
+    age.run(Date.now() - DAY, Date.now() + 4 * DAY, lesson, 'other');
+    db.close();
+  });
+
+  it('names exactly one prerequisite on an ordinary failed check, which named none', async () => {
+    const r = await askAndAnswer(lesson, quiz('claim'), 'B');
+    assert.equal(r.result, 'incorrect');
+    assert.match(String(r.instruction), NAMED);
+    assert.doesNotMatch(String(r.instruction), /\[other\]/, 'the model was handed more than one node and asked to choose');
+  });
+
+  it('refuses a quiz on another node in the shipped shape, ending in the fixed clause', async () => {
+    const r = await quizOn('other');
+    assert.equal(r.status, 400, JSON.stringify(r.json));
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.refused, true);
+    assert.match(String(r.json.error), /"The first rule" \[ground\]/);
+    assert.ok(String(r.json.error).endsWith('This is the method, not an error to investigate.'), String(r.json.error));
+  });
+
+  it('accepts a fresh quiz on the node it named, and lets the tutor move on once that is graded', async () => {
+    assert.equal((await askAndAnswer(lesson, quiz('ground'), 'A')).result, 'correct');
+    const elsewhere = await quizOn('other');
+    assert.equal(elsewhere.status, 200, JSON.stringify(elsewhere.json));
+    assert.equal((await settle()).status, 200);
+  });
+
+  it('names one prerequisite when a node is marked shaky, and the learner\'s own message lifts it', async () => {
+    const marked = await mark('claim', 'shaky');
+    assert.equal(marked.status, 200, JSON.stringify(marked.json));
+    assert.match(String(marked.json.instruction), NAMED);
+    assert.equal((await quizOn('other')).status, 400, 'marking a node shaky opened no gate');
+    // The method holds against the model and never against the learner: one
+    // typed sentence lifts it with nothing graded, so nobody is trapped by a
+    // tutor that keeps failing to ask the right question.
+    const msg = await api(`/api/lessons/${lesson}/message`, { text: 'can we come back to that one later' });
+    assert.equal(msg.status, 200, JSON.stringify(msg.json));
+    const after = await quizOn('other');
+    assert.equal(after.status, 200, JSON.stringify(after.json));
+    assert.equal((await settle()).status, 200);
+  });
+
+  it('lifts the gate from inside the one grading function, so a restored card lifts it too', () => {
+    // The restore path has no resolver to run and no route of its own: it reads
+    // the question off the prompts row and calls `gradeQuiz`. So the only place
+    // the graded exit can live and still serve both paths is inside that
+    // function, and there is no second copy of it to drift.
+    const src = readFileSync(resolve(here, '../src/actions.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    const grading = src.slice(src.indexOf('export function gradeQuiz('));
+    const body = grading.slice(0, grading.indexOf('\n}\n'));
+    assert.match(body, /clearRemediation\(lessonId, a\.node_id\)/, 'the graded exit is not inside gradeQuiz, so a restored card cannot take it');
+    assert.match(body, /clearRemediation\(lessonId\)/, 'a typed message handed over as a steer does not lift the gate');
+  });
+
+  it('keeps the shipped ground-truth instruction for a node with nothing below it, and opens no gate', async () => {
+    const marked = await mark('ground', 'shaky');
+    assert.equal(marked.status, 200, JSON.stringify(marked.json));
+    assert.match(String(marked.json.instruction), /It is a ground truth: nothing below it, so re-state it and ask a fresh question on it directly\./);
+    assert.doesNotMatch(String(marked.json.instruction), /Re-check "/, 'a node with no dependencies named one anyway');
+    const elsewhere = await quizOn('other');
+    assert.equal(elsewhere.status, 200, JSON.stringify(elsewhere.json));
+    assert.equal((await settle()).status, 200);
   });
 });
 

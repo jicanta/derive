@@ -139,12 +139,18 @@ function afterQuiz(
     }
     return 'Correct and confident. Lock the node if this was its check, then move on.';
   }
+  // The miss paths of an ordinary check named no dependency at all until now:
+  // the tutor was told to go down a level and left to decide which node that
+  // was. The server decides, and the gate opened here holds it to that node or
+  // to a fresh question on the claim itself — nothing else.
+  const step = ctx.nodeId ? nameWeakest(ctx.lessonId, ctx.nodeId) : null;
+  const named = step ? ` ${step}` : '';
   if (result === 'dont_know') {
-    return 'They did not know. Do not reveal the derivation yet: give one hint that points at the node this rests on, then a fresh quiz on the same claim. If that misses too, re-derive it from its dependencies step by step and mark the node shaky.';
+    return `They did not know. Do not reveal the derivation yet: give one hint that points at the node this rests on, then a fresh quiz on the same claim. If that misses too, re-derive it from its dependencies step by step and mark the node shaky.${named}`;
   }
   return confidence === 'sure'
-    ? 'A confident error: they committed to the wrong claim and were sure of it. This is the moment a belief can actually be replaced, so do not just restate the right answer. Name the exact claim they held and why it was tempting, then show what breaks it, from the nodes below. Re-check with a fresh quiz before locking; if that misses too, mark the node shaky and re-derive from its dependencies.'
-    : 'A miss, and they knew they were unsure. Give one hint that points at the dependency that decides it (not the answer) and let them try a fresh quiz on the same claim. If that misses too, re-derive it from its dependencies and mark the node shaky.';
+    ? `A confident error: they committed to the wrong claim and were sure of it. This is the moment a belief can actually be replaced, so do not just restate the right answer. Name the exact claim they held and why it was tempting, then show what breaks it, from the nodes below. Re-check with a fresh quiz before locking; if that misses too, mark the node shaky and re-derive from its dependencies.${named}`
+    : `A miss, and they knew they were unsure. Give one hint that points at the dependency that decides it (not the answer) and let them try a fresh quiz on the same claim. If that misses too, re-derive it from its dependencies and mark the node shaky.${named}`;
 }
 
 /** A derived node is locked on understanding, not on steps: it needs a correct intuition or transfer question after the teaching. */
@@ -176,11 +182,14 @@ function afterCumulative(result: 'correct' | 'incorrect' | 'dont_know', confiden
     const next = setNodeStatus(ctx.lessonId, ctx.nodeId, 'shaky');
     emit(ctx.lessonId, 'node_status', { id: ctx.nodeId, status: 'shaky', ...(next ? { review_at: next.review_at, interval_days: next.interval_days, implicit: next.implicit } : {}) });
   }
-  const deps = dependencyRecord(ctx.lessonId, ctx.nodeId);
+  const step = nameWeakest(ctx.lessonId, ctx.nodeId);
   const held = confidence === 'sure' ? 'They were sure of the wrong claim: name the exact claim they held and what breaks it, from the nodes below, before anything else. ' : '';
+  const remediate = step
+    ? `${step} Once it holds, re-derive this node from it in two or three sentences and ask a fresh question on this node again (purpose "cumulative"). It locks again only when that passes.`
+    : `${GROUND_TRUTH_STEP} It locks again only when that passes.`;
   return (
     `A miss on the cumulative quiz: "${node?.label ?? ctx.nodeId}" did not stay locked, so it is now marked shaky (its review moved closer). ${held}` +
-    `Targeted remediation, not a re-explanation: ${deps} Re-check the weakest of those with one fresh quiz (tests: "intuition"); once it holds, re-derive this node from it in two or three sentences and ask a fresh question on this node again (purpose "cumulative"). It locks again only when that passes. ${remaining()}`
+    `Targeted remediation, not a re-explanation. ${remediate} ${remaining()}`
   );
 }
 
@@ -202,11 +211,99 @@ function rankedDependencies(lessonId: string, nodeId: string) {
   return weakestFirst(deps.map((d) => ({ ...d, missed: quizzesOn(lessonId, d.node_id).some((r) => r.correct === 0 && r.purpose !== 'pretest') })));
 }
 
-/** The nodes a node rests on and what the checks on each have shown, for a remediation instruction. */
-function dependencyRecord(lessonId: string, nodeId: string): string {
-  const deps = rankedDependencies(lessonId, nodeId);
-  if (!deps.length) return 'It is a ground truth: nothing below it, so re-state it and ask a fresh question on it directly.';
-  return `it rests on ${deps.map((d) => `"${d.label}" [${d.node_id}] (${d.status}; ${nodeRecord(lessonId, d.node_id)})`).join(', ')}.`;
+/**
+ * What to do instead when the node that missed has nothing below it: there is
+ * no level to drop to, so the claim itself is re-stated and re-asked. The
+ * shipped sentence, kept word for word, because it is still the right one.
+ */
+const GROUND_TRUTH_STEP = 'It is a ground truth: nothing below it, so re-state it and ask a fresh question on it directly.';
+
+/**
+ * The open remediation of a lesson: the node whose check just missed, and the
+ * one prerequisite the server named for it.
+ *
+ * Module-level state, and that is this registry's whole purpose — the shape of
+ * the deferred-message registry next door. While it holds a lesson, a `quiz`
+ * on any node outside that pair is refused, which is how "targeted
+ * remediation, not re-explanation" stops being something a model may or may
+ * not do well and becomes something the server decides. The pair rather than
+ * the prerequisite alone because the method's own next move after an ordinary
+ * miss is a fresh question on the same claim: a gate that refused that would
+ * be refusing the method it exists to enforce.
+ *
+ * It does not survive a restart, and that is correct. The gate is an
+ * instruction to a model whose turn did not survive either, and the next miss
+ * re-derives the same named node from the same ranking. Nothing is migrated
+ * for it.
+ */
+const remediation = new Map<string, { node: string; dependency: string }>();
+
+/** Hold this lesson to one prerequisite: a quiz anywhere but `node` or `dependency` is refused until one of them is graded, or the learner speaks. */
+export function openRemediation(lessonId: string, node: string, dependency: string) {
+  remediation.set(lessonId, { node, dependency });
+}
+
+/**
+ * Lift the gate. With no node, unconditionally — that is the learner's own
+ * exit, taken the moment they type. With one, only if it is a node the gate
+ * was holding the tutor to, which is the other exit: a fresh quiz on the
+ * named prerequisite (or on the claim that missed) has been graded.
+ */
+export function clearRemediation(lessonId: string, nodeId?: string) {
+  const open = remediation.get(lessonId);
+  if (!open) return;
+  if (nodeId === undefined || nodeId === open.node || nodeId === open.dependency) remediation.delete(lessonId);
+}
+
+/**
+ * The refusal a quiz on the wrong node gets, or null when there is nothing to
+ * refuse.
+ *
+ * Node identity is compared by exact string equality inside this lesson and
+ * nowhere else: a node id is unique only within its own lesson's graph, so
+ * normalising it, folding its case or matching it across lessons would all be
+ * guesses. The sentence reaches the model and the learner verbatim — the route
+ * answers a refusal as a 4xx with the message intact and the web client throws
+ * the server's own text — so it is product copy, and it ends in the clause
+ * that stops a model debugging the server instead of teaching.
+ */
+export function remediationRefusal(lessonId: string, nodeId: string | null | undefined): { ok: false; refused: true; error: string } | null {
+  const open = remediation.get(lessonId);
+  if (!open) return null;
+  if (nodeId === open.node || nodeId === open.dependency) return null;
+  const node = getNode(lessonId, open.dependency);
+  // The named node left the graph (a re-plan), so there is nothing to hold the
+  // tutor to any more.
+  if (!node) {
+    remediation.delete(lessonId);
+    return null;
+  }
+  return {
+    ok: false,
+    refused: true,
+    error:
+      `Not that node yet. A check just missed, so "${node.label}" [${node.node_id}] is the one prerequisite to re-check first: ask one fresh quiz on it, node_id "${node.node_id}", tests "intuition", purpose "check". ` +
+      `A fresh question on "${open.node}" itself is allowed too. Either one, once graded, opens the way again, and so does anything the learner types. This is the method, not an error to investigate.`,
+  };
+}
+
+/**
+ * The one prerequisite to re-check after a miss on `nodeId`, named by label
+ * and id — and the gate that holds the tutor to it, opened here so the
+ * sentence and the enforcement cannot disagree about which node it is.
+ *
+ * Null when the node has nothing below it: no gate opens and the caller keeps
+ * the ground-truth wording, because there is no level down to re-check.
+ */
+function nameWeakest(lessonId: string, nodeId: string): string | null {
+  const [weakest] = rankedDependencies(lessonId, nodeId);
+  if (!weakest) return null;
+  openRemediation(lessonId, nodeId, weakest.node_id);
+  return (
+    `Re-check "${weakest.label}" [${weakest.node_id}] with one fresh quiz, tests "intuition", before any other node: ` +
+    `of the nodes this one rests on it is the weakest (${weakest.status}; ${nodeRecord(lessonId, weakest.node_id)}). ` +
+    'A quiz on a node other than that one or this one is refused until one of them is graded.'
+  );
 }
 
 type Open<T> = { id: string; done: Promise<T> };
@@ -252,6 +349,9 @@ export function gradeQuiz(lessonId: string, promptId: string, a: QuizArgs, raw: 
   if (ans.steer) {
     // The learner typed in the chat instead of picking an option. Close the
     // card without grading or revealing anything, and hand the message over.
+    // That is also the learner's own exit from an open remediation: the method
+    // holds against the model, never against them.
+    clearRemediation(lessonId);
     emit(lessonId, 'quiz_result', { id, selected: [], correct: [], explanation: '', result: 'skipped', note: ans.steer });
     return withNotice(lessonId, {
       result: 'no_answer',
@@ -282,6 +382,12 @@ export function gradeQuiz(lessonId: string, promptId: string, a: QuizArgs, raw: 
       confidence,
     });
   }
+  // The other exit from an open remediation: a fresh quiz on a node the gate
+  // was holding the tutor to has been graded, pass or miss. It lifts before the
+  // next instruction is built, so a second miss can name its own weakest
+  // prerequisite instead of being refused by the gate it just satisfied. This
+  // runs on the restored path too, because that path calls this function.
+  if (a.node_id) clearRemediation(lessonId, a.node_id);
   const instruction = afterQuiz(result, confidence, purpose, { lessonId, nodeId: a.node_id ?? null, tests });
   return withNotice(lessonId, {
     result,
@@ -295,7 +401,16 @@ export function gradeQuiz(lessonId: string, promptId: string, a: QuizArgs, raw: 
   });
 }
 
-export const quiz = (lessonId: string, a: QuizArgs) => openQuiz(lessonId, a).done;
+/**
+ * Ask one graded question and wait for it. The remediation gate is checked
+ * before a card is opened, not after: a refusal must not put a question on the
+ * learner's screen that the method is about to withdraw.
+ */
+export async function quiz(lessonId: string, a: QuizArgs): Promise<Record<string, unknown>> {
+  const refusal = remediationRefusal(lessonId, a.node_id);
+  if (refusal) return refusal;
+  return openQuiz(lessonId, a).done;
+}
 
 export function openAsk(lessonId: string, a: { question: string; options?: string[] }, opts: OpenOpts = {}): Open<Record<string, unknown>> {
   const { id, wait } = openPrompt(lessonId, 'ask', { question: a.question, options: a.options ?? [] }, opts);
@@ -367,9 +482,10 @@ export function nodeStatus(lessonId: string, a: { id: string; status: 'teaching'
     if (credited.length) extra.implicit_review = `Locking this counted as a partial review of ${credited.map((c) => `"${c.label}" (now due in ${c.interval_days} days)`).join(', ')}.`;
   }
   if (a.status === 'shaky') {
-    extra.instruction =
-      `Shaky. Targeted remediation, not a re-explanation: ${dependencyRecord(lessonId, a.id)} ` +
-      'Re-check the weakest of those with one fresh quiz (tests: "intuition"); once it holds, re-derive this node from it, one step at a time, and check this node again with a fresh question. Lock it only when that passes.';
+    const step = nameWeakest(lessonId, a.id);
+    extra.instruction = step
+      ? `Shaky. Targeted remediation, not a re-explanation. ${step} Once it holds, re-derive this node from it, one step at a time, and check this node again with a fresh question. Lock it only when that passes.`
+      : `Shaky. ${GROUND_TRUTH_STEP} Lock it only when that passes.`;
   }
   if (a.status === 'locked' && node.kind === 'goal') {
     const { pending } = cumulativeStatus(lessonId);
