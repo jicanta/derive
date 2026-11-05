@@ -16,13 +16,22 @@ import { memo, useEffect, useMemo, useRef } from 'react';
 import { orderIndex } from '../lib/order';
 import type { GraphNode } from '../lib/types';
 
-type Data = { label: string; kind: GraphNode['kind']; status: GraphNode['status']; summary?: string | null; due?: boolean; index?: number };
+type Data = {
+  label: string;
+  kind: GraphNode['kind'];
+  status: GraphNode['status'];
+  summary?: string | null;
+  due?: boolean;
+  index?: number;
+  /** FSRS memory strength in days, on the surfaces that want a locked node's gold to track it. The Atlas passes it; the in-lesson graph never does. */
+  stability?: number | null;
+};
 type RFNode = Node<Data, 'derive'>;
 
 const W = 196;
 const H = 64;
 
-export function layoutGraph(nodes: (GraphNode & { due?: boolean })[], offset = { x: 0, y: 0 }): { nodes: RFNode[]; edges: Edge[]; width: number; height: number } {
+export function layoutGraph(nodes: (GraphNode & { due?: boolean; stability?: number | null })[], offset = { x: 0, y: 0 }): { nodes: RFNode[]; edges: Edge[]; width: number; height: number } {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: 'BT', nodesep: 34, ranksep: 70, marginx: 10, marginy: 10 });
@@ -48,7 +57,7 @@ export function layoutGraph(nodes: (GraphNode & { due?: boolean })[], offset = {
         id: n.id,
         type: 'derive',
         position: { x: p.x - W / 2 + offset.x, y: p.y - H / 2 + offset.y },
-        data: { label: n.label, kind: n.kind, status: n.status, summary: n.summary, due: n.due, index: order.get(n.id) },
+        data: { label: n.label, kind: n.kind, status: n.status, summary: n.summary, due: n.due, index: order.get(n.id), stability: n.stability },
         draggable: false,
         selectable: false,
       } satisfies RFNode;
@@ -62,22 +71,64 @@ export function layoutGraph(nodes: (GraphNode & { due?: boolean })[], offset = {
 const STATUS_WORD: Record<GraphNode['status'], string> = { pending: 'not yet taught', teaching: 'teaching now', locked: 'locked', shaky: 'shaky' };
 const KIND_WORD: Record<GraphNode['kind'], string> = { truth: 'ground truth', derived: 'derived step', goal: 'goal' };
 
+/** Where the ramp reaches full gold: half a year of stability is "held for months" by any reading. */
+const RAMP_TOP_DAYS = 180;
+
+/**
+ * How solid a locked node's gold is, from its FSRS stability in days.
+ *
+ * Logarithmic, because that is where the change in a memory actually is: the
+ * difference between a day and a fortnight is what the learner feels, and the
+ * difference between five months and six is not. Bounded at 70% gold rather
+ * than fading to nothing, because a fainter fill crosses a band around 60-65%
+ * where neither the dark node text nor the light text clears 4.5:1 on the
+ * 13.5px label — "faint" must not come to mean unreadable. The glow carries the
+ * full range instead, since a shadow cannot make text fail.
+ *
+ * It is an inline style rather than a class because Tailwind v4 resolves
+ * arbitrary values at build time, so a per-node color-mix() cannot be one.
+ */
+function stabilityRamp(stabilityDays: number) {
+  const t = Math.min(1, Math.max(0, Math.log1p(Math.max(0, stabilityDays)) / Math.log1p(RAMP_TOP_DAYS)));
+  return {
+    fill: `color-mix(in oklab, var(--color-gold-500) ${70 + 30 * t}%, var(--color-ink-850))`,
+    border: `color-mix(in oklab, var(--color-gold-400) ${60 + 40 * t}%, var(--color-ink-700))`,
+    glow: `0 0 34px -6px color-mix(in oklab, var(--color-gold-500) ${55 * t}%, transparent)`,
+    ordinal: `rgb(23 19 11 / ${0.75 - 0.2 * t})`,
+  };
+}
+
 export const DeriveNode = memo(function DeriveNode({ data }: NodeProps<RFNode>) {
-  const { status, kind, label, due, summary, index } = data;
+  const { status, kind, label, due, summary, index, stability } = data;
+  // No stability given is the in-lesson graph, and it keeps the shipped gold
+  // and the just-locked celebration exactly as they were: in a live lesson
+  // every locked node was locked minutes ago, so a ramp would read as
+  // uniformly fragile. A stability of 0 is a real node at the faint end of the
+  // ramp — absence and zero are different cases and render differently.
+  const ramp = status === 'locked' && !due && stability != null ? stabilityRamp(stability) : null;
   const base = 'group relative flex items-center justify-center text-center px-4 text-[13.5px] leading-[1.25] font-medium transition-all duration-500 box-border';
   const shape = kind === 'goal' ? 'rounded-full' : kind === 'truth' ? 'rounded-md' : 'rounded-[10px]';
   let tone = 'bg-ink-850 border border-ink-100/20 text-ink-200';
   if (status === 'teaching') tone = 'bg-[#171a19] border border-teal-400 text-ink-50 animate-pulse-ring';
-  if (status === 'locked') tone = 'bg-gold-500 border border-gold-400 text-[#17130b] glow-gold animate-glow-in';
+  // The fill, border and glow move to the inline style when the ramp is on, so
+  // the class string keeps only what the ramp does not set.
+  if (status === 'locked') tone = ramp ? 'border text-[#17130b]' : 'bg-gold-500 border border-gold-400 text-[#17130b] glow-gold animate-glow-in';
   if (status === 'shaky') tone = 'bg-ink-850 border border-dashed border-rust-400 text-rust-400';
   if (status === 'locked' && due) tone = 'bg-ink-850 border border-teal-400 text-ink-50 shadow-[0_0_22px_-6px_rgba(127,196,201,0.6)]';
   const badge = status === 'locked' && !due ? 'text-[#17130b]/55' : status === 'teaching' ? 'text-teal-400' : 'text-ink-500';
   return (
-    <div className={`${base} ${shape} ${tone}`} style={{ width: kind === 'goal' ? W + 16 : W, height: H }}>
+    <div
+      className={`${base} ${shape} ${tone}`}
+      style={{ width: kind === 'goal' ? W + 16 : W, height: H, ...(ramp ? { backgroundColor: ramp.fill, borderColor: ramp.border, boxShadow: ramp.glow } : null) }}
+    >
       <Handle type="target" position={Position.Bottom} />
       <Handle type="source" position={Position.Top} />
       {kind === 'truth' && status !== 'locked' && <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-gold-500" />}
-      {index !== undefined && kind !== 'goal' && <span className={`absolute left-2 top-1.5 font-mono text-[9.5px] tracking-[0.06em] ${badge}`}>{String(index).padStart(2, '0')}</span>}
+      {index !== undefined && kind !== 'goal' && (
+        <span className={`absolute left-2 top-1.5 font-mono text-[9.5px] tracking-[0.06em] ${badge}`} style={ramp ? { color: ramp.ordinal } : undefined}>
+          {String(index).padStart(2, '0')}
+        </span>
+      )}
       <span className="line-clamp-3 text-pretty">{label}</span>
       {/* What this node claims, on hover: the label is a handle, the summary is the meaning. */}
       <div className="node-pop pointer-events-none absolute left-1/2 bottom-[calc(100%+10px)] w-[280px] rounded-xl border border-ink-100/15 bg-ink-900/97 backdrop-blur px-4 py-3 text-left shadow-[0_24px_50px_-20px_rgba(0,0,0,0.9)]">

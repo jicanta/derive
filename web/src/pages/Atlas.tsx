@@ -30,7 +30,7 @@ function buildAtlas(atlas: Atlas): { nodes: Node[]; edges: Edge[] } {
   for (const lesson of atlas.lessons) {
     const mine = atlas.nodes.filter((n) => n.lesson_id === lesson.id);
     if (!mine.length) continue;
-    const gnodes: (GraphNode & { due?: boolean })[] = mine.map((n) => ({
+    const gnodes: (GraphNode & { due?: boolean; stability?: number | null })[] = mine.map((n) => ({
       id: `${lesson.id}:${n.node_id}`,
       label: n.label,
       kind: n.kind,
@@ -38,6 +38,9 @@ function buildAtlas(atlas: Atlas): { nodes: Node[]; edges: Edge[] } {
       depends_on: n.depends_on.map((d) => `${lesson.id}:${d}`),
       status: n.status,
       due: n.due,
+      // Only here. The in-lesson graph deliberately passes no stability, so its
+      // locked nodes stay the one gold they have always been.
+      stability: n.stability,
     }));
     const laid = layoutGraph(gnodes, { x, y: 80 });
     nodes.push({
@@ -193,11 +196,19 @@ export function AtlasPage() {
 
             <RetentionPanel />
 
-            <div className="border-t hairline pt-4 flex gap-4 font-mono text-[10px] text-ink-500">
+            {/* Five items no longer fit one 296px line, so the row wraps rather than overflowing the aside. */}
+            <div className="border-t hairline pt-4 flex flex-wrap gap-4 font-mono text-[10px] text-ink-500">
               <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-gold-500" />locked</span>
               <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full border border-teal-400 box-border" />due</span>
               <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full border border-dashed border-rust-400 box-border" />shaky</span>
               <span className="inline-flex items-center gap-1.5"><span className="h-px w-3 border-t border-dashed border-ink-200" />shared</span>
+              <span className="inline-flex items-center gap-1.5" title="Locked nodes deepen as FSRS stability grows: pale gold is freshly locked, solid gold has held for months.">
+                <span className="inline-flex items-center gap-0.5">
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: 'color-mix(in oklab, var(--color-gold-500) 70%, var(--color-ink-850))' }} />
+                  <span className="h-1.5 w-1.5 rounded-full bg-gold-500" />
+                </span>
+                held longer
+              </span>
             </div>
           </aside>
         )}
