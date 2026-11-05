@@ -360,6 +360,15 @@ export function LessonPage() {
                         noted · <span className="font-sans text-[13px] text-ink-300">{it.fact}</span>
                       </div>
                     );
+                  case 'notice':
+                    // The quiet mono shape the memory and preferences lines
+                    // use, deliberately not the rust error card: a notice is a
+                    // fact about the lesson, and nothing failed.
+                    return (
+                      <div key={`n-${it.seq}`} className="animate-fade-up font-mono text-[11px] text-ink-500">
+                        {it.text}
+                      </div>
+                    );
                   case 'preferences':
                     return (
                       <div key={`p-${it.seq}`} className="animate-fade-up font-mono text-[11px] text-ink-500">

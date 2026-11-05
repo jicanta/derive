@@ -1300,3 +1300,137 @@ describe('a card that was open when the server stopped', () => {
     );
   });
 });
+
+describe('answering a card that was restored after a restart', () => {
+  /**
+   * The other half of LEARN-12. The card coming back is not enough: the
+   * question the learner was part-way through has to be answerable, and
+   * answering it has to do the work the server owns — the verdict, the quiz
+   * row, the FSRS write, the misconception — and then carry the result into a
+   * fresh turn, because the tool call that asked it died with the boot that
+   * opened it.
+   *
+   * An agent-mode lesson, driven through the external action path so each tool
+   * call returns at once. `DERIVE_BACKEND` is set so the provider is decided by
+   * the environment and no login probe runs; the turn the restore path starts
+   * has no Claude login behind it and fails immediately, which is fine — what
+   * is asserted is that a turn was started at all.
+   */
+  const dir = mkdtempSync(join(tmpdir(), 'derive-regrade-'));
+  const boots: ChildProcess[] = [];
+
+  after(() => {
+    for (const b of boots) b.kill();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const at = async <T = Record<string, unknown>>(host: string, path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<{ status: number; json: T }> => {
+    const tok = readFileSync(join(dir, 'token'), 'utf8').trim();
+    const res = await fetch(`${host}${path}`, { method, headers: { 'content-type': 'application/json', 'x-derive-token': tok }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: res.status, json: (await res.json()) as T };
+  };
+  const stop = (child: ChildProcess) =>
+    new Promise<void>((res) => {
+      child.once('exit', () => res());
+      child.kill();
+    });
+
+  it('grades it with the live card\'s own code, writes the schedule and the misconception, and starts a fresh turn', async () => {
+    const one = await startDeriveServer(entry, { DERIVE_BACKEND: 'claude' }, { dataDir: dir });
+    boots.push(one.child);
+    const act = <T = Record<string, unknown>>(lesson: string, action: string, body: Record<string, unknown>) =>
+      at<T>(one.base, `/api/external/lessons/${lesson}/${action}`, { answer_in: 'terminal', ...body });
+
+    const made = await at<{ id: string }>(one.base, '/api/lessons', { topic: 'why the step size is bounded' });
+    assert.equal(made.status, 201, JSON.stringify(made.json));
+    const lesson = made.json.id;
+
+    const planned = await act(lesson, 'set_plan', {
+      goal: 'Understand why the step size is bounded',
+      nodes: [
+        { id: 'slope', label: 'A slope points uphill', kind: 'truth', summary: 'the gradient points where the function grows fastest' },
+        { id: 'step', label: 'Stepping against the slope descends', kind: 'derived', summary: 'moving against the gradient lowers the value', depends_on: ['slope'] },
+        { id: 'goal', label: 'The step must stay below a bound', kind: 'goal', summary: 'too large a step overshoots', depends_on: ['step'] },
+      ],
+    });
+    assert.equal(planned.status, 200, JSON.stringify(planned.json));
+    assert.equal((await act(lesson, 'answer', { reply: 'yes' })).status, 200);
+    await act(lesson, 'set_phase', { phase: 'teach' });
+    await act(lesson, 'node_status', { id: 'slope', status: 'teaching' });
+    await act(lesson, 'mirror', { role: 'assistant', text: 'Teaching the slope. '.repeat(40), uid: 'slope-prose' });
+    const check = await act(lesson, 'quiz', {
+      question: 'Which way does the gradient point?',
+      options: ['uphill', 'downhill'],
+      correct: [0],
+      explanation: 'it points where the function grows fastest',
+      node_id: 'slope',
+      tests: 'procedure',
+    });
+    assert.equal(check.status, 200, JSON.stringify(check.json));
+    assert.equal((await act<{ result: string }>(lesson, 'answer', { reply: 'A' })).json.result, 'correct');
+    assert.equal((await act(lesson, 'node_status', { id: 'slope', status: 'locked' })).status, 200);
+
+    // The schedule the restored answer has to move, read before the restart.
+    const before = await at<{ nodes: { node_id: string; status: string; stability: number | null; review_at: number | null }[] }>(one.base, `/api/lessons/${lesson}`);
+    const slopeBefore = before.json.nodes.find((n) => n.node_id === 'slope')!;
+    assert.equal(slopeBefore.status, 'locked');
+    assert.ok(slopeBefore.stability, 'the node has no schedule yet, so nothing below would prove a write');
+
+    const opened = await act<{ prompt_id: string; status: string }>(lesson, 'quiz', {
+      question: 'Where would a huge step land?',
+      options: ['above where it started', 'below where it started'],
+      correct: [0],
+      explanation: 'an overshoot climbs back up the far wall',
+      node_id: 'slope',
+      purpose: 'cumulative',
+      tests: 'transfer',
+    });
+    assert.equal(opened.status, 200, JSON.stringify(opened.json));
+    assert.equal(opened.json.status, 'pending');
+    const promptId = opened.json.prompt_id;
+    await stop(one.child);
+
+    const two = await startDeriveServer(entry, { DERIVE_BACKEND: 'claude' }, { dataDir: dir });
+    boots.push(two.child);
+    const db = new DatabaseSync(join(dir, 'derive.db'));
+    const count = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE lesson_id = ?`).get(lesson) as { n: number }).n;
+    const turnsBefore = count('turns');
+    const quizzesBefore = count('quiz_results');
+    db.close();
+
+    const answered = await at(two.base, `/api/lessons/${lesson}/answer`, { prompt_id: promptId, selected: [1], sure: true });
+    assert.equal(answered.status, 200, JSON.stringify(answered.json));
+    // The grading context stays on the row. The learner's own answer route is
+    // the first path that reads it back, and it must hand none of it over.
+    for (const field of ['correct', 'explanation', 'rubric']) {
+      assert.ok(!new RegExp(`"${field}"\\s*:`).test(JSON.stringify(answered.json)), `the answer response carried "${field}"`);
+    }
+
+    const view = await at<{
+      events: { type: string; payload: Record<string, unknown> }[];
+      nodes: { node_id: string; status: string; stability: number | null; review_at: number | null }[];
+    }>(two.base, `/api/lessons/${lesson}`);
+    const verdict = view.json.events.filter((e) => e.type === 'quiz_result').pop();
+    assert.ok(verdict, 'no verdict event: the restored card was closed without being graded');
+    assert.equal(verdict?.payload.result, 'incorrect');
+
+    const slopeAfter = view.json.nodes.find((n) => n.node_id === 'slope')!;
+    assert.equal(slopeAfter.status, 'shaky', 'a cumulative miss on a restored card did not mark the node shaky');
+    assert.ok(slopeAfter.stability! < slopeBefore.stability!, 'the FSRS lapse was not written');
+    assert.ok(slopeAfter.review_at! <= slopeBefore.review_at!, 'the review did not move closer');
+
+    const db2 = new DatabaseSync(join(dir, 'derive.db'));
+    const count2 = (table: string) => (db2.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE lesson_id = ?`).get(lesson) as { n: number }).n;
+    assert.equal(count2('quiz_results'), quizzesBefore + 1, 'no quiz row was recorded for the restored card');
+    assert.equal(count2('misconceptions'), 1, 'a confident miss on a restored card left no misconception row');
+    const turnsAfter = count2('turns');
+    db2.close();
+    assert.ok(turnsAfter > turnsBefore, 'no fresh turn carried the grading result forward');
+
+    // A second answer for the same card finds a settled row and is refused in
+    // the shipped sentence, so one question cannot move FSRS twice.
+    const again = await at<{ error: string }>(two.base, `/api/lessons/${lesson}/answer`, { prompt_id: promptId, selected: [0], sure: true });
+    assert.equal(again.status, 409, JSON.stringify(again.json));
+    assert.equal(again.json.error, 'no such pending prompt (the turn may have ended; send a message instead)');
+  });
+});

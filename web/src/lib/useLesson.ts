@@ -196,6 +196,8 @@ function applyEvent(s: LessonState, ev: StoredEvent): LessonState {
     }
     case 'memory':
       return { ...s, items: [...items, { kind: 'memory', seq: ev.seq, fact: ev.payload.fact }] };
+    case 'notice':
+      return { ...s, items: [...items, { kind: 'notice', seq: ev.seq, text: String(ev.payload?.text ?? '') }] };
     case 'preferences':
       return { ...s, items: [...items, { kind: 'preferences', seq: ev.seq, prefs: ev.payload as LearnerPrefs }] };
     case 'material': {
@@ -257,7 +259,7 @@ function reducer(s: LessonState, a: Action): LessonState {
 
 const EVENT_TYPES = [
   'ready', 'turn_start', 'turn_end', 'status', 'user', 'block_start', 'delta', 'assistant', 'quiz', 'quiz_result', 'ask', 'ask_result',
-  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'warmup', 'node_status', 'memory', 'preferences', 'material', 'material_removed', 'answer_in', 'resource',
+  'explain', 'explain_result', 'plan', 'plan_result', 'phase', 'warmup', 'node_status', 'memory', 'notice', 'preferences', 'material', 'material_removed', 'answer_in', 'resource',
 ];
 
 export function useLesson(id: string | undefined) {

@@ -381,6 +381,8 @@ export type TimelineItemBase =
   | { kind: 'node_start'; seq: number; id: string; label: string; index: number; total: number }
   | { kind: 'node'; seq: number; id: string; status: NodeStatus; label: string; reviewDays?: number }
   | { kind: 'memory'; seq: number; fact: string }
+  /** A quiet statement of fact about the lesson — not a failure, so never the rust error treatment. */
+  | { kind: 'notice'; seq: number; text: string }
   | { kind: 'preferences'; seq: number; prefs: LearnerPrefs }
   | { kind: 'material'; seq: number; id: string; name: string; unit: string; pages: number; removed?: boolean }
   | { kind: 'resource'; seq: number; resource: ResourceEvent }

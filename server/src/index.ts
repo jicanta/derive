@@ -10,7 +10,8 @@ import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import * as actions from './actions.js';
-import { interrupt, isBusy, runTurn } from './agent.js';
+import { driverFor, interrupt, isBusy, runTurn } from './agent.js';
+import { driverOverride } from './driver.js';
 import { ensureToken, matchesSession, matchesToken, sessionValue } from './credentials.js';
 import { keyView, removeKey, secretsFileError, setKey } from './keys.js';
 import { ALLOWED_ORIGINS, DERIVE_ORIGINS, HOST, HOST_IS_LOOPBACK, PORT, SEARCH_KEY_ID, TOKEN_PATH, VAULT_DIR, VERSION } from './config.js';
@@ -43,6 +44,7 @@ import {
   listMaterials,
   listMisconceptions,
   listNodes,
+  loadTurnMessages,
   promptCards,
   renameLearner,
   updateLearnerPrefs,
@@ -969,20 +971,152 @@ app.post('/api/lessons/:id/message', async (c) => {
   return c.json({ ok: true });
 });
 
+/**
+ * The grading half of a card this process did not open.
+ *
+ * A card outlives the boot that opened it: the prompts row still says it is
+ * open long after the Promise the blocking tool was parked on went with the
+ * process. So the question is read back off the row and graded by the very
+ * functions the live promise calls — same verdict, same quiz row, same FSRS
+ * write, same misconception, same instruction, because there is only one copy
+ * of each. The settle write comes first and is conditional on the row still
+ * being open, so one question moves a schedule exactly once however many
+ * answers arrive for it.
+ *
+ * Null means there is genuinely nothing to grade: no open row with that id on
+ * that lesson, or a row nothing can read. That is the only case the shipped
+ * "no such pending prompt" sentence was ever true of.
+ */
+function gradeRestored(lessonId: string, promptId: string, answer: Record<string, unknown>): Record<string, unknown> | null {
+  const open = pendingPrompt(lessonId);
+  if (!open || open.id !== promptId) return null;
+  const payload = promptPayload(promptId);
+  if (!payload) return null;
+  // Built before the row is settled: a card whose question cannot be read back
+  // has to be left alone rather than closed ungraded.
+  const grade = graderFor(lessonId, promptId, open.kind, payload);
+  if (!grade) return null;
+  if (!answerPrompt(lessonId, promptId, answer)) return null;
+  const result = grade(answer);
+  // Written onto the row exactly as holdCard writes a live result, so a
+  // companion lesson's terminal can still collect it.
+  const settled = settledAnswer(promptId);
+  if (settled) setPromptAnswer(promptId, { ...settled, result });
+  return result;
+}
+
+/** The settle function for one kind, closed over what the row says the card asked, or null when the row cannot say. */
+function graderFor(
+  lessonId: string,
+  promptId: string,
+  kind: PromptKind,
+  payload: Record<string, unknown>,
+): ((answer: Record<string, unknown>) => Record<string, unknown>) | null {
+  switch (kind) {
+    case 'quiz': {
+      const args = quizArgsOf(payload);
+      return args ? (answer) => actions.gradeQuiz(lessonId, promptId, args, answer) : null;
+    }
+    case 'ask':
+      return (answer) => actions.settleAsk(lessonId, promptId, answer);
+    case 'plan': {
+      const goal = typeof payload.goal === 'string' ? payload.goal : null;
+      const nodes = Array.isArray(payload.nodes) ? (payload.nodes as GraphNodeInput[]) : null;
+      return goal !== null && nodes ? (answer) => actions.settlePlan(lessonId, promptId, { goal, nodes }, answer) : null;
+    }
+    case 'explain': {
+      const rubric = typeof payload.rubric === 'string' ? payload.rubric : null;
+      return rubric === null ? null : (answer) => actions.settleExplain(lessonId, promptId, { rubric }, answer);
+    }
+  }
+}
+
+/**
+ * A quiz's arguments, read back off its row. The answer key is in there, which
+ * is why this is server-side only and why its one caller returns the projected
+ * grading result rather than anything it was handed.
+ */
+function quizArgsOf(payload: Record<string, unknown>): actions.QuizArgs | null {
+  const options = Array.isArray(payload.options) ? payload.options.filter((o): o is string => typeof o === 'string') : null;
+  const correct = Array.isArray(payload.correct) ? payload.correct.filter((i): i is number => Number.isInteger(i)) : null;
+  if (typeof payload.question !== 'string' || !options || !correct) return null;
+  return {
+    question: payload.question,
+    options,
+    correct,
+    explanation: typeof payload.explanation === 'string' ? payload.explanation : '',
+    node_id: typeof payload.node_id === 'string' ? payload.node_id : null,
+    // Both were resolved when the card opened and stored resolved, so handing
+    // them back is the identity and the restored verdict cannot drift from the
+    // live one because the lesson has moved on in between.
+    purpose: actions.QUIZ_PURPOSES.find((p) => p === payload.purpose) ?? null,
+    tests: actions.QUIZ_TESTS.find((t) => t === payload.tests) ?? null,
+  };
+}
+
+/**
+ * Whether a fresh turn will still have the conversation the card was opened in.
+ *
+ * It is the same comparison `runTurn` makes for 03 D-04: a provider change
+ * drops both the session id and the persisted messages, because one vendor's
+ * opaque reasoning blocks are not replayable into another. Asked here so the
+ * lesson can say so in one quiet line instead of silently losing its thread.
+ */
+function resumeCarries(lessonId: string): boolean {
+  const lesson = getLesson(lessonId);
+  if (!lesson) return false;
+  const driver = driverOverride() ?? driverFor(resolveTutor(lesson.learner_id).provider);
+  const last = lastTurn(lessonId);
+  if (last && last.driver !== driver.name) return false;
+  return !!lesson.session_id || loadTurnMessages(lessonId, driver.name).length > 0;
+}
+
+/**
+ * The turn that follows a card answered after a restart. The tool call that
+ * asked the question died with the boot that opened it, so the graded result
+ * cannot be returned to the model that asked for it; it is handed to a fresh
+ * turn as the learner's answer instead, carrying the same instruction the tool
+ * result would have carried.
+ */
+function restoredAnswerPrompt(kind: PromptKind, result: Record<string, unknown>): string {
+  const what = kind === 'plan' ? 'the plan' : kind === 'explain' ? 'the teach-back' : 'the question';
+  const { instruction, notice, ...rest } = result as { instruction?: string; notice?: string } & Record<string, unknown>;
+  return (
+    `This lesson was interrupted by a restart with ${what} still open, and the learner has now answered it. It was graded and recorded here, so do not ask it again and do not grade it yourself. The result:\n` +
+    `${JSON.stringify(rest, null, 2)}\n\n` +
+    (notice ? `${notice}\n\n` : '') +
+    (instruction ? `${instruction}\n\n` : '') +
+    "Pick the lesson up from there: at most two sentences saying where you are, then the next step. The lesson's graph, events and memory are in your context — read them rather than asking the learner to recap."
+  );
+}
+
 app.post('/api/lessons/:id/answer', async (c) => {
   const id = c.req.param('id');
   const body = (await c.req.json().catch(() => ({}))) as { prompt_id?: string } & Record<string, unknown>;
   if (!body.prompt_id) return c.json({ error: 'prompt_id required' }, 400);
   const { prompt_id, ...answer } = body;
-  // A card restored from the table has no Promise in this process to resolve:
-  // the grading closure died with the boot that opened it, so grading has to
-  // be re-derived from the row (`promptPayload`). Until that branch exists,
-  // settling the row here would close the card and drop the answer on the
-  // floor, which is worse than saying nothing is waiting — so the route keeps
-  // the sentence it has always answered with.
-  if (!isLivePrompt(prompt_id)) return c.json({ error: 'no such pending prompt (the turn may have ended; send a message instead)' }, 409);
-  const ok = answerPrompt(id, prompt_id, answer);
-  if (!ok) return c.json({ error: 'no such pending prompt (the turn may have ended; send a message instead)' }, 409);
+  const gone = 'no such pending prompt (the turn may have ended; send a message instead)';
+  // This process opened the card and is still parked on it: resolving the
+  // Promise is what grades it, through the same `gradeQuiz` the branch below
+  // reaches directly.
+  if (isLivePrompt(prompt_id)) return answerPrompt(id, prompt_id, answer) ? c.json({ ok: true }) : c.json({ error: gone }, 409);
+  // No resolver here, so the card was opened before this boot. The row is the
+  // only thing that still knows what it asked, and D-26 says the learner never
+  // meets a dead card: it is graded from the row and a fresh turn carries the
+  // result forward. The sentence above is unchanged and now fires only when
+  // there is genuinely no open row.
+  const open = pendingPrompt(id);
+  const result = gradeRestored(id, prompt_id, answer);
+  if (!open || !result) return c.json({ error: gone }, 409);
+  const lesson = getLesson(id);
+  if (lesson?.mode === 'agent' && !isBusy(id)) {
+    // Nothing failed, so this is a notice and not an error card: the answer was
+    // graded and saved, and it is only the conversation around it that is gone.
+    if (!resumeCarries(id)) emit(id, 'notice', { text: 'graded and saved · starting a fresh turn, without the earlier conversation' });
+    void runTurn(id, restoredAnswerPrompt(open.kind, result)).catch((e) => console.error('[turn]', safeMessage(e)));
+  }
+  // A companion lesson starts no turn here: its model is in the terminal, and
+  // the result waits on the row for `answer` or `collect` to hand it over.
   return c.json({ ok: true });
 });
 
@@ -1532,20 +1666,25 @@ app.post('/api/external/lessons/:id/:action', async (c) => {
           return c.json(withNotices(id, { ...card.result, answered_in: 'browser' }));
         }
         if (!reply) return c.json({ error: 'The card is still open and the learner has not answered in the browser. Pass their reply, or wait for their next message.' }, 409);
-        // A card the table restored has no Promise in this process to await:
-        // the grading closure went with the boot that opened it, and
-        // re-deriving it from the row is its own step. Until then the model is
-        // told to ask again rather than handed an ungraded silence.
-        const done = grading.get(card.row.id);
-        if (!done) return c.json({ error: gone }, 409);
         const parsed = actions.parseReply(card.row.kind as PromptKind, reply, optionsOf(card.row));
-        if (!answerPrompt(id, card.row.id, parsed)) {
+        const done = grading.get(card.row.id);
+        if (done) {
+          if (!answerPrompt(id, card.row.id, parsed)) {
+            collectCard(card.row.id);
+            return c.json({ error: 'The card was closed before the reply arrived. Ask again.' }, 409);
+          }
+          const result = await done;
           collectCard(card.row.id);
-          return c.json({ error: 'The card was closed before the reply arrived. Ask again.' }, 409);
+          return c.json(withNotices(id, { ...result, answered_in: 'terminal' }));
         }
-        const result = await done;
+        // A card the table restored has no Promise in this process to await —
+        // the grading closure went with the boot that opened it — so the same
+        // grading is re-derived from the row. No fresh turn is started here:
+        // the model is in the terminal and this reply is its turn.
+        const restored = gradeRestored(id, card.row.id, parsed);
+        if (!restored) return c.json({ error: gone }, 409);
         collectCard(card.row.id);
-        return c.json(withNotices(id, { ...result, answered_in: 'terminal' }));
+        return c.json(withNotices(id, { ...restored, answered_in: 'terminal' }));
       }
       case 'collect': {
         // The UserPromptSubmit hook asks whether a held card was answered in the browser since the model last looked.
