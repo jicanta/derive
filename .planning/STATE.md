@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Learning Experience
-status: executing
-stopped_at: Completed 05-07-PLAN.md
-last_updated: "2026-11-05T02:02:03.138Z"
+status: verifying
+stopped_at: Completed 05-08-PLAN.md
+last_updated: "2026-11-05T03:00:28.727Z"
 last_activity: 2026-11-04
 last_activity_desc: Phase 05 execution started
-state_head: f5fe98728e285947f83f4238e0bd2bb12c78ff35
+state_head: fbfea204b74c73d6b1a5bb15f7ed462e01d0851d
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 52
-  completed_plans: 51
+  completed_plans: 52
   percent: 57
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-22)
 
 Phase: 05 (Learning Experience) — EXECUTING
 Plan: 8 of 8
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-04 — Phase 05 execution started
 
 Progress: [██████░░░░] 57%
@@ -108,6 +108,7 @@ Progress: [██████░░░░] 57%
 | Phase 05 P05 | 8 min | 3 tasks | 8 files |
 | Phase 05 P06 | 21 min | 3 tasks | 8 files |
 | Phase 05 P07 | 16 min | 3 tasks | 11 files |
+| Phase 05 P08 | 48 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -256,6 +257,12 @@ Recent decisions affecting current work:
 - [Phase 05]: 05-07: the lesson page renders its own DuePill inside the always-visible right-hand group and passes no due to the shared header, because the pill must sit after the locked count there
 - [Phase 05]: 05-07: useVoiceMode's lang option now takes a BCP-47 tag resolved by the caller; resolution belongs where the learner is read, so Lesson.tsx owns the localeOf call
 - [Phase 05]: 05-07: the narrow-width budget for the new due pill is paid by the locked count's word below sm, never by the title's width floor, which is the open 03-UI-REVIEW finding's fix
+- [Phase 05]: 05-08: due is one registry entry declared surfaces: ['mcp'] — that single surface list is the whole of D-05's 'the four-place tool-set rule does not apply', keeping the read out of DERIVE_TOOL_NAMES, agent.ts buildTools and the HTTP action switch with no copy to drift
+- [Phase 05]: 05-08: the due entry carries no status label, because TOOL_LABELS is a per-tutor-tool vocabulary and the snapshot holds the added set to the owned loop's two web tools; the assertion was left alone rather than widened
+- [Phase 05]: 05-08: /derive:due's allowed-tools line is hand-written to one tool and the file is deliberately not a render target — a rendered line would need a 22-key exclusion map to say 'one tool' and would silently widen on the next registry entry
+- [Phase 05]: 05-08: a due exclusion on both shipped command targets is what keeps learn.md and review.md byte-identical; the failure mode it prevents is a passing render with a quietly wider allow-list
+- [Phase 05]: 05-08: the overdue and next-review figures are computed once in mcp.ts with the Atlas's own floor-of-days rule and its own words (today, {d}d overdue), and the command text passes them through verbatim, so the terminal and the Atlas cannot disagree
+- [Phase 05]: 05-08: MCP_TOOLS_BEFORE keeps its identifier and its assertion message verbatim and the reason the frozen plugin-surface guarantee widened went into its doc comment — rewording the message would make the next reader's failure signal stale
 
 ### Pending Todos
 
@@ -288,6 +295,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-05T02:02:02.990Z
-Stopped at: Completed 05-07-PLAN.md
+Last session: 2026-11-05T03:00:11.001Z
+Stopped at: Completed 05-08-PLAN.md
 Resume file: None

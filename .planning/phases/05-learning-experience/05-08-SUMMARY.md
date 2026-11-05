@@ -293,3 +293,12 @@ None — no external service configuration required.
 ---
 *Phase: 05-learning-experience*
 *Completed: 2026-11-05*
+
+## Self-Check: PASSED
+
+- `plugin/commands/due.md` — present on disk
+- `codex/skills/derive-due/SKILL.md` — present on disk
+- `codex/skills/derive-due/agents/openai.yaml` — present on disk
+- `.planning/phases/05-learning-experience/05-08-SUMMARY.md` — present on disk
+- Commits `e3134d7`, `a7e0032` (production) and `fbfea20` (SUMMARY) all reachable from HEAD
+- `git rev-list --count 3a6dbbd..HEAD` = 3 at this point: the 2 production commits recorded in `actuals.commits` plus the SUMMARY commit
