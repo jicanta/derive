@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AskCard } from '../components/AskCard';
 import { Composer } from '../components/Composer';
+import { DuePill } from '../components/DuePill';
 import { ExplainCard } from '../components/ExplainCard';
 import { Graph } from '../components/Graph';
 import { KeyHelp } from '../components/KeyHelp';
@@ -16,6 +17,7 @@ import { QuizCard } from '../components/QuizCard';
 import { ResourceCard } from '../components/ResourceCard';
 import { api } from '../lib/api';
 import { removeHtmlAttr, setHtmlAttr } from '../lib/htmlAttr';
+import { localeOf } from '../lib/locales';
 import { describePrefs } from '../lib/prefs';
 import { useLesson } from '../lib/useLesson';
 import { useMaterials } from '../lib/useMaterials';
@@ -29,6 +31,8 @@ export function LessonPage() {
   const [stick, setStick] = useState(true);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [vault, setVault] = useState(false);
+  const [due, setDue] = useState<number | null>(null);
+  const [spokenLang, setSpokenLang] = useState<string | null>(null);
   const [help, setHelp] = useState(false);
   const [focus, setFocus] = useState(false);
   const external = state.lesson?.mode === 'external';
@@ -37,8 +41,25 @@ export function LessonPage() {
   // What the last turn ran on, never what Settings currently says; the catalogue id reads as words.
   const tutorLabel = state.tutor ? `${state.tutor.provider.replace(/-/g, ' ')} · ${state.tutor.model ?? 'default model'}` : '';
 
+  /**
+   * One read, three decisions. This effect already fetched the whole stats
+   * payload and kept one field of it — the vault flag that decides whether
+   * export writes to Obsidian or downloads — so the due count for the header
+   * pill and the learner's own language for voice are widenings of a call that
+   * was already being made, not two more fetches for one payload.
+   *
+   * The swallowed failure is the shipped one and is deliberate: a failed read
+   * leaves the pill unrendered and voice on the browser's language rather than
+   * showing a stale or guessed figure, and it never blocks the lesson.
+   */
   useEffect(() => {
-    api.stats().then((s) => setVault(s.vault)).catch(() => undefined);
+    api.stats()
+      .then((s) => {
+        setVault(s.vault);
+        setDue(s.due);
+        setSpokenLang(localeOf(s.learner?.prefs.language ?? ''));
+      })
+      .catch(() => undefined);
   }, []);
 
   /**
@@ -123,7 +144,7 @@ export function LessonPage() {
     return null;
   }, [state.items, activePromptId]);
 
-  const voice = useVoiceMode({ lessonId: id, items: state.items, busy: state.busy, external, activeCard, answer, send });
+  const voice = useVoiceMode({ lessonId: id, items: state.items, busy: state.busy, external, activeCard, answer, send, lang: spokenLang });
 
   const ordered = useMemo(() => topoOrder(state.nodes), [state.nodes]);
   const timeline = useMemo(() => [...state.items].sort((a, b) => (a.at ?? 0) - (b.at ?? 0)), [state.items]);
@@ -260,13 +281,20 @@ export function LessonPage() {
             <div className="hidden md:block min-w-0">
               <PhaseBar phase={state.phase} />
             </div>
-            <div className="flex items-center gap-5">
+            {/* Tighter below sm, because this group now carries one element more than it was built for and the topic has a width floor to respect. Measured: at 375px the group was 26px wider than the header and the live dot fell off the right edge. */}
+            <div className="flex items-center gap-4 sm:gap-5">
               {state.nodes.length > 0 && (
                 <span className="flex items-baseline gap-1.5 min-w-0">
                   <span className="font-serif text-[26px] leading-none text-gold-500">{locked}</span>
-                  <span className="font-mono text-[11px] text-ink-500">/ {state.nodes.length} locked</span>
+                  {/* The word goes below sm and the figure stays, which is what voice and export beside it already do with their own labels. */}
+                  <span className="font-mono text-[11px] text-ink-500 whitespace-nowrap">
+                    / {state.nodes.length}
+                    <span className="hidden sm:inline"> locked</span>
+                  </span>
                 </span>
               )}
+              {/* In the always-visible group, not the md-only one that holds the phase indicator: "visible at every width" has no exception left to make, and this is the tightest header in the app. */}
+              <DuePill due={due} />
               {voice.supported.speak && (
                 <button
                   type="button"

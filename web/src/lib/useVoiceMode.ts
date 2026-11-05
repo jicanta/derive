@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import type { TimelineItem } from './types';
-import { localeOf } from './locales';
 import { isSpeaking, listen, parseSpokenChoice, sentences, setVoiceLang, speak, spokenChoices, spokenQuiz, spokenText, stopSpeaking, voiceSupport, type ListenHandle } from './voice';
 
 const KEY = 'derive.voice';
@@ -32,7 +31,7 @@ export function useVoiceMode({
   activeCard: ActiveCard;
   answer: (promptId: string, a: Record<string, unknown>) => Promise<unknown>;
   send: (text: string) => Promise<unknown>;
-  /** The learner's `prefs.language`, as they typed it. Unknown text keeps the browser's own language. */
+  /** The learner's language as a BCP-47 tag, already resolved through `localeOf` by the page that read the learner. Null keeps the browser's own language. */
   lang?: string | null;
 }) {
   const [enabled, setEnabled] = useState<boolean>(() => {
@@ -140,11 +139,13 @@ export function useVoiceMode({
   const afterSpeechRef = useRef(afterSpeech);
   afterSpeechRef.current = afterSpeech;
 
-  // The learner's free text, resolved through the committed table before it
-  // reaches either speech engine. `voice.ts` has no access to learner state, so
-  // the tag is pushed in from here.
+  // The resolved tag, pushed into `voice.ts`, which has no access to learner
+  // state of its own. The learner's free text is resolved through the committed
+  // table by whoever read the learner — one read, one resolution — and an
+  // unrecognised language arrives here as null, which is the browser-language
+  // fallback rather than a guessed tag.
   useEffect(() => {
-    setVoiceLang(localeOf(lang ?? ''));
+    setVoiceLang(lang ?? null);
   }, [lang]);
 
   // Switching on: nothing already on screen is read back, except a card that is waiting.
