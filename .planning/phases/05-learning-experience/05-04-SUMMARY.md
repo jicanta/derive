@@ -283,3 +283,11 @@ None — no external service configuration required.
 ---
 *Phase: 05-learning-experience*
 *Completed: 2026-11-05*
+
+## Self-Check: PASSED
+
+- `web/src/components/RetentionPanel.tsx` — present on disk
+- `server/test/retention.test.ts` — present on disk
+- `.planning/phases/05-learning-experience/05-04-SUMMARY.md` — present on disk
+- Commits `14f88c5`, `8157889`, `1bef812` (production) and `90c872b` (plan metadata) all reachable from HEAD
+- `git rev-list --count 8b65661..HEAD~1` = 3, matching `actuals.commits`
