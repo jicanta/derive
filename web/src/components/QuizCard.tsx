@@ -57,7 +57,10 @@ export function QuizCard({
     }
   };
 
-  // Keyboard: 1-3 / A-C pick, Enter answers, Shift+Enter answers as unsure, ? or 0 is "I don't know".
+  // Keyboard: 1-3 / A-C pick, Enter answers, Shift+Enter answers as unsure, 0 is "I don't know".
+  // The question mark is deliberately not handled here: it opens the lesson's
+  // help overlay now, and 0 already did the don't-know job, so one shipped
+  // habit is lost and no capability is.
   const active = !answered && !disabled && !sending;
   useEffect(() => {
     if (!active) return;
@@ -73,7 +76,7 @@ export function QuizCard({
       } else if (e.key === 'Enter' && picked.length > 0) {
         e.preventDefault();
         void submit(e.shiftKey ? 'unsure' : 'sure');
-      } else if (k === '?' || k === '0') {
+      } else if (k === '0') {
         e.preventDefault();
         void submit('idk');
       }
@@ -200,13 +203,23 @@ export function QuizCard({
             type="button"
             disabled={sending}
             onClick={() => submit('idk')}
+            title="I don't know (0)"
             className="h-9 rounded-full border border-ink-600 px-4 text-sm text-ink-200 hover:border-ink-400 hover:text-ink-50 transition-colors"
           >
             I don't know
           </button>
           <span className="ml-auto flex items-center gap-4 font-mono text-[11px] text-ink-500">
-            <span className="hidden sm:inline" title="Keyboard: 1, 2, 3 to pick · Enter to answer · Shift+Enter if unsure · ? for I don't know">
-              <kbd className="kbd">1</kbd><kbd className="kbd">2</kbd><kbd className="kbd">3</kbd> pick · <kbd className="kbd">↵</kbd> answer · <kbd className="kbd">⇧↵</kbd> unsure
+            {/* The chips track the option count: a two-option quiz advertises 1 and 2, never a padded three-digit strip. */}
+            <span className="hidden sm:inline" title="Keyboard: 1, 2, 3 to pick · Enter to answer · Shift+Enter if unsure · 0 for I don't know · ? for help">
+              {quiz.options.map((_, i) => (
+                <kbd key={`d${i}`} className="kbd">{i + 1}</kbd>
+              ))}
+              {' / '}
+              {quiz.options.map((_, i) => (
+                <kbd key={`l${i}`} className="kbd">{LETTERS[i]}</kbd>
+              ))}
+              {' pick · '}
+              <kbd className="kbd">↵</kbd> answer · <kbd className="kbd">⇧↵</kbd> unsure · <kbd className="kbd">?</kbd> help
             </span>
             <button type="button" onClick={() => setShowNote((v) => !v)} className="hover:text-ink-200">
               {showNote ? 'hide note' : 'add a note'}

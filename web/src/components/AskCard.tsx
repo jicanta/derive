@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { AskPayload } from '../lib/types';
 import { Markdown } from './Markdown';
 
+const LETTERS = 'ABCD';
+
 export function AskCard({
   ask,
   answer,
@@ -27,22 +29,29 @@ export function AskCard({
     }
   };
 
+  // Keyboard: 1-4 / A-D pick the same slot, Enter commits whatever has been
+  // typed. The option bound is four (server/src/tools.ts), so those are the
+  // ranges; the chips below track the actual option count, not the bound.
   useEffect(() => {
-    if (answered || disabled || sending || !ask.options.length) return;
+    if (answered || disabled || sending) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const i = /^[1-4]$/.test(e.key) ? Number(e.key) - 1 : -1;
+      const k = e.key.toLowerCase();
+      const i = /^[1-4]$/.test(k) ? Number(k) - 1 : /^[a-d]$/.test(k) ? k.charCodeAt(0) - 97 : -1;
       if (i >= 0 && i < ask.options.length) {
         e.preventDefault();
         void send(ask.options[i]);
+      } else if (e.key === 'Enter' && text.trim()) {
+        e.preventDefault();
+        void send(text);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answered, disabled, sending, ask.options]);
+  }, [answered, disabled, sending, ask.options, text]);
 
   return (
     <div className="animate-fade-up rounded-[18px] border border-teal-400/25 bg-ink-900/85 backdrop-blur px-6 py-5 md:px-7 md:py-6">
@@ -91,6 +100,22 @@ export function AskCard({
               Send
             </button>
           </form>
+          {/* As many chips as there are options, never the four the bound allows. With no options the row is the help chip alone rather than an empty strip. */}
+          <span className="hidden sm:inline font-mono text-[11px] text-ink-500">
+            {ask.options.length > 0 && (
+              <>
+                {ask.options.map((_, i) => (
+                  <kbd key={`d${i}`} className="kbd">{i + 1}</kbd>
+                ))}
+                {' / '}
+                {ask.options.map((_, i) => (
+                  <kbd key={`l${i}`} className="kbd">{LETTERS[i]}</kbd>
+                ))}
+                {' pick · '}
+              </>
+            )}
+            <kbd className="kbd">?</kbd> help
+          </span>
         </div>
       )}
     </div>

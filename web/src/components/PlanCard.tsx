@@ -75,6 +75,10 @@ export function PlanCard({
           <button type="button" onClick={() => setEditing((v) => !v)} className="h-9 rounded-full border border-ink-600 px-4 text-sm text-ink-200 hover:border-ink-400 hover:text-ink-50 transition-colors">
             Change something
           </button>
+          {/* The ↵ chip stays inside the primary button; this card has no options, so the row is the help chip alone rather than an empty digit strip. */}
+          <span className="hidden sm:inline font-mono text-[11px] text-ink-500">
+            <kbd className="kbd">?</kbd> help
+          </span>
           {editing && (
             <form
               className="basis-full flex gap-2 mt-1"

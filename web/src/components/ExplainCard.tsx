@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ExplainPayload } from '../lib/types';
 import { Markdown } from './Markdown';
 
@@ -22,6 +22,7 @@ export function ExplainCard({
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
 
   const send = async () => {
+    if (words < 8) return;
     if (!text.trim() || sending || answered) return;
     setSending(true);
     try {
@@ -30,6 +31,30 @@ export function ExplainCard({
       setSending(false);
     }
   };
+  // The eight-word floor lives inside send() and not only on the button's
+  // disabled prop, because three routes now reach it — plain Enter in the
+  // field, the shipped command-Enter, and the button — and a one-word
+  // teach-back submitted by accident is what the floor makes cheap.
+
+  // Enter commits from outside the field: on the button, or anywhere else on
+  // the page once focus has left the textarea. The guard bails inside a text
+  // field, which is why the textarea carries its own Enter branch below.
+  const active = !answered && !disabled && !sending;
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        void send();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, text]);
 
   return (
     <div className="animate-fade-up rounded-[18px] border border-ink-50/20 bg-ink-900/85 backdrop-blur px-6 py-5 md:px-7 md:py-6">
@@ -55,6 +80,9 @@ export function ExplainCard({
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
                 void send();
+              } else if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                void send();
               }
             }}
             placeholder="In your own words. No looking back up. Two to five sentences is plenty."
@@ -64,13 +92,13 @@ export function ExplainCard({
             <button type="button" disabled={words < 8 || sending} onClick={send} className="h-9 rounded-full bg-ink-100 text-ink-950 px-4 text-sm font-medium hover:bg-white disabled:opacity-40 transition-colors">
               {sending ? 'Sending' : 'Submit explanation'}
             </button>
+            {/* The row tracks what works right now: below the floor nothing submits, so nothing is advertised but the count. `?` is deliberately absent — the textarea is auto-focused and swallows it, so the overlay is reached once focus leaves the field. */}
             <span className="font-mono text-[11px] text-ink-500">
               {words} words{words < 8 ? ' · say a little more' : ''}
               {words >= 8 && (
                 <>
                   {' · '}
-                  <kbd className="kbd">⌘</kbd>
-                  <kbd className="kbd">↵</kbd>
+                  <kbd className="kbd">↵</kbd> submit · <kbd className="kbd">⇧↵</kbd> newline
                 </>
               )}
             </span>
