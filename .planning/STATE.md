@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Learning Experience
 status: executing
-stopped_at: Completed 05-03-PLAN.md
-last_updated: "2026-11-05T00:31:53.938Z"
+stopped_at: Completed 05-04-PLAN.md
+last_updated: "2026-11-05T00:51:59.398Z"
 last_activity: 2026-11-04
 last_activity_desc: Phase 05 execution started
-state_head: 6b9200caa913b8baf4998307fe2437985713cfdd
+state_head: 6f2d58843fbeeec08940f52fdbbdb20c8a2a7bbe
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 52
-  completed_plans: 47
+  completed_plans: 48
   percent: 57
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-22)
 ## Current Position
 
 Phase: 05 (Learning Experience) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Status: Ready to execute
 Last activity: 2026-11-04 — Phase 05 execution started
 
@@ -104,6 +104,7 @@ Progress: [██████░░░░] 57%
 | Phase 05 P01 | 16 min | 2 tasks | 11 files |
 | Phase 05 P02 | 9 min | 2 tasks | 4 files |
 | Phase 05 P03 | 16 min | 3 tasks | 8 files |
+| Phase 05 P04 | 12 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -239,6 +240,10 @@ Recent decisions affecting current work:
 - [Phase 05]: Phase 05: the grading status line is one emitEphemeral inside gradeQuiz, after the quiz_result emit — grading is in actions.ts, not in a driver, so one call reaches all three and none of them is touched; no TOOL_LABELS entry, because grading is not a tool
 - [Phase 05]: Phase 05: a companion lesson starts no fresh turn on the restore path (its model is in the terminal); the graded result waits on the row for answer/collect, and only an agent lesson gets runTurn
 - [Phase 05]: Phase 05: the browser's fold lives in web/src/lib/lessonReducer.ts with no react, and server/test/reducer.test.ts pins EVENT_TYPES against the server's emit sites in both directions, failing by name
+- [Phase 05]: True retention is the first purpose='review' row per (lesson_id, node_id) in a 90-day window, defined once in db.ts and shown in the panel's tooltip — quiz_results carries no attempt ordinal and no learner_id, so 'passed first try' had to be defined rather than read
+- [Phase 05]: A locked node with no FSRS state leaves estimated knowledge entirely, numerator and denominator both — retrievability() returns a flat 1 for it, so counting it would over-report the one figure the panel exists to be honest about
+- [Phase 05]: Under ten first review tries the route sends trueRetention: null and the panel says 'not enough reviews yet'; the threshold lives only in db.ts — A perfect score over one review is a true statement that means nothing; the one honest number in the app must never be confidently wrong
+- [Phase 05]: The Atlas stability ramp is logarithmic over the 70-100% gold band, applied as an inline color-mix style, and withholds the just-locked animation — A fainter fill crosses a band near 60-65% where neither the dark nor the light label text clears 4.5:1; Tailwind v4 resolves arbitrary values at build time, so a per-node color-mix cannot be a class
 
 ### Pending Todos
 
@@ -271,6 +276,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-05T00:31:37.561Z
-Stopped at: Completed 05-03-PLAN.md
+Last session: 2026-11-05T00:51:46.632Z
+Stopped at: Completed 05-04-PLAN.md
 Resume file: None

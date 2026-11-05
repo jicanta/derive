@@ -54,8 +54,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **LEARN-01**: Home leads with what to do next: review N due, continue the open lesson, or start new, with review first
 - [ ] **LEARN-02**: Learner can answer every card from the keyboard (1-4 or A-D, Enter, `?` for help)
 - [ ] **LEARN-03**: The due-review count is visible everywhere, including a `derive due` command
-- [ ] **LEARN-04**: Learner sees honest retention stats from FSRS data: estimated knowledge, true versus desired retention, forecast
-- [ ] **LEARN-07**: The Atlas is coloured by memory stability so growth is visible at a glance
+- [x] **LEARN-04**: Learner sees honest retention stats from FSRS data: estimated knowledge, true versus desired retention, forecast
+- [x] **LEARN-07**: The Atlas is coloured by memory stability so growth is visible at a glance
 - [ ] **LEARN-08**: Learner can enter a focus mode that hides everything but the current card
 - [ ] **LEARN-09**: Remediation names and re-quizzes the weakest prerequisite; quiz distractors draw on the learner's recorded misconceptions; warm-up and cumulative quiz are named in the UI
 - [ ] **LEARN-10**: Voice mode auto-arms the mic after a question, speaks in sentence chunks, and uses the learner's language
@@ -171,8 +171,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LEARN-01 | Phase 5 | Pending |
 | LEARN-02 | Phase 5 | Pending |
 | LEARN-03 | Phase 5 | Pending |
-| LEARN-04 | Phase 5 | Pending |
-| LEARN-07 | Phase 5 | Pending |
+| LEARN-04 | Phase 5 | Complete |
+| LEARN-07 | Phase 5 | Complete |
 | LEARN-08 | Phase 5 | Pending |
 | LEARN-09 | Phase 5 | Pending |
 | LEARN-10 | Phase 5 | Pending |
