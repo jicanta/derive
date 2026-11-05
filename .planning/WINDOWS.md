@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 34
+open_count: 36
 waived_count: 0
 fixed_count: 0
-total_count: 34
-last_updated: 2026-11-05T00:32:03.178Z
+total_count: 36
+last_updated: 2026-11-05T01:59:28.807Z
 ---
 
 # Broken Windows Ledger
@@ -49,6 +49,8 @@ last_updated: 2026-11-05T00:32:03.178Z
 | 32 | 05 | deviation | web/src/lib/useVoiceMode.ts |  | Mic arming needed a second trigger beyond the streaming guard: an effect on the streaming true->false edge, because a block's last sentence is usually said before that edge and nothing is left to resolve and arm | open |  | 2026-11-05T00:01:23.764Z |  |
 | 33 | 05 | deviation | web/src/lib/useVoiceMode.ts |  | The shipped assistant branch re-said every finished block on each items change (no spoken.has check); the per-item character offset closes it, which is the must-have 'never spoken twice' | open |  | 2026-11-05T00:01:23.906Z |  |
 | 34 | 05 | deviation | server/src/index.ts |  | Restore-path fresh turn is agent-mode only: a companion lesson starts no server-side turn, by design (05-03 deviation 1) | open |  | 2026-11-05T00:32:03.178Z |  |
+| 35 | 05 | deviation | web/src/lib/useVoiceMode.ts |  | The hook's lang option now takes a BCP-47 tag resolved by the caller, not 05-02's free text; Lesson.tsx owns the localeOf call (05-07 deviation 1) | open |  | 2026-11-05T01:59:28.669Z |  |
+| 36 | 05 | deviation | web/src/pages/Lesson.tsx |  | The lesson header's locked count drops its word below sm and the group tightens to gap-4, to fit the new due pill at 375px without overflowing (05-07 deviation 2, measured) | open |  | 2026-11-05T01:59:28.807Z |  |
 
 ````json
 [
@@ -491,6 +493,32 @@ last_updated: 2026-11-05T00:32:03.178Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-05T00:32:03.178Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 35,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "web/src/lib/useVoiceMode.ts",
+    "line": null,
+    "description": "The hook's lang option now takes a BCP-47 tag resolved by the caller, not 05-02's free text; Lesson.tsx owns the localeOf call (05-07 deviation 1)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-05T01:59:28.669Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 36,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "web/src/pages/Lesson.tsx",
+    "line": null,
+    "description": "The lesson header's locked count drops its word below sm and the group tightens to gap-4, to fit the new due pill at 375px without overflowing (05-07 deviation 2, measured)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-05T01:59:28.807Z",
     "resolved_at": null,
     "milestone": null
   }

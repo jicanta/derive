@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Learning Experience
 status: executing
-stopped_at: Completed 05-06-PLAN.md
-last_updated: "2026-11-05T01:35:50.962Z"
+stopped_at: Completed 05-07-PLAN.md
+last_updated: "2026-11-05T02:02:03.138Z"
 last_activity: 2026-11-04
 last_activity_desc: Phase 05 execution started
-state_head: 74059c4410b3b2434d778a56d0c1677c075b861f
+state_head: f5fe98728e285947f83f4238e0bd2bb12c78ff35
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 52
-  completed_plans: 50
+  completed_plans: 51
   percent: 57
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-22)
 ## Current Position
 
 Phase: 05 (Learning Experience) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 Status: Ready to execute
 Last activity: 2026-11-04 — Phase 05 execution started
 
@@ -107,6 +107,7 @@ Progress: [██████░░░░] 57%
 | Phase 05 P04 | 12 min | 3 tasks | 9 files |
 | Phase 05 P05 | 8 min | 3 tasks | 8 files |
 | Phase 05 P06 | 21 min | 3 tasks | 8 files |
+| Phase 05 P07 | 16 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -251,6 +252,10 @@ Recent decisions affecting current work:
 - [Phase 05]: 05-06: the remediation gate permits the named prerequisite AND the node that just missed; a graded quiz on either lifts it, and each new miss re-arms it — a gate holding only the prerequisite would refuse the method's own fresh question on the same claim
 - [Phase 05]: 05-06: weakestFirst lives in schedule.ts as a pure ranking with both tie-breaks precomputed onto its row-shaped input, so its order is pinned by a test that opens no file
 - [Phase 05]: 05-06: conformance exitCodeFor now fails on a false verdict in its own right (and accepts a bare row array), so a newly added verdict cannot be decorative
+- [Phase 05]: 05-07: the back link's accessible name is derived from its "to" target inside PageHeader, not passed as a prop, so the name cannot drift from where the link goes
+- [Phase 05]: 05-07: the lesson page renders its own DuePill inside the always-visible right-hand group and passes no due to the shared header, because the pill must sit after the locked count there
+- [Phase 05]: 05-07: useVoiceMode's lang option now takes a BCP-47 tag resolved by the caller; resolution belongs where the learner is read, so Lesson.tsx owns the localeOf call
+- [Phase 05]: 05-07: the narrow-width budget for the new due pill is paid by the locked count's word below sm, never by the title's width floor, which is the open 03-UI-REVIEW finding's fix
 
 ### Pending Todos
 
@@ -283,6 +288,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-05T01:32:40.521Z
-Stopped at: Completed 05-06-PLAN.md
+Last session: 2026-11-05T02:02:02.990Z
+Stopped at: Completed 05-07-PLAN.md
 Resume file: None
