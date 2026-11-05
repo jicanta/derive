@@ -1,7 +1,7 @@
-import { ArrowLeft, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { LearnerMenu } from '../components/LearnerMenu';
+import { PageHeader } from '../components/PageHeader';
 import { api } from '../lib/api';
 import { PACES, STYLES } from '../lib/prefs';
 import type { Learner, LearnerPrefs } from '../lib/types';
@@ -30,6 +30,9 @@ export function YouPage() {
   const [err, setErr] = useState<string | null>(null);
   // The install-wide model, named in the model field's placeholder; null while the request is pending or failed, so the placeholder falls back to the bare words.
   const [installModel, setInstallModel] = useState<string | null>(null);
+  // The header's due count, from the one read that owns it. A failure leaves it
+  // null and the pill unrendered, so no header shows a guessed figure.
+  const [due, setDue] = useState<number | null>(null);
   // Which provider this install runs on. A learner's model id is stored per
   // provider, so this is the key the field below reads and writes under.
   const provider = useRef<string | null>(null);
@@ -59,6 +62,7 @@ export function YouPage() {
       }
       await load();
     })();
+    api.stats().then((s) => setDue(s.due)).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -98,17 +102,13 @@ export function YouPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <header className="flex items-center gap-5 px-5 md:px-6 h-[60px] border-b hairline shrink-0">
-        <Link to="/" className="text-ink-400 hover:text-ink-50 transition-colors">
-          <ArrowLeft size={18} strokeWidth={1.8} />
-        </Link>
-        <h1 className="font-serif text-[22px] truncate min-w-0 text-ink-50">
-          How {name} learn{name === 'you' ? '' : 's'} <em className="text-ink-400">· read by the tutor before every lesson</em>
-        </h1>
-        <div className="ml-auto flex items-center gap-6">
-          <LearnerMenu onChange={() => void load()} />
-        </div>
-      </header>
+      <PageHeader
+        to="/"
+        title={`How ${name} learn${name === 'you' ? '' : 's'}`}
+        subtitle="read by the tutor before every lesson"
+        due={due}
+        menu={<LearnerMenu onChange={() => void load()} />}
+      />
 
       <div className="flex-1 min-h-0 overflow-y-auto scroll-thin">
         <form

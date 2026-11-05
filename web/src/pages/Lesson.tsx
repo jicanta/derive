@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, FileText, Terminal, Volume2, VolumeX } from 'lucide-react';
+import { Download, FileText, Terminal, Volume2, VolumeX } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AskCard } from '../components/AskCard';
@@ -8,6 +8,7 @@ import { Graph } from '../components/Graph';
 import { KeyHelp } from '../components/KeyHelp';
 import { Markdown } from '../components/Markdown';
 import { OutlineRail } from '../components/OutlineRail';
+import { PageHeader } from '../components/PageHeader';
 import { topoOrder } from '../lib/order';
 import { PhaseBar } from '../components/PhaseBar';
 import { PlanCard } from '../components/PlanCard';
@@ -250,12 +251,48 @@ export function LessonPage() {
           focus · esc to leave
         </div>
       )}
-      {/* data-focus-hide marks the three regions focus hides. The header's marker is the one that will leave this file: 05-07 extracts this inline header into the shared PageHeader component and carries the marker there. */}
-      <header data-focus-hide className="flex items-center gap-5 px-5 md:px-6 h-[60px] border-b hairline shrink-0">
-        <Link to="/" className="text-ink-400 hover:text-ink-50 transition-colors" title="All lessons">
-          <ArrowLeft size={18} strokeWidth={1.8} />
-        </Link>
-        <h1 className="font-serif text-[22px] tracking-[-0.01em] truncate text-ink-50">{state.lesson?.topic ?? '…'}</h1>
+      {/* The header's own focus-hidden marker now lives on the shared component, unconditionally; the two asides below keep theirs. */}
+      <PageHeader
+        to="/"
+        title={state.lesson?.topic ?? '…'}
+        right={
+          <>
+            <div className="hidden md:block min-w-0">
+              <PhaseBar phase={state.phase} />
+            </div>
+            <div className="flex items-center gap-5">
+              {state.nodes.length > 0 && (
+                <span className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="font-serif text-[26px] leading-none text-gold-500">{locked}</span>
+                  <span className="font-mono text-[11px] text-ink-500">/ {state.nodes.length} locked</span>
+                </span>
+              )}
+              {voice.supported.speak && (
+                <button
+                  type="button"
+                  onClick={voice.toggle}
+                  className={`inline-flex items-center gap-1.5 transition-colors ${voice.enabled ? 'text-gold-500' : 'text-ink-400 hover:text-ink-50'}`}
+                  title={
+                    voice.enabled
+                      ? 'Voice mode is on: the tutor is read aloud and the microphone opens for your reply. Click to switch off.'
+                      : voice.supported.listen
+                        ? 'Voice mode: hear the tutor, answer by speaking'
+                        : 'Read the tutor aloud (dictation needs Chrome)'
+                  }
+                >
+                  {voice.enabled ? <Volume2 size={15} strokeWidth={1.8} /> : <VolumeX size={15} strokeWidth={1.8} />}
+                  <span className="hidden sm:inline font-mono text-[11px]">{voice.enabled ? (voice.listening ? 'listening' : voice.speaking ? 'speaking' : 'voice on') : 'voice'}</span>
+                </button>
+              )}
+              <button type="button" onClick={doExport} className="inline-flex items-center gap-1.5 text-ink-400 hover:text-ink-50 transition-colors" title={vault ? 'Save to Obsidian vault' : 'Download markdown'}>
+                {vault ? <FileText size={15} strokeWidth={1.8} /> : <Download size={15} strokeWidth={1.8} />}
+                <span className="hidden sm:inline font-mono text-[11px]">{exportMsg ?? (vault ? 'to vault' : 'export')}</span>
+              </button>
+              <span className={`h-1.5 w-1.5 rounded-full ${state.connected ? 'bg-moss-400' : 'bg-rust-400'}`} title={state.connected ? 'live' : 'reconnecting'} />
+            </div>
+          </>
+        }
+      >
         {!external && state.tutor && (
           // Still md-only, deliberately: below 768px the lesson header carries
           // no cost figure at all and Home is where a phone learner reads it.
@@ -263,7 +300,7 @@ export function LessonPage() {
           // the decision asked for one, so this is accepted rather than fixed.
           <Link
             to="/settings"
-            className="hidden md:inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 hover:text-ink-50 border hairline rounded-full px-2.5 h-6 transition-colors"
+            className="hidden md:inline-flex min-w-0 items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 hover:text-ink-50 border hairline rounded-full px-2.5 h-6 transition-colors"
             title="Which model is teaching. Change it in Settings; it applies from the next turn."
           >
             <span className="min-w-0 max-w-[40ch] truncate" title={tutorLabel}>
@@ -280,7 +317,7 @@ export function LessonPage() {
         )}
         {external && (
           <span
-            className="hidden md:inline-flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 border hairline rounded-full px-2.5 h-6"
+            className="hidden md:inline-flex min-w-0 items-center gap-2 font-mono text-[10px] tracking-[0.16em] uppercase text-ink-400 border hairline rounded-full px-2.5 h-6"
             title={terminal ? 'Cards are answered in your terminal; answering here works too' : 'Cards are answered here in the browser'}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${state.connected ? 'bg-moss-400' : 'bg-ink-600'}`} />
@@ -294,40 +331,7 @@ export function LessonPage() {
             )}
           </span>
         )}
-        <div className="ml-auto hidden md:block">
-          <PhaseBar phase={state.phase} />
-        </div>
-        <div className="flex items-center gap-5 md:ml-4">
-          {state.nodes.length > 0 && (
-            <span className="flex items-baseline gap-1.5">
-              <span className="font-serif text-[26px] leading-none text-gold-500">{locked}</span>
-              <span className="font-mono text-[11px] text-ink-500">/ {state.nodes.length} locked</span>
-            </span>
-          )}
-          {voice.supported.speak && (
-            <button
-              type="button"
-              onClick={voice.toggle}
-              className={`inline-flex items-center gap-1.5 transition-colors ${voice.enabled ? 'text-gold-500' : 'text-ink-400 hover:text-ink-50'}`}
-              title={
-                voice.enabled
-                  ? 'Voice mode is on: the tutor is read aloud and the microphone opens for your reply. Click to switch off.'
-                  : voice.supported.listen
-                    ? 'Voice mode: hear the tutor, answer by speaking'
-                    : 'Read the tutor aloud (dictation needs Chrome)'
-              }
-            >
-              {voice.enabled ? <Volume2 size={15} strokeWidth={1.8} /> : <VolumeX size={15} strokeWidth={1.8} />}
-              <span className="hidden sm:inline font-mono text-[11px]">{voice.enabled ? (voice.listening ? 'listening' : voice.speaking ? 'speaking' : 'voice on') : 'voice'}</span>
-            </button>
-          )}
-          <button type="button" onClick={doExport} className="inline-flex items-center gap-1.5 text-ink-400 hover:text-ink-50 transition-colors" title={vault ? 'Save to Obsidian vault' : 'Download markdown'}>
-            {vault ? <FileText size={15} strokeWidth={1.8} /> : <Download size={15} strokeWidth={1.8} />}
-            <span className="hidden sm:inline font-mono text-[11px]">{exportMsg ?? (vault ? 'to vault' : 'export')}</span>
-          </button>
-          <span className={`h-1.5 w-1.5 rounded-full ${state.connected ? 'bg-moss-400' : 'bg-rust-400'}`} title={state.connected ? 'live' : 'reconnecting'} />
-        </div>
-      </header>
+      </PageHeader>
 
       {/* The columns are swapped from state, not just hidden: display:none on a child does not collapse a declared track, so without this the focused card would keep its old width and sit offset left with an empty gutter on the right. */}
       <div className={`flex-1 min-h-0 grid ${focus ? 'grid-cols-1' : 'grid-cols-1 xl:grid-cols-[232px_minmax(0,1fr)_452px] lg:grid-cols-[minmax(0,1fr)_420px]'}`}>

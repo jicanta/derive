@@ -1,8 +1,8 @@
-import { ArrowLeft } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { errLine, resultLine, textButton } from '../components/fields';
 import { LearnerMenu } from '../components/LearnerMenu';
+import { PageHeader } from '../components/PageHeader';
 import { api } from '../lib/api';
 import type { UsageView } from '../lib/types';
 
@@ -24,6 +24,9 @@ export function UsagePage() {
   const [view, setView] = useState<UsageView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // The header's due count, from the one read that owns it. A failure leaves it
+  // null and the pill unrendered, so no header shows a guessed figure.
+  const [due, setDue] = useState<number | null>(null);
 
   const load = () => {
     setErr(null);
@@ -37,24 +40,21 @@ export function UsagePage() {
 
   useEffect(() => {
     void load();
+    api.stats().then((s) => setDue(s.due)).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="h-full flex flex-col">
-      <header className="flex items-center gap-5 px-5 md:px-6 h-[60px] border-b hairline shrink-0">
-        {/* Back to Settings rather than Home: Settings is the only way in, so it is the only way a learner expects to come out. */}
-        <Link to="/settings" className="text-ink-400 hover:text-ink-50 transition-colors" title="Settings">
-          <ArrowLeft size={18} strokeWidth={1.8} />
-        </Link>
-        <h1 className="font-serif text-[22px] tracking-[-0.01em] truncate min-w-0 text-ink-50">
-          Usage <em className="text-ink-400">· what learning has cost</em>
-        </h1>
-        <div className="ml-auto flex items-center gap-6">
-          {/* Switching learner has to refetch: the route is scoped to the learner the request resolves to, so without this the page would keep the previous learner's total, lessons and lesson links on screen under the new name. */}
-          <LearnerMenu onChange={() => void load()} />
-        </div>
-      </header>
+      {/* Back to Settings rather than Home: Settings is the only way in, so it is the only way a learner expects to come out — and the back link's accessible name says so, which is why the target is a prop. */}
+      <PageHeader
+        to="/settings"
+        title="Usage"
+        subtitle="what learning has cost"
+        due={due}
+        /* Switching learner has to refetch: the route is scoped to the learner the request resolves to, so without this the page would keep the previous learner's total, lessons and lesson links on screen under the new name. */
+        menu={<LearnerMenu onChange={() => void load()} />}
+      />
 
       <div className="flex-1 min-h-0 overflow-y-auto scroll-thin">
         <div className="mx-auto max-w-[760px] px-5 md:px-8 pt-9 pb-24">

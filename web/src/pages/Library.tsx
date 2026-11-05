@@ -1,8 +1,8 @@
-import { ArrowLeft, Check, ExternalLink, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { Check, ExternalLink, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { KIND_LABEL, KindIcon } from '../components/ResourceCard';
 import { LearnerMenu } from '../components/LearnerMenu';
+import { PageHeader } from '../components/PageHeader';
 import { api } from '../lib/api';
 import { RESOURCE_KINDS, type Library, type Resource, type ResourceKind } from '../lib/types';
 
@@ -35,10 +35,14 @@ export function LibraryPage() {
   const [tag, setTag] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // The header's due count, from the one read that owns it. A failure leaves it
+  // null and the pill unrendered, so no header shows a guessed figure.
+  const [due, setDue] = useState<number | null>(null);
 
   const load = () => api.library().then(setLib).catch((e) => setErr((e as Error).message));
   useEffect(() => {
     void load();
+    api.stats().then((s) => setDue(s.due)).catch(() => undefined);
   }, []);
 
   const shown = useMemo(() => {
@@ -75,22 +79,21 @@ export function LibraryPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <header className="flex items-center gap-5 px-5 md:px-6 h-[60px] border-b hairline shrink-0">
-        <Link to="/" className="text-ink-400 hover:text-ink-50 transition-colors">
-          <ArrowLeft size={18} strokeWidth={1.8} />
-        </Link>
-        <h1 className="font-serif text-[22px] text-ink-50">
-          Library <em className="text-ink-400">· what you read, watch and keep</em>
-        </h1>
-        <div className="ml-auto flex items-center gap-6">
-          {lib && lib.total > 0 && (
-            <span className="hidden md:inline font-mono text-[11px] text-ink-400">
+      <PageHeader
+        to="/"
+        title="Library"
+        subtitle="what you read, watch and keep"
+        due={due}
+        right={
+          lib &&
+          lib.total > 0 && (
+            <span className="hidden md:inline min-w-0 font-mono text-[11px] text-ink-400">
               <span className="text-gold-500">{lib.total}</span> {lib.total === 1 ? 'entry' : 'entries'} · the tutor can read every one
             </span>
-          )}
-          <LearnerMenu onChange={() => void load()} />
-        </div>
-      </header>
+          )
+        }
+        menu={<LearnerMenu onChange={() => void load()} />}
+      />
 
       <div className="flex-1 min-h-0 overflow-y-auto scroll-thin">
         <div className="mx-auto max-w-[920px] px-5 md:px-8 pt-9 pb-16">

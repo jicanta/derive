@@ -1,10 +1,11 @@
 import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DeriveNode, layoutGraph } from '../components/Graph';
 import { Markdown } from '../components/Markdown';
+import { PageHeader } from '../components/PageHeader';
 import { RetentionPanel } from '../components/RetentionPanel';
 import { api } from '../lib/api';
 import type { Atlas, GraphNode } from '../lib/types';
@@ -112,22 +113,23 @@ export function AtlasPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <header className="flex items-center gap-5 px-5 md:px-6 h-[60px] border-b hairline shrink-0">
-        <Link to="/" className="text-ink-400 hover:text-ink-50 transition-colors">
-          <ArrowLeft size={18} strokeWidth={1.8} />
-        </Link>
-        <h1 className="font-serif text-[22px] text-ink-50">
-          Atlas <em className="text-ink-400">· everything you have derived</em>
-        </h1>
-        {counts && (
-          <div className="ml-auto hidden md:flex items-baseline gap-7">
-            <Count n={counts.locked} label="locked" tone="text-gold-500" />
-            <Count n={counts.due} label="due" tone="text-teal-400" />
-            <Count n={counts.shaky} label="shaky" tone="text-rust-400" />
-            <Count n={counts.lessons} label="lessons" tone="text-ink-50" />
-          </div>
-        )}
-      </header>
+      {/* The due count comes from `atlas.due`, which is the server's own `dueNodes` read — the same figure /api/stats answers with, so the pill cannot disagree with the review it offers to start. */}
+      <PageHeader
+        to="/"
+        title="Atlas"
+        subtitle="everything you have derived"
+        due={atlas ? atlas.due.length : null}
+        right={
+          counts && (
+            <div className="hidden md:flex items-baseline gap-7 min-w-0">
+              <Count n={counts.locked} label="locked" tone="text-gold-500" />
+              <Count n={counts.due} label="due" tone="text-teal-400" />
+              <Count n={counts.shaky} label="shaky" tone="text-rust-400" />
+              <Count n={counts.lessons} label="lessons" tone="text-ink-50" />
+            </div>
+          )
+        }
+      />
 
       <div className="relative flex-1 min-h-0">
         {err && <p className="p-6 text-rust-400">{err}</p>}

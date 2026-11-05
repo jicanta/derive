@@ -1,8 +1,9 @@
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { pill, textButton } from '../components/fields';
 import { LearnerMenu } from '../components/LearnerMenu';
+import { PageHeader } from '../components/PageHeader';
 import { ProviderRow } from '../components/ProviderRow';
 import { WebSearchCard } from '../components/WebSearchCard';
 import { api } from '../lib/api';
@@ -37,6 +38,9 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  // The header's due count, from the one read that owns it. A failure leaves it
+  // null and the pill unrendered, so no header shows a guessed figure.
+  const [due, setDue] = useState<number | null>(null);
 
   const scan = async () => {
     setScanning(true);
@@ -64,6 +68,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     void load();
+    api.stats().then((s) => setDue(s.due)).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -94,17 +99,7 @@ export function SettingsPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <header className="flex items-center gap-5 px-5 md:px-6 h-[60px] border-b hairline shrink-0">
-        <Link to="/" className="text-ink-400 hover:text-ink-50 transition-colors" title="All lessons">
-          <ArrowLeft size={18} strokeWidth={1.8} />
-        </Link>
-        <h1 className="font-serif text-[22px] tracking-[-0.01em] truncate min-w-0 text-ink-50">
-          Settings <em className="text-ink-400">· which model teaches</em>
-        </h1>
-        <div className="ml-auto flex items-center gap-6">
-          <LearnerMenu />
-        </div>
-      </header>
+      <PageHeader to="/" title="Settings" subtitle="which model teaches" due={due} menu={<LearnerMenu />} />
 
       <div className="flex-1 min-h-0 overflow-y-auto scroll-thin">
         <div className="mx-auto max-w-[760px] px-5 md:px-8 pt-9 pb-24">
