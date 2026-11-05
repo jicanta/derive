@@ -38,7 +38,7 @@ import {
   type QuizTests,
 } from './db.js';
 import type { Confidence } from './schedule.js';
-import { emit } from './events.js';
+import { emit, emitEphemeral } from './events.js';
 import {
   addResource,
   assertPublicHost,
@@ -207,65 +207,92 @@ export function openQuiz(lessonId: string, a: QuizArgs, opts: OpenOpts = {}): Op
   const purpose = purposeOf(lessonId, a.node_id, a.purpose);
   const tests = testsOf(a.tests);
   const { id, wait } = openPrompt(lessonId, 'quiz', { question: a.question, options: a.options, multi, node_id: a.node_id ?? null, purpose, tests }, { ...opts, key: { correct: a.correct, explanation: a.explanation } });
-  const done = wait.then((raw) => {
-    const ans = raw as { selected?: number[]; idk?: boolean; sure?: boolean; note?: string; interrupted?: boolean; steer?: string };
-    if (ans.interrupted) return { result: 'interrupted', note: 'The learner stopped the turn.' };
-    if (ans.steer) {
-      // The learner typed in the chat instead of picking an option. Close the
-      // card without grading or revealing anything, and hand the message over.
-      emit(lessonId, 'quiz_result', { id, selected: [], correct: [], explanation: '', result: 'skipped', note: ans.steer });
-      return withNotice(lessonId, {
-        result: 'no_answer',
-        learner_message: ans.steer,
-        instruction: 'The learner wrote a message instead of answering; the card is closed. Respond to the message. If the check still matters, ask it again afterwards with a fresh quiz.',
-      });
-    }
-    const selected = (ans.idk ? [] : (ans.selected ?? [])).filter((i) => Number.isInteger(i) && i >= 0 && i < a.options.length);
-    const isCorrect = !ans.idk && sameSet(selected, a.correct);
-    const result = ans.idk ? 'dont_know' : isCorrect ? 'correct' : 'incorrect';
-    // The learner commits to how sure they are before the reveal. Default is sure: an unsure answer is a deliberate flag.
-    const confidence: Confidence | null = ans.idk ? null : ans.sure === false ? 'unsure' : 'sure';
-    emit(lessonId, 'quiz_result', { id, selected, correct: a.correct, explanation: a.explanation, result, note: ans.note ?? null, confidence, purpose, tests });
-    recordQuiz(lessonId, a.node_id ?? null, isCorrect, { confidence, purpose, tests });
-    // A pretest miss is the learner's honest guess before instruction, not a belief they hold.
-    if (result === 'incorrect' && purpose !== 'pretest') {
-      addMisconception({
-        lessonId,
-        nodeId: a.node_id ?? null,
-        question: a.question,
-        picked: selected.map((i) => a.options[i]).join(' + '),
-        correct: a.correct.map((i) => a.options[i]).join(' + '),
-        explanation: a.explanation,
-        confidence,
-      });
-    }
-    const instruction = afterQuiz(result, confidence, purpose, { lessonId, nodeId: a.node_id ?? null, tests });
-    return withNotice(lessonId, {
-      result,
-      confidence,
-      purpose,
-      tests,
-      selected_options: selected.map((i) => a.options[i]),
-      correct_options: a.correct.map((i) => a.options[i]),
-      note: ans.note ?? null,
-      ...(instruction ? { instruction } : {}),
-    });
-  });
+  // The purpose and the tests are resolved once, here, and carried into the
+  // grading rather than re-derived from a lesson that has moved on since. They
+  // are on the row in their resolved form too, which is what lets a card
+  // restored after a restart grade to the same verdict as a live one.
+  const done = wait.then((raw) => gradeQuiz(lessonId, id, { ...a, purpose, tests }, raw));
   return { id, done };
+}
+
+/**
+ * Grade one quiz answer: everything that happens between the learner
+ * committing and the tutor being told, in one place.
+ *
+ * It lives out here rather than inside `openQuiz`'s `wait.then(...)` because a
+ * card can outlive the process that opened it. After a restart the Promise the
+ * tool was parked on is gone but the prompts row is not, so the route that
+ * answers a restored card re-reads the question off the row and calls this —
+ * the same grading, the same writes, the same instruction, from the only copy
+ * of them there is.
+ */
+export function gradeQuiz(lessonId: string, promptId: string, a: QuizArgs, raw: Record<string, unknown>): Record<string, unknown> {
+  const id = promptId;
+  const purpose = purposeOf(lessonId, a.node_id, a.purpose);
+  const tests = testsOf(a.tests);
+  const ans = raw as { selected?: number[]; idk?: boolean; sure?: boolean; note?: string; interrupted?: boolean; steer?: string };
+  if (ans.interrupted) return { result: 'interrupted', note: 'The learner stopped the turn.' };
+  if (ans.steer) {
+    // The learner typed in the chat instead of picking an option. Close the
+    // card without grading or revealing anything, and hand the message over.
+    emit(lessonId, 'quiz_result', { id, selected: [], correct: [], explanation: '', result: 'skipped', note: ans.steer });
+    return withNotice(lessonId, {
+      result: 'no_answer',
+      learner_message: ans.steer,
+      instruction: 'The learner wrote a message instead of answering; the card is closed. Respond to the message. If the check still matters, ask it again afterwards with a fresh quiz.',
+    });
+  }
+  const selected = (ans.idk ? [] : (ans.selected ?? [])).filter((i) => Number.isInteger(i) && i >= 0 && i < a.options.length);
+  const isCorrect = !ans.idk && sameSet(selected, a.correct);
+  const result = ans.idk ? 'dont_know' : isCorrect ? 'correct' : 'incorrect';
+  // The learner commits to how sure they are before the reveal. Default is sure: an unsure answer is a deliberate flag.
+  const confidence: Confidence | null = ans.idk ? null : ans.sure === false ? 'unsure' : 'sure';
+  emit(lessonId, 'quiz_result', { id, selected, correct: a.correct, explanation: a.explanation, result, note: ans.note ?? null, confidence, purpose, tests });
+  // After the verdict, never before it: the browser hides the status line while
+  // a card is open and unanswered, and that flag clears the instant the result
+  // lands, so a line emitted any earlier is dropped by a gate that is right.
+  emitEphemeral(lessonId, 'status', { text: 'Grading your answer' });
+  recordQuiz(lessonId, a.node_id ?? null, isCorrect, { confidence, purpose, tests });
+  // A pretest miss is the learner's honest guess before instruction, not a belief they hold.
+  if (result === 'incorrect' && purpose !== 'pretest') {
+    addMisconception({
+      lessonId,
+      nodeId: a.node_id ?? null,
+      question: a.question,
+      picked: selected.map((i) => a.options[i]).join(' + '),
+      correct: a.correct.map((i) => a.options[i]).join(' + '),
+      explanation: a.explanation,
+      confidence,
+    });
+  }
+  const instruction = afterQuiz(result, confidence, purpose, { lessonId, nodeId: a.node_id ?? null, tests });
+  return withNotice(lessonId, {
+    result,
+    confidence,
+    purpose,
+    tests,
+    selected_options: selected.map((i) => a.options[i]),
+    correct_options: a.correct.map((i) => a.options[i]),
+    note: ans.note ?? null,
+    ...(instruction ? { instruction } : {}),
+  });
 }
 
 export const quiz = (lessonId: string, a: QuizArgs) => openQuiz(lessonId, a).done;
 
 export function openAsk(lessonId: string, a: { question: string; options?: string[] }, opts: OpenOpts = {}): Open<Record<string, unknown>> {
   const { id, wait } = openPrompt(lessonId, 'ask', { question: a.question, options: a.options ?? [] }, opts);
-  const done = wait.then((raw) => {
-    const ans = raw as { text?: string; interrupted?: boolean; steer?: string };
-    if (ans.interrupted) return { result: 'interrupted' };
-    const answer = ans.steer ?? ans.text ?? '';
-    emit(lessonId, 'ask_result', { id, text: answer });
-    return withNotice(lessonId, { answer });
-  });
+  const done = wait.then((raw) => settleAsk(lessonId, id, raw));
   return { id, done };
+}
+
+/** Settle an open question: the learner's text, or the message that closed the card. Out here for the reason `gradeQuiz` is. */
+export function settleAsk(lessonId: string, promptId: string, raw: Record<string, unknown>): Record<string, unknown> {
+  const ans = raw as { text?: string; interrupted?: boolean; steer?: string };
+  if (ans.interrupted) return { result: 'interrupted' };
+  const answer = ans.steer ?? ans.text ?? '';
+  emit(lessonId, 'ask_result', { id: promptId, text: answer });
+  return withNotice(lessonId, { answer });
 }
 
 export const ask = (lessonId: string, a: { question: string; options?: string[] }) => openAsk(lessonId, a).done;
@@ -274,16 +301,19 @@ export function openPlan(lessonId: string, a: { goal: string; nodes: GraphNodeIn
   replaceGraph(lessonId, a.nodes);
   setGoal(lessonId, a.goal);
   const { id, wait } = openPrompt(lessonId, 'plan', { goal: a.goal, nodes: a.nodes }, opts);
-  const done = wait.then((raw) => {
-    const ans = raw as { approved?: boolean; feedback?: string; interrupted?: boolean; steer?: string };
-    if (ans.interrupted) return { result: 'interrupted' };
-    // A typed message while the plan awaits approval is feedback on it.
-    const approved = ans.steer ? false : !!ans.approved;
-    const feedback = ans.steer ?? ans.feedback ?? null;
-    emit(lessonId, 'plan_result', { id, approved, feedback });
-    return withNotice(lessonId, { approved, feedback, ...(approved ? planLibraryInstruction(lessonId, a) : {}) });
-  });
+  const done = wait.then((raw) => settlePlan(lessonId, id, a, raw));
   return { id, done };
+}
+
+/** Settle a plan approval. Out here for the reason `gradeQuiz` is; the graph itself was written when the card opened. */
+export function settlePlan(lessonId: string, promptId: string, a: { goal: string; nodes: GraphNodeInput[] }, raw: Record<string, unknown>): Record<string, unknown> {
+  const ans = raw as { approved?: boolean; feedback?: string; interrupted?: boolean; steer?: string };
+  if (ans.interrupted) return { result: 'interrupted' };
+  // A typed message while the plan awaits approval is feedback on it.
+  const approved = ans.steer ? false : !!ans.approved;
+  const feedback = ans.steer ?? ans.feedback ?? null;
+  emit(lessonId, 'plan_result', { id: promptId, approved, feedback });
+  return withNotice(lessonId, { approved, feedback, ...(approved ? planLibraryInstruction(lessonId, a) : {}) });
 }
 
 export const setPlan = (lessonId: string, a: { goal: string; nodes: GraphNodeInput[] }) => openPlan(lessonId, a).done;
@@ -392,18 +422,21 @@ export function phase(lessonId: string, a: { phase: 'probe' | 'plan' | 'teach' }
  */
 export function openExplain(lessonId: string, a: { prompt: string; node_id?: string | null; rubric: string }, opts: OpenOpts = {}): Open<Record<string, unknown>> {
   const { id, wait } = openPrompt(lessonId, 'explain', { prompt: a.prompt, node_id: a.node_id ?? null }, { ...opts, key: { rubric: a.rubric } });
-  const done = wait.then((raw) => {
-    const ans = raw as { text?: string; interrupted?: boolean; steer?: string };
-    if (ans.interrupted) return { result: 'interrupted' };
-    const explanation = ans.steer ?? ans.text ?? '';
-    emit(lessonId, 'explain_result', { id, text: explanation });
-    return withNotice(lessonId, {
-      explanation,
-      rubric: a.rubric,
-      instruction: 'Grade against the rubric. Name what is right first, then the one gap that matters most. Then call node_status.',
-    });
-  });
+  const done = wait.then((raw) => settleExplain(lessonId, id, a, raw));
   return { id, done };
+}
+
+/** Settle a teach-back: the learner's words plus the rubric the model grades them against. Out here for the reason `gradeQuiz` is. */
+export function settleExplain(lessonId: string, promptId: string, a: { rubric: string }, raw: Record<string, unknown>): Record<string, unknown> {
+  const ans = raw as { text?: string; interrupted?: boolean; steer?: string };
+  if (ans.interrupted) return { result: 'interrupted' };
+  const explanation = ans.steer ?? ans.text ?? '';
+  emit(lessonId, 'explain_result', { id: promptId, text: explanation });
+  return withNotice(lessonId, {
+    explanation,
+    rubric: a.rubric,
+    instruction: 'Grade against the rubric. Name what is right first, then the one gap that matters most. Then call node_status.',
+  });
 }
 
 export const explainBack = (lessonId: string, a: { prompt: string; node_id?: string | null; rubric: string }) => openExplain(lessonId, a).done;

@@ -1118,6 +1118,93 @@ describe('the capability route, over HTTP', () => {
 
 });
 
+describe('grading, now that it lives outside the promise that used to hold it', () => {
+  /**
+   * `gradeQuiz` was lifted out of `openQuiz`'s `wait.then(...)` so a card
+   * restored from the prompts table can be graded by the same code as a live
+   * one. That is a refactor, so the job of these cases is to pin the
+   * behaviour that must not move: the four verdicts `afterQuiz` can reach and
+   * the exact sentence each one hands the tutor. No node_id, so the
+   * understanding gate is out of the picture and each sentence is the plain
+   * one for its verdict.
+   */
+  let lesson = '';
+  const CHECK = {
+    question: 'Which of these follows from the claim below it?',
+    options: ['the one that follows', 'the tempting one that does not'],
+    correct: [0],
+    explanation: 'because the step is bounded',
+    purpose: 'check',
+  };
+
+  before(async () => {
+    const r = await api<{ id: string }>('/api/external/lessons', { topic: 'how a check is graded', answer_in: 'terminal' });
+    assert.equal(r.status, 201, JSON.stringify(r.json));
+    lesson = r.json.id;
+  });
+
+  it('hands back the shipped sentence for a correct and confident answer', async () => {
+    const r = await askAndAnswer(lesson, CHECK, 'A');
+    assert.equal(r.result, 'correct');
+    assert.equal(r.instruction, 'Correct and confident. Lock the node if this was its check, then move on.');
+  });
+
+  it('hands back the shipped sentence for a correct but unsure answer', async () => {
+    const r = await askAndAnswer(lesson, CHECK, 'I think A');
+    assert.equal(r.result, 'correct');
+    assert.equal(
+      r.instruction,
+      'Correct, but they said they were unsure, so this is not yet knowledge. Do not lock the node on this alone: have them say why the answer must be so (explain_back with a two-line rubric) or ask one more fresh quiz on the same claim, and lock only after that.',
+    );
+  });
+
+  it('hands back the shipped sentence for a confident miss', async () => {
+    const r = await askAndAnswer(lesson, CHECK, 'B');
+    assert.equal(r.result, 'incorrect');
+    assert.equal(
+      r.instruction,
+      'A confident error: they committed to the wrong claim and were sure of it. This is the moment a belief can actually be replaced, so do not just restate the right answer. Name the exact claim they held and why it was tempting, then show what breaks it, from the nodes below. Re-check with a fresh quiz before locking; if that misses too, mark the node shaky and re-derive from its dependencies.',
+    );
+  });
+
+  it('hands back the shipped sentence for an "I don\'t know"', async () => {
+    const r = await askAndAnswer(lesson, CHECK, "I don't know");
+    assert.equal(r.result, 'dont_know');
+    assert.equal(
+      r.instruction,
+      'They did not know. Do not reveal the derivation yet: give one hint that points at the node this rests on, then a fresh quiz on the same claim. If that misses too, re-derive it from its dependencies step by step and mark the node shaky.',
+    );
+  });
+
+  it('emits the grading status line from the grading path, and never as a tool label', () => {
+    // `TOOL_LABELS` is `TOOL_REGISTRY.filter(s => s.label)` — a per-tool
+    // vocabulary — and the wire-surface snapshot fixes the added label set at
+    // the owned loop's two web tools. Grading is not a tool, so the string is
+    // emitted directly, as 'Thinking' already is.
+    const src = readFileSync(resolve(here, '../src/actions.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    const occurrences = src.split('Grading your answer').length - 1;
+    assert.equal(occurrences, 1, 'the grading status string has more than one home in actions.ts');
+    assert.match(src, /export function gradeQuiz\(/, 'the settle logic is still trapped inside the promise closure');
+    const grading = src.slice(src.indexOf('export function gradeQuiz('));
+    assert.match(grading.slice(0, grading.indexOf('\n}\n')), /emitEphemeral\(lessonId, 'status', \{ text: 'Grading your answer' \}\)/);
+    assert.doesNotMatch(src, /TOOL_LABELS/, 'grading reached for a tool label, which the registry snapshot forbids');
+  });
+
+  it('still hides the status line while a card is open and unanswered', () => {
+    // UI-SPEC marks this a contract and the shipped page already satisfies it,
+    // so this asserts it rather than rebuilding it: the status is suppressed on
+    // "a card is open and unanswered", not on "a card exists", which is what
+    // makes emitting the grading line after the verdict enough. There is no web
+    // test runner in this repo, so the page is read as source here.
+    const page = readFileSync(resolve(here, '../../web/src/pages/Lesson.tsx'), 'utf8');
+    assert.match(page, /\{state\.busy && state\.status && !waiting && \(/, 'the status-line gate changed shape');
+    assert.match(page, /const waiting = activePromptId !== null;/);
+    assert.match(page, /if \(state\.pending && unanswered\(state\.pending\.id\)\) return state\.pending\.id;/, 'the open card no longer has to be unanswered to be active');
+  });
+});
+
 describe('a card that was open when the server stopped', () => {
   /**
    * The restart gate for LEARN-12. Two boots of the real built server over one
