@@ -95,9 +95,11 @@ const COMMAND_TAIL = ['WebSearch', 'WebFetch', 'Skill'];
 const COMMAND_EXCLUSIONS = {
   'plugin/commands/learn.md': {
     library: 'the catalog of every tool; the command has never allowed it, and allowing it now would widen what the plugin may call',
+    due: 'a learner-facing read of what is due for review; a teaching session is not where the learner asks that, and the read has its own command',
   },
   'plugin/commands/review.md': {
     library: 'the catalog of every tool; the command has never allowed it, and allowing it now would widen what the plugin may call',
+    due: 'a learner-facing read of what is due for review; the review session is already handed the nodes that are due, and the read has its own command',
     attach_material: 'a review session attaches no course material',
     read_material: 'a review session has no course material to read',
     search_material: 'a review session has no course material to search',
@@ -174,7 +176,7 @@ function mcpToolNames() {
   if (!existsSync(file)) fail('server/test/wire-surface.json does not exist; the tool registry has no committed projection to read');
   const wire = JSON.parse(readFileSync(file, 'utf8'));
   const names = (wire.mcp ?? []).map((t) => t.name);
-  if (names.length !== 22) fail(`server/test/wire-surface.json lists ${names.length} mcp tools, not 22; the registry projection is incomplete and the allowed-tools lines would be short`);
+  if (names.length !== 23) fail(`server/test/wire-surface.json lists ${names.length} mcp tools, not 23; the registry projection is incomplete and the allowed-tools lines would be short`);
   return names;
 }
 

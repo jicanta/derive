@@ -26,10 +26,25 @@ const here = dirname(fileURLToPath(import.meta.url));
 const serverEntry = resolve(here, '../dist/index.js');
 const mcpEntry = resolve(here, '../dist/mcp.js');
 
-/** The tools the pre-phase binary served, in the order it happened to register them (git show b8f255ce:server/src/mcp.ts). Order is not part of the MCP contract; the set is. */
+/**
+ * The tools the pre-phase binary served, in the order it happened to register
+ * them (git show b8f255ce:server/src/mcp.ts), plus every addition since that was
+ * made deliberately. Order is not part of the MCP contract; the set is.
+ *
+ * Widened once, by `due`. The assertion below reads like a compatibility breach
+ * when it fails, and it should: the plugin's visible surface was frozen in phase
+ * 1 and phase 3 kept `fetch_page` and `web_search` off this wire specifically so
+ * this list would not move. `due` is the first tool to widen it since, and it is
+ * allowed to because it is not a tutor tool: it is a learner-facing read of the
+ * review queue, asked for by LEARN-03 so that a learner in either terminal can
+ * see what is due without opening the browser. It adds a read; it takes nothing
+ * away, so every tool the plugin could call before this line moved, it still
+ * can. A future addition belongs here only with its own reason beside it.
+ */
 const MCP_TOOLS_BEFORE = [
   'start_lesson', 'attach_material', 'read_material', 'search_material', 'search_library', 'read_resource', 'suggest_resource', 'add_resource', 'library', 'quiz', 'ask',
   'set_plan', 'explain_back', 'answer', 'answer_in', 'node_status', 'set_phase', 'remember', 'set_preferences', 'learner_profile', 'learners', 'end_lesson',
+  'due',
 ];
 
 type WireRow = { name: string; description: string };
@@ -118,13 +133,14 @@ after(() => {
 describe('the built mcp server over stdio', () => {
   let tools: WireRow[] = [];
 
-  it('serves the registry in declaration order, and the same tools the pre-phase binary served', async () => {
+  it('serves the registry in declaration order, and the pre-phase set plus the one deliberate addition', async () => {
     tools = (await rpc<{ tools: WireRow[] }>('tools/list')).tools;
-    assert.equal(tools.length, 22);
+    assert.equal(tools.length, 23);
     // The MCP surface's own projection, not the whole registry: the owned loop's
     // `fetch_page` and `web_search` are declared `surfaces: ['api']` and are
-    // deliberately not on this wire, which is what keeps it the twenty-two the
-    // plugin has always seen. Order is still the registry's declaration order.
+    // deliberately not on this wire, so it is the twenty-two the plugin has
+    // always seen plus `due` (see MCP_TOOLS_BEFORE for why that one widened it).
+    // Order is still the registry's declaration order.
     assert.deepEqual(
       tools.map((t) => t.name),
       toolsFor('mcp').map((s) => s.name),

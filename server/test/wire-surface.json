@@ -1735,6 +1735,27 @@
         },
         "additionalProperties": false
       }
+    },
+    {
+      "name": "due",
+      "description": "What is due for review right now: how many of this learner's nodes are due, the first few of them with their topic and how overdue each is, and when the next review falls when nothing is due. A read, not a lesson — it teaches nothing and changes nothing. Print what it returns; call start_lesson with `review: true` only if the learner then asks to start a review.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "learner": {
+            "description": "Whose queue to read, by name or id. Default: DERIVE_LEARNER, else the first learner.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "How many of the due nodes to name. Default 5; the count is always the whole queue.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        },
+        "additionalProperties": false
+      }
     }
   ],
   "http": [

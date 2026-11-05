@@ -404,9 +404,10 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
   },
   // The driver tools below reach only the terminal drivers: they open and close
   // a lesson, attach material to it, carry a terminal reply back to the card
-  // that is open, and read the learner's shelf outside a lesson. They are in the
-  // registry because `tools/list` returns them to the Claude Code plugin today,
-  // so a snapshot that skipped them would not describe what the plugin sees.
+  // that is open, and read the learner's shelf and their review queue outside a
+  // lesson. They are in the registry because `tools/list` returns them to the
+  // Claude Code plugin today, so a snapshot that skipped them would not describe
+  // what the plugin sees.
   {
     name: 'start_lesson',
     description: 'Start a Derive lesson for a topic. Opens the companion view in the browser, where quizzes, the plan and the dependency graph are rendered. Call once at the start of a lesson, before any quiz. Returns the lesson id, the URL, where the learner answers cards (browser or terminal), what is already known about this learner, a `warmup` (nodes from earlier lessons that are due, to be retrieved before the probe) when there is one, and, when `files` were given, a brief of the course material (its outline, or its full text when short) with instructions on how to use it.',
@@ -472,6 +473,21 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
     name: 'library',
     description: "The learner's library outside a lesson: the whole shelf as a catalog, or the entries matching a topic. Lessons get this automatically from start_lesson.",
     shape: { topic: z.string().optional().describe('Rank entries by relevance to this.'), learner: z.string().optional() },
+    surfaces: ['mcp'],
+  },
+  // A learner-facing read, and the only entry in this registry that is not a
+  // tutor action: it teaches nothing, opens nothing and writes nothing. That is
+  // why it carries no `label` — a status line is the vocabulary of a tool the
+  // learner watches the tutor run, and `wire-surface.test.ts` holds the set of
+  // added labels to the owned loop's two web tools on purpose.
+  {
+    name: 'due',
+    description:
+      'What is due for review right now: how many of this learner\'s nodes are due, the first few of them with their topic and how overdue each is, and when the next review falls when nothing is due. A read, not a lesson — it teaches nothing and changes nothing. Print what it returns; call start_lesson with `review: true` only if the learner then asks to start a review.',
+    shape: {
+      learner: z.string().optional().describe('Whose queue to read, by name or id. Default: DERIVE_LEARNER, else the first learner.'),
+      limit: z.number().int().min(1).max(20).optional().describe('How many of the due nodes to name. Default 5; the count is always the whole queue.'),
+    },
     surfaces: ['mcp'],
   },
 ];

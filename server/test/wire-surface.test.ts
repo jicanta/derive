@@ -178,12 +178,14 @@ describe('the wire surface', () => {
     assert.equal(TOOL_LABELS.web_search, 'Verifying with a web search');
   });
 
-  it('covers the whole surface a driver can see: 24 tools, of which 14 are the tutor tools', () => {
+  it('covers the whole surface a driver can see: 25 tools, of which 14 are the tutor tools', () => {
     // 22 at phase 1, plus fetch_page and web_search — the owned loop's own two,
-    // registered on the `api` surface and nowhere else.
-    assert.equal(ALL_TOOL_NAMES.length, 24);
+    // registered on the `api` surface and nowhere else — plus `due`, the
+    // learner-facing read of the review queue, registered on the MCP surface and
+    // nowhere else. So: 25 in the registry, 23 of them on the plugin's wire.
+    assert.equal(ALL_TOOL_NAMES.length, 25);
     assert.equal(DERIVE_TOOL_NAMES.length, 14);
-    assert.equal(live.mcp.length, 22, 'the MCP server is what the Claude Code plugin sees; the snapshot must cover all of it');
+    assert.equal(live.mcp.length, 23, 'the MCP server is what the Claude Code plugin sees; the snapshot must cover all of it');
     assert.equal(live.http.length, 16, 'the fourteen tutor tools plus answer and answer_in');
     assert.equal(live.api.length, 16, "the fourteen tutor tools plus Derive's own fetch_page and web_search");
     for (const ours of ['fetch_page', 'web_search']) {
@@ -192,7 +194,7 @@ describe('the wire surface', () => {
         assert.ok(!rowOf(live, ours, elsewhere), `${ours} leaked onto the ${elsewhere} surface, which must stay byte-unchanged`);
       }
     }
-    for (const driverTool of ['start_lesson', 'attach_material', 'answer', 'answer_in', 'learner_profile', 'learners', 'end_lesson', 'library']) {
+    for (const driverTool of ['start_lesson', 'attach_material', 'answer', 'answer_in', 'learner_profile', 'learners', 'end_lesson', 'library', 'due']) {
       assert.ok(rowOf(live, driverTool, 'mcp'), `${driverTool} is missing from the MCP surface`);
       assert.ok(!DERIVE_TOOL_NAMES.includes(driverTool), `${driverTool} is a driver tool, not one of the fourteen tutor tools`);
     }

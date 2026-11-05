@@ -181,6 +181,31 @@ async function attach(lesson: string, sources: string[]): Promise<Attached> {
 
 const materialsBrief = (lesson: string) => api<{ materials: Material[]; brief: string }>(`/api/external/lessons/${lesson}/materials`);
 
+/** One row of `GET /api/review`: a node that is due, with the topic of the lesson it was derived in. */
+type DueNode = { label: string; topic: string; review_at: number | null };
+
+const DAY = 86_400_000;
+/** How many due nodes the terminal names before it says how many more there are. */
+const DUE_LIMIT = 5;
+
+/**
+ * How overdue a node is, in the Atlas's own words (`overdue` in
+ * `web/src/pages/Atlas.tsx`): whole days, floored. The terminal and the Atlas
+ * must not be able to disagree about how overdue the same node is, so this is
+ * the same rounding rule rather than a second one.
+ */
+const overdueOf = (ts: number | null, now: number) => {
+  if (!ts) return '';
+  const d = Math.floor((now - ts) / DAY);
+  return d <= 0 ? 'today' : `${d}d overdue`;
+};
+
+/** When the next review falls, in the same floored whole days. */
+const relativeOf = (ts: number, now: number) => {
+  const d = Math.floor((ts - now) / DAY);
+  return d <= 0 ? 'today' : d === 1 ? 'tomorrow' : `in ${d} days`;
+};
+
 function openBrowser(url: string) {
   // An argument vector, not a command string: no /bin/sh is involved, so the URL is one argv element of the opener rather than a fragment of a shell command.
   const [cmd, args]: [string, string[]] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
@@ -273,6 +298,23 @@ const handlers: Record<string, (a: Record<string, unknown>) => Promise<unknown>>
     const topic = a.topic as string | undefined;
     const qs = new URLSearchParams({ ...(topic ? { topic } : {}), ...(who ? { learner: who } : {}) }).toString();
     return api(`/api/external/library${qs ? `?${qs}` : ''}`);
+  },
+  due: async (a) => {
+    const who = (a.learner as string | undefined) ?? LEARNER;
+    const limit = (a.limit as number | undefined) ?? DUE_LIMIT;
+    const qs = who ? `?learner=${encodeURIComponent(who)}` : '';
+    // Both reads are learner-scoped on the server, which resolves the name and
+    // falls back to the first learner when it does not know it, so an arbitrary
+    // string cannot select an arbitrary learner's queue.
+    const [due, retention] = await Promise.all([api<DueNode[]>(`/api/review${qs}`), api<{ nextReviewAt: number | null }>(`/api/retention${qs}`)]);
+    const now = Date.now();
+    return {
+      count: due.length,
+      nodes: due.slice(0, limit).map((n) => ({ label: n.label, topic: n.topic, overdue: overdueOf(n.review_at, now) })),
+      more: Math.max(0, due.length - limit),
+      // Only meaningful when nothing is due; null then means nothing is scheduled at all.
+      next_review: due.length ? null : retention.nextReviewAt === null ? null : relativeOf(retention.nextReviewAt, now),
+    };
   },
 };
 
