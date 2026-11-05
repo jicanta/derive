@@ -1,0 +1,8 @@
+interface:
+  display_name: "Derive: due"
+  short_description: "What is due for review right now, and one next step"
+  default_prompt: "$derive-due"
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "derive"
