@@ -3,8 +3,9 @@
  * `pnpm conformance`: replays one scripted lesson on every provider this
  * environment can reach, and reports per provider and model whether the method
  * actually held — the pretest ran before the teaching, the understanding gate
- * passed on the node that was taught, and the cumulative quiz fired and was
- * answered.
+ * passed on the node that was taught, the cumulative quiz fired and was
+ * answered, and the remediation gate held: after a node was marked shaky, the
+ * next question went to the one prerequisite the server named.
  *
  * It drives real configured models, and it has to. The question is whether a
  * *particular* model follows the method through Derive's own tool surface, and
@@ -75,10 +76,18 @@ let safeOut = (e) => String(e instanceof Error ? e.message : (e ?? ''));
  * because no secret exists yet. Pure and exported on purpose — it is the only
  * part of the harness a machine with no model can check, and it is the half
  * that decides whether a nightly failure is ever noticed.
+ *
+ * A false verdict fails the run on its own, not only through the `status`
+ * `runRow` derives from it. The two always agree today, and that is the point:
+ * a fourth verdict added without being folded into the status would otherwise
+ * be decorative, and this helper is the one place that can refuse to let it be.
+ * The finished report and a bare array of rows are both accepted, so the
+ * decision can be exercised with nothing but a literal.
  */
 export function exitCodeFor(report) {
-  const rows = Array.isArray(report?.rows) ? report.rows : [];
-  return rows.some((r) => r?.status === 'failed') ? 1 : 0;
+  const rows = Array.isArray(report?.rows) ? report.rows : Array.isArray(report) ? report : [];
+  const failedVerdict = (r) => Object.values(r?.verdicts ?? {}).some((held) => held === false);
+  return rows.some((r) => r?.status === 'failed' || failedVerdict(r)) ? 1 : 0;
 }
 
 // ---------- the scripted lesson ----------
@@ -89,14 +98,22 @@ const GOAL_NODE = 'sum-even';
 /** The derived node under it. Both non-truth nodes get a cumulative question, so `cumulativeStatus` has nothing pending. */
 const STEP_NODE = 'two-doubles';
 
+/**
+ * The ground truth under `STEP_NODE`, and its only dependency — so when the
+ * script marks `STEP_NODE` shaky, this is the node the server's ranking names,
+ * by construction rather than by guess. The remediation verdict reads whether a
+ * fresh check actually landed here.
+ */
+const REMEDIATION_NODE = 'even';
+
 const TOPIC = 'Why the sum of two even numbers is even';
 
 const GOAL = 'Know why adding two even numbers always gives an even number';
 
 /** The graph the script fixes. Three nodes because `set_plan`'s own schema requires at least three. */
 const PLAN_NODES = [
-  { id: 'even', kind: 'truth', label: 'An even number is twice a whole number', summary: 'Every even number can be written as two times some whole number.' },
-  { id: STEP_NODE, kind: 'derived', label: 'Two doubles add to a double', summary: 'Adding two multiples of two gives another multiple of two.', depends_on: ['even'] },
+  { id: REMEDIATION_NODE, kind: 'truth', label: 'An even number is twice a whole number', summary: 'Every even number can be written as two times some whole number.' },
+  { id: STEP_NODE, kind: 'derived', label: 'Two doubles add to a double', summary: 'Adding two multiples of two gives another multiple of two.', depends_on: [REMEDIATION_NODE] },
   { id: GOAL_NODE, kind: 'goal', label: 'Two even numbers add to an even number', summary: 'The sum of any two even numbers is even.', depends_on: [STEP_NODE] },
 ];
 
@@ -147,6 +164,18 @@ const QUIZZES = [
     correct: 'Odd',
     explanation: '2a + (2b + 1) = 2(a + b) + 1, which is one more than a double.',
   },
+  // The re-check the remediation gate demands. Its node id is deliberately not
+  // written into the step that asks it: the model has to take it from the reply
+  // `node_status` returned, which is the whole thing the verdict is about.
+  {
+    node: REMEDIATION_NODE,
+    purpose: 'check',
+    tests: 'intuition',
+    question: 'Which of these is another way of saying that a number is even?',
+    options: ['It is two times some whole number', 'It is one more than two times some whole number'],
+    correct: 'It is two times some whole number',
+    explanation: 'Even means exactly: twice a whole number. The other option is the definition of odd.',
+  },
 ];
 
 /** What a card that wants prose gets. Fixed, so it is the same sentence on every row. */
@@ -155,6 +184,25 @@ const PROSE_ANSWER = 'Two even numbers are each two times a whole number, so the
 /** One `quiz` step of the scripted prompt, written so the model has nothing to invent. */
 const quizStep = (q, n) =>
   `${n}. Call quiz with node_id "${q.node}", purpose "${q.purpose}", tests "${q.tests}", question "${q.question}", options exactly ${JSON.stringify(q.options)}, correct [${q.options.indexOf(q.correct)}] — the correct option is "${q.correct}" — and explanation "${q.explanation}".`;
+
+/**
+ * The remediation step: mark a node shaky, then re-check the one prerequisite
+ * the server names for it.
+ *
+ * Marking a node shaky is how the gate is opened without a wrong answer. The
+ * script's answers are always correct by construction — the key is read from
+ * the same table the prompt is rendered from — and a planted miss would have to
+ * stay off the cumulative questions, because the cumulative verdict requires
+ * nothing missed.
+ *
+ * The question is the script's and its node id deliberately is not: the model
+ * has to read the id out of the reply it just got. A model that ignores it and
+ * carries on elsewhere is refused by the server, no check lands on that node,
+ * and the verdict reads false — which is the only way a real provider's drift
+ * here is ever seen.
+ */
+const remediationStep = (q, n) =>
+  `${n}. Call node_status with id "${STEP_NODE}" and status "shaky". Its reply names exactly one node to re-check; read that node's id out of the reply and call quiz with node_id set to exactly that id and no other, purpose "check", tests "intuition", question "${q.question}", options exactly ${JSON.stringify(q.options)}, correct [${q.options.indexOf(q.correct)}] — the correct option is "${q.correct}" — and explanation "${q.explanation}".`;
 
 /**
  * The turn the harness sends.
@@ -175,8 +223,9 @@ function scriptPrompt() {
     `3. Call node_status with id "${GOAL_NODE}" and status "teaching", then write two or three sentences establishing it.`,
     quizStep(QUIZZES[1], 4),
     `5. Call node_status with id "${GOAL_NODE}" and status "locked".`,
-    quizStep(QUIZZES[2], 6),
-    quizStep(QUIZZES[3], 7),
+    remediationStep(QUIZZES[4], 6),
+    quizStep(QUIZZES[2], 7),
+    quizStep(QUIZZES[3], 8),
   ];
   return `This is Derive's own conformance check, not a lesson, and nobody is learning from it. Ask no probe questions and do not re-plan. Run exactly these steps in order and then end the turn:\n\n${steps.join('\n')}\n\nCall no other tool, attach nothing, search for nothing, and ask nothing else.`;
 }
@@ -471,6 +520,11 @@ async function runRow(ctx, row, spec) {
     pretest: quizzes.some((r) => r.purpose === 'pretest'),
     gate: db.hasUnderstandingPass(id, GOAL_NODE),
     cumulative: cumulative.done.length > 0 && cumulative.missed.length === 0 && cumulative.pending.length === 0,
+    // The node the server named after `STEP_NODE` was marked shaky is this one
+    // and can only be this one: it is `STEP_NODE`'s single dependency, so the
+    // ranking has nothing to choose between. A fresh check on it means the
+    // model took the id out of the reply instead of carrying on where it liked.
+    remediation: db.quizzesOn(id, REMEDIATION_NODE).some((r) => r.purpose !== 'pretest'),
   };
   const missed = Object.entries(verdicts).filter(([, held]) => !held).map(([name]) => name);
   const refusal = refusalIn(events);
@@ -511,16 +565,16 @@ function markdownFor(report) {
     '',
     `Derive ${report.run.version} · run \`${report.run.id}\` · think \`${report.run.think}\` · reliableToolCalling \`${report.run.reliable_tool_calling}\` · timeout ${Math.round(report.run.timeout_ms / 1000)}s · logins ${report.run.logins_included ? 'included' : 'skipped'}`,
     '',
-    'Every provider appears exactly once: either its three verdicts, or an explicit skipped line with the reason. A model that failed a verdict is a finding, not a bug in the harness. Rejected counts tool calls whose arguments failed the full server-side schema — nothing else.',
+    'Every provider appears exactly once: either its four verdicts, or an explicit skipped line with the reason. A model that failed a verdict is a finding, not a bug in the harness. Remediation is whether the re-check went to the one prerequisite the server named after a node was marked shaky. Rejected counts tool calls whose arguments failed the full server-side schema — nothing else.',
     '',
-    '| Provider | Model | Result | Pretest | Gate | Cumulative | Rejected | Detail |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| Provider | Model | Result | Pretest | Gate | Cumulative | Remediation | Rejected | Detail |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
   ];
   const cell = (v) => (v === true ? 'held' : v === false ? 'no' : '—');
   const rejected = (r) => (r.rejections ? `${r.rejections.rejected}/${r.rejections.rejected + r.rejections.executed} calls` : '—');
   for (const r of report.rows) {
     lines.push(
-      `| ${r.label} | ${r.model ?? '—'} | ${mark[r.status] ?? r.status} | ${cell(r.verdicts?.pretest)} | ${cell(r.verdicts?.gate)} | ${cell(r.verdicts?.cumulative)} | ${rejected(r)} | ${r.reason ?? ''} |`,
+      `| ${r.label} | ${r.model ?? '—'} | ${mark[r.status] ?? r.status} | ${cell(r.verdicts?.pretest)} | ${cell(r.verdicts?.gate)} | ${cell(r.verdicts?.cumulative)} | ${cell(r.verdicts?.remediation)} | ${rejected(r)} | ${r.reason ?? ''} |`,
     );
   }
   const counts = ['passed', 'failed', 'skipped'].map((s) => `${report.rows.filter((r) => r.status === s).length} ${s}`);
@@ -575,7 +629,7 @@ async function main(argv) {
     reliable_tool_calling: RELIABLE_TOOL_CALLING,
     logins_included: opts.logins,
     timeout_ms: opts.timeoutMs,
-    script: { topic: TOPIC, goal_node: GOAL_NODE, quizzes: QUIZZES.length },
+    script: { topic: TOPIC, goal_node: GOAL_NODE, remediation_node: REMEDIATION_NODE, quizzes: QUIZZES.length },
   };
   const rows = [];
   let server;

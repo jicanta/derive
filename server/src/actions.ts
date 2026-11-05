@@ -25,6 +25,7 @@ import {
   listNodes,
   listMisconceptions,
   listMemory,
+  misconceptionsOn,
   nodeRecord,
   QUIZ_TESTS,
   quizzesOn,
@@ -295,6 +296,31 @@ export function remediationRefusal(lessonId: string, nodeId: string | null | und
  * Null when the node has nothing below it: no gate opens and the caller keeps
  * the ground-truth wording, because there is no level down to re-check.
  */
+/**
+ * The learner's own recorded wrong claims on a node, handed over at the moment
+ * the next question on it is being written.
+ *
+ * `method/30-quiz-options.md` already asks for distractors mutated from a
+ * specific misconception; what it could not have is the misconception. This
+ * puts it on the tool result that starts the node — the project's own way to
+ * steer the model — rather than in the prompt, where it would sit in the cached
+ * stable prefix and be as far from the moment of writing as the flat profile
+ * list already is. No new tool, no method-text change, nothing new to render.
+ *
+ * It is option material and never copy. A distractor mutated toward a claim the
+ * learner once held is a question that finds out whether they still hold it; a
+ * line naming what they got wrong is a different thing, and the last sentence
+ * here says so, because the model reads this and nothing else about it.
+ */
+function misconceptionMaterial(lessonId: string, nodeId: string): string | null {
+  const rows = misconceptionsOn(lessonId, nodeId);
+  if (!rows.length) return null;
+  return (
+    `Distractor material for the next question on this node — wrong claims this learner has actually held on it: ${rows.map((m) => `"${m.picked}" (the answer was "${m.correct}")`).join('; ')}. ` +
+    'Mutate the correct claim toward one of these so the tempting option is the one they would pick, rather than inventing a distractor nobody would choose. Never quote a past mistake back at them and never name it as theirs: this is material for building an option, not a line of copy.'
+  );
+}
+
 function nameWeakest(lessonId: string, nodeId: string): string | null {
   const [weakest] = rankedDependencies(lessonId, nodeId);
   if (!weakest) return null;
@@ -481,12 +507,18 @@ export function nodeStatus(lessonId: string, a: { id: string; status: 'teaching'
     extra.next_review_in_days = next.interval_days;
     if (credited.length) extra.implicit_review = `Locking this counted as a partial review of ${credited.map((c) => `"${c.label}" (now due in ${c.interval_days} days)`).join(', ')}.`;
   }
+  // The two states that start a node: the tutor is about to write a question
+  // on it, so this is where the learner's own recorded wrong claims are worth
+  // having. The shaky branch already sets an instruction and the material is
+  // merged into it rather than over it — that is the path it matters most on.
+  const material = a.status === 'teaching' || a.status === 'shaky' ? misconceptionMaterial(lessonId, a.id) : null;
   if (a.status === 'shaky') {
     const step = nameWeakest(lessonId, a.id);
     extra.instruction = step
       ? `Shaky. Targeted remediation, not a re-explanation. ${step} Once it holds, re-derive this node from it, one step at a time, and check this node again with a fresh question. Lock it only when that passes.`
       : `Shaky. ${GROUND_TRUTH_STEP} Lock it only when that passes.`;
   }
+  if (material) extra.instruction = extra.instruction ? `${extra.instruction} ${material}` : material;
   if (a.status === 'locked' && node.kind === 'goal') {
     const { pending } = cumulativeStatus(lessonId);
     const left = pending.filter((n) => n.node_id !== a.id);

@@ -1234,6 +1234,8 @@ describe('one prerequisite, named and enforced', () => {
   const settle = () => act(lesson, 'answer', { reply: 'A' });
   const mark = (node: string, status: string) => act(lesson, 'node_status', { id: node, status });
   const NAMED = /Re-check "The first rule" \[ground\] with one fresh quiz, tests "intuition"/;
+  /** Either prerequisite, for the cases after `ground` has been marked shaky — a lapse resets its forgetting curve, so which one is weakest legitimately changes. */
+  const NAMED_ONE = /Re-check "The (first|second) rule" \[(ground|other)\] with one fresh quiz, tests "intuition", before any other node/;
 
   before(async () => {
     const made = await api<{ id: string }>('/api/external/lessons', { topic: 'what the server names after a miss', answer_in: 'terminal' });
@@ -1330,6 +1332,67 @@ describe('one prerequisite, named and enforced', () => {
     const elsewhere = await quizOn('other');
     assert.equal(elsewhere.status, 200, JSON.stringify(elsewhere.json));
     assert.equal((await settle()).status, 200);
+  });
+
+  it('hands the learner\'s own recorded wrong claim over when the node is marked as being taught', async () => {
+    // The confident miss on `claim` in the first case here left a misconception
+    // row on it. Marking the node as being taught is the moment the next
+    // question on it is about to be written, which is where that row is worth
+    // having — on the tool result, not in the prompt.
+    const marked = await mark('claim', 'teaching');
+    assert.equal(marked.status, 200, JSON.stringify(marked.json));
+    assert.match(String(marked.json.instruction), /Distractor material for the next question on this node/);
+    assert.match(String(marked.json.instruction), /"a tempting wrong claim" \(the answer was "the right claim"\)/);
+    assert.match(String(marked.json.instruction), /Mutate the correct claim toward one of these/);
+    assert.match(String(marked.json.instruction), /never name it as theirs/, 'nothing stops the material being read back to the learner as a correction');
+  });
+
+  it('merges the material into the shaky branch\'s own instruction rather than over it', async () => {
+    const marked = await mark('claim', 'shaky');
+    assert.equal(marked.status, 200, JSON.stringify(marked.json));
+    const instruction = String(marked.json.instruction);
+    assert.match(instruction, /^Shaky\. Targeted remediation, not a re-explanation\./, 'the shaky sentence was overwritten');
+    assert.match(instruction, NAMED_ONE, 'the named prerequisite was overwritten');
+    assert.equal(instruction.match(/\[(ground|other)\]/g)?.length, 1, 'more than one prerequisite was named');
+    assert.match(instruction, /Distractor material for the next question on this node/, 'the material did not reach the path it matters most on');
+    // Leave the lesson with no gate open, so a later case in this file is not
+    // answering for this one.
+    assert.equal((await api(`/api/lessons/${lesson}/message`, { text: 'that is enough for today' })).status, 200);
+  });
+});
+
+describe('warm-up and the cumulative quiz are named where the learner reads them', () => {
+  /**
+   * D-24: the naming LEARN-09 asks for is shipped, so this asserts it against
+   * the requirement instead of rebuilding it. There is no web test runner in
+   * this repo, so the two components are read as source — the same way the
+   * status-line suppression contract is asserted above.
+   */
+  it('keeps the warm-up eyebrow and its reason', () => {
+    const page = readFileSync(resolve(here, '../../web/src/pages/Lesson.tsx'), 'utf8');
+    assert.match(page, /warm-up · due from earlier lessons/);
+  });
+
+  it('keeps the cumulative, review and pre-explanation headings and the three what-it-tests labels', () => {
+    const card = readFileSync(resolve(here, '../../web/src/components/QuizCard.tsx'), 'utf8');
+    assert.match(card, /`Cumulative quiz\$\{nodeLabel \? ` · \$\{nodeLabel\}` : ''\}`/);
+    assert.match(card, /`Review\$\{nodeLabel \? ` · \$\{nodeLabel\}` : ''\}`/);
+    assert.match(card, /Before the explanation\$\{nodeLabel \? ` · \$\{nodeLabel\}` : ''\}/);
+    for (const label of ['why, not how', 'new kind of problem', 'the steps']) {
+      assert.ok(card.includes(`'${label}'`), `the what-it-tests label "${label}" is gone`);
+    }
+  });
+
+  it('asks the next due question inside the same turn, in both the review and the warm-up prompt', () => {
+    // D-17 as re-read: in-turn pipelining, which is a turn-prompt change and
+    // nothing else — no new tool, no flag on the quiz tool, no card held but
+    // not shown. Both of these are hand-written and are not render targets, so
+    // the method source is untouched by it.
+    const prompts = readFileSync(resolve(here, '../src/prompt.ts'), 'utf8');
+    const sequencing = /the moment you have acted on a verdict, ask the next due node's question in the same turn, with nothing between the verdict and that question/g;
+    assert.equal(prompts.match(sequencing)?.length, 2, 'the review and the warm-up prompt do not both ask for the next question in the same turn');
+    assert.match(prompts, /Keep prose minimal between questions; a review is not a lesson\. Finish with two sentences/, 'the review prompt\'s closing two sentences moved');
+    assert.match(prompts, /Keep it short: this is retrieval, not a lesson\./, 'the warm-up brief\'s closing sentence moved');
   });
 });
 

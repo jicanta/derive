@@ -183,6 +183,22 @@ const q = {
     SELECT n.*, l.topic, l.goal FROM nodes n JOIN lessons l ON l.id = n.lesson_id
     WHERE l.learner_id = ? AND l.scratch = 0 AND n.source_lesson IS NULL ORDER BY l.created_at, n.rowid
   `),
+  // One node of one lesson, newest first and deliberately **without** the
+  // `resolved ASC` demotion `listMisconceptions` carries. Locking a node flips
+  // its misconceptions to resolved, so by the time that node is being taught
+  // or remediated again every one of them is flagged — and a resolved
+  // misconception is the *best* distractor material there is: a tempting wrong
+  // claim this learner actually held and was corrected on. Demoting it here
+  // would hide exactly the rows worth mutating an option toward.
+  //
+  // Scoped to the lesson, not followed across lessons through `source_node`: a
+  // node id is unique only inside its own lesson's graph, so a cross-lesson
+  // match would be a guess. The scratch join is the same one every other read
+  // of this table carries.
+  misconceptionsOn: db.prepare(`
+    SELECT m.*, l.topic FROM misconceptions m JOIN lessons l ON l.id = m.lesson_id
+    WHERE m.lesson_id = ? AND m.node_id = ? AND l.scratch = 0 ORDER BY m.ts DESC LIMIT 6
+  `),
   deleteMemoryByLesson: db.prepare('DELETE FROM memory WHERE lesson_id = ?'),
   deleteMisByLesson: db.prepare('DELETE FROM misconceptions WHERE lesson_id = ?'),
   getLesson: db.prepare('SELECT * FROM lessons WHERE id = ?'),
@@ -1702,6 +1718,11 @@ export function resolveMisconceptions(lessonId: string, nodeId: string) {
 
 export function listMisconceptions(learnerId: string): MisconceptionRow[] {
   return q.listMisconceptions.all(learnerId) as MisconceptionRow[];
+}
+
+/** The wrong claims this learner has held on one node of one lesson, newest first and resolved ones included: candidate distractor material for the next question on it. */
+export function misconceptionsOn(lessonId: string, nodeId: string): MisconceptionRow[] {
+  return q.misconceptionsOn.all(lessonId, nodeId) as MisconceptionRow[];
 }
 
 export function allNodes(learnerId: string): (NodeRow & { topic: string; goal: string | null })[] {
