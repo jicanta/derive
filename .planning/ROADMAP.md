@@ -300,14 +300,14 @@ Plans:
   4. On a failed quiz the tutor names and re-quizzes the weakest prerequisite, distractors draw on the learner's recorded misconceptions, warm-up and cumulative quiz are named in the UI — and the conformance harness still passes on every provider
   5. Voice mode auto-arms the mic after a question and speaks in sentence chunks in the learner's language; open cards are persisted and rehydrated so a server restart leaves no dead card in the browser
 
-**Plans**: 1/8 plans executed in 4 waves. The two shared-surface risks lead, per the research's recommended slice order: the `prompts` table (it rewrites the prompt service, the held-card bookkeeping and the companion path at once) and, once the retention read exists, the `due` registry entry (it moves five pinned counts and the method render, and CI fails on all of them). The waves are driven by file ownership rather than by logic — `server/src/index.ts`, `server/src/db.ts`, `server/src/actions.ts` and `web/src/pages/Lesson.tsx` are each wanted by four or more plans, so same-wave plans hold disjoint files and the rest serialise behind them. **Success Criterion 2's prefetch clause now overstates what ships:** D-17's "the next card is prefetched" is implemented as in-turn pipelining of the review and warm-up queues plus the streaming status line, because a turn throws while another is active and no tool can prepare a card without showing it. That narrowing is recorded in 05-06, not matched silently.
+**Plans**: 2/8 plans executed in 4 waves. The two shared-surface risks lead, per the research's recommended slice order: the `prompts` table (it rewrites the prompt service, the held-card bookkeeping and the companion path at once) and, once the retention read exists, the `due` registry entry (it moves five pinned counts and the method render, and CI fails on all of them). The waves are driven by file ownership rather than by logic — `server/src/index.ts`, `server/src/db.ts`, `server/src/actions.ts` and `web/src/pages/Lesson.tsx` are each wanted by four or more plans, so same-wave plans hold disjoint files and the rest serialise behind them. **Success Criterion 2's prefetch clause now overstates what ships:** D-17's "the next card is prefetched" is implemented as in-turn pipelining of the review and warm-up queues plus the streaming status line, because a turn throws while another is active and no tool can prepare a card without showing it. That narrowing is recorded in 05-06, not matched silently.
 
 Plans:
 
 **Wave 1**
 
 - [x] 05-01-PLAN.md — The `prompts` table and a restored card that is alive (the phase tracer: migration → prompt service → route → web type → lesson page → restart gate) (wave 1)
-- [ ] 05-02-PLAN.md — Voice speaks sentence by sentence while the block streams, in the learner's language, through a committed locale table (wave 1)
+- [x] 05-02-PLAN.md — Voice speaks sentence by sentence while the block streams, in the learner's language, through a committed locale table (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -374,6 +374,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Phase 6 
 | 2. Settings and Secrets | 7/7 | Complete    | 2026-10-01 |
 | 3. Owned Loop: API Keys and Gateways | 9/9 | Complete    | 2026-10-14 |
 | 4. Local Models, Parity Proof and Usage | 6/6 | Complete    | 2026-10-22 |
-| 5. Learning Experience | 1/8 | In Progress|  |
+| 5. Learning Experience | 2/8 | In Progress|  |
 | 6. Personalization | 0/TBD | Not started | - |
 | 7. Adoption | 0/TBD | Not started | - |

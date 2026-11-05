@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 31
+open_count: 33
 waived_count: 0
 fixed_count: 0
-total_count: 31
-last_updated: 2026-11-04T23:47:17.218Z
+total_count: 33
+last_updated: 2026-11-05T00:01:23.906Z
 ---
 
 # Broken Windows Ledger
@@ -46,6 +46,8 @@ last_updated: 2026-11-04T23:47:17.218Z
 | 29 | 04 | unrun-verify | web/src/pages/Lesson.tsx | 361 | E2 refusal-card render (62ch wrap, no horizontal scroll) is a human-check carried to 04-USER-SETUP.md; both classes asserted statically but the rendered layout is unverified | open |  | 2026-10-23T01:26:15.094Z |  |
 | 30 | 05 | unmet-truth | server/src/index.ts |  | Answering a card restored from a previous boot is refused with the shipped 409 rather than graded; 05-03 adds the re-derived grading branch that closes it | open |  | 2026-11-04T23:47:17.077Z |  |
 | 31 | 05 | deviation | server/src/db.ts |  | deleteLearner has no learner-scoped prompts DELETE (impossible after its lesson loop); covered by the counting case in server/test/tx.test.ts instead | open |  | 2026-11-04T23:47:17.218Z |  |
+| 32 | 05 | deviation | web/src/lib/useVoiceMode.ts |  | Mic arming needed a second trigger beyond the streaming guard: an effect on the streaming true->false edge, because a block's last sentence is usually said before that edge and nothing is left to resolve and arm | open |  | 2026-11-05T00:01:23.764Z |  |
+| 33 | 05 | deviation | web/src/lib/useVoiceMode.ts |  | The shipped assistant branch re-said every finished block on each items change (no spoken.has check); the per-item character offset closes it, which is the must-have 'never spoken twice' | open |  | 2026-11-05T00:01:23.906Z |  |
 
 ````json
 [
@@ -449,6 +451,32 @@ last_updated: 2026-11-04T23:47:17.218Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-04T23:47:17.218Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 32,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "web/src/lib/useVoiceMode.ts",
+    "line": null,
+    "description": "Mic arming needed a second trigger beyond the streaming guard: an effect on the streaming true->false edge, because a block's last sentence is usually said before that edge and nothing is left to resolve and arm",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-05T00:01:23.764Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 33,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "web/src/lib/useVoiceMode.ts",
+    "line": null,
+    "description": "The shipped assistant branch re-said every finished block on each items change (no spoken.has check); the per-item character offset closes it, which is the must-have 'never spoken twice'",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-05T00:01:23.906Z",
     "resolved_at": null,
     "milestone": null
   }

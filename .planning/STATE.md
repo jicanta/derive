@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Learning Experience
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-11-04T23:47:25.194Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-11-05T00:03:53.151Z"
 last_activity: 2026-11-04
 last_activity_desc: Phase 05 execution started
-state_head: 55cac5abec26794ca5158cd0c9a77afa3683f22d
+state_head: d57538b56bdbb93c28140b6065315aff3b8fce53
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 52
-  completed_plans: 45
+  completed_plans: 46
   percent: 57
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-22)
 ## Current Position
 
 Phase: 05 (Learning Experience) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
 Last activity: 2026-11-04 — Phase 05 execution started
 
@@ -102,6 +102,7 @@ Progress: [██████░░░░] 57%
 | Phase 04 P05 | 21 min | 2 tasks | 8 files |
 | Phase 04 P06 | 5 min | 2 tasks | 2 files |
 | Phase 05 P01 | 16 min | 2 tasks | 11 files |
+| Phase 05 P02 | 9 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -230,6 +231,9 @@ Recent decisions affecting current work:
 - [Phase 04]: The harness scripts its own quizzes with their answer key: the quiz card deliberately omits 'correct', so a fixed question with a declared correct option is the only way the method's own server-side grading can decide a verdict — and it makes every row comparable
 - [Phase 04]: The two subscription-login rows are opt-in behind --logins and otherwise reported skipped with that reason: a login spends the owner's own subscription and no CI runner has one. No row is ever dropped, which is what D-17 forbids
 - [Phase 04]: DERIVE_OLLAMA_THINK (default false, no Settings field) makes 'think' a variable a run can set, which is the instrument research assumption A7 needs; A7 remains open until a real Ollama server answers
+- [Phase 05]: Voice splits prose with a pure sentences(text, from) returning only complete sentences plus the first unconsumed index; a sub-24-character sentence waits for the next one except at the end of the text, where the alternative is never saying it
+- [Phase 05]: prefs.language resolves through web/src/lib/locales.ts, committed pure data in pricing.ts's discipline: keys in their own script, folded on both sides at lookup, null for the absent name and navigator.language as the fallback
+- [Phase 05]: Mic arming has two triggers: the streaming guard in afterSpeech (never open between two sentences of one block) and an effect on the streaming true-to-false edge, because the block's last sentence is normally spoken before that edge
 
 ### Pending Todos
 
@@ -262,6 +266,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-04T23:47:25.082Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-11-05T00:03:29.460Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None

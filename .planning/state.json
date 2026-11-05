@@ -26,7 +26,7 @@
     {
       "number": "5",
       "name": "Learning Experience",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "6",
@@ -44,5 +44,5 @@
     "label": "Advance to the next step",
     "reason": "Phase 05 of 7 · 57% · executing"
   },
-  "updated_at": "2026-11-04T23:47:24.353Z"
+  "updated_at": "2026-11-05T00:03:28.707Z"
 }
