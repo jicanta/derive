@@ -1,9 +1,11 @@
 import { FolderGit2, Paperclip, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { DuePill } from '../components/DuePill';
 import { Graph } from '../components/Graph';
 import { LearnerMenu } from '../components/LearnerMenu';
 import { MaterialList } from '../components/MaterialList';
+import { NextStep } from '../components/NextStep';
 import { api } from '../lib/api';
 import type { GraphNode, Lesson, LessonSummary, NodeRow, Stats } from '../lib/types';
 import { looksLikeRepo, MATERIAL_ACCEPT, useMaterials } from '../lib/useMaterials';
@@ -32,6 +34,10 @@ export function HomePage() {
   const [repoOpen, setRepoOpen] = useState(false);
   const [repo, setRepo] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+  // The next-step block's third row sends the learner here rather than naming a
+  // place to go: the topic box is the start of a new lesson, so the row brings
+  // it into view and puts the caret in it.
+  const topicInput = useRef<HTMLInputElement>(null);
   const material = useMaterials();
 
   const refresh = () => {
@@ -86,6 +92,20 @@ export function HomePage() {
     }
   };
 
+  const startNew = () => {
+    topicInput.current?.focus({ preventScroll: true });
+    topicInput.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  /**
+   * The lesson the next-step block offers to continue. Read from the same
+   * `lessons` payload the block's own mount condition reads, not from `recent`:
+   * `recent` needs a second request to settle, and a row that first says there
+   * is no lesson in progress and then says there is has changed its copy under
+   * the learner.
+   */
+  const resume = lessons.find((l) => l.nodes > 0) ?? null;
+
   const acc = stats && stats.quizzes ? Math.round((100 * stats.correct) / stats.quizzes) : null;
   const heroNodes = recent?.nodes ?? EXAMPLE;
   const heroLocked = useMemo(() => heroNodes.filter((n) => n.status === 'locked').length, [heroNodes]);
@@ -106,9 +126,14 @@ export function HomePage() {
             <Link to="/settings" className="hidden md:inline hover:text-ink-50">settings</Link>
             <a href="https://github.com/jicanta/derive#in-your-terminal" className="hidden md:inline hover:text-ink-50">claude code · codex</a>
             <a href="https://github.com/jicanta/derive" className="hidden md:inline hover:text-ink-50">github</a>
+            {/* Home has no page header, so the one pill that follows the learner everywhere rides the nav row here. */}
+            <DuePill due={stats?.due} />
             <LearnerMenu onChange={refresh} />
           </nav>
         </header>
+
+        {/* What to do next. Mounted only once both reads are in hand and only for a learner who has a lesson: with none, the hero below is the empty state and today's Home is unchanged. */}
+        {stats && lessons.length > 0 && <NextStep due={stats.due} resume={resume && { id: resume.id, topic: resume.topic }} onReview={() => void review()} onStartNew={startNew} />}
 
         {/* Hero */}
         <section className="grid lg:grid-cols-[minmax(0,560px)_minmax(0,1fr)] gap-x-[72px] gap-y-14 pt-12 md:pt-14 flex-1">
@@ -143,6 +168,7 @@ export function HomePage() {
             >
               <span className="font-mono text-xl text-gold-500">›</span>
               <input
+                ref={topicInput}
                 autoFocus
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
