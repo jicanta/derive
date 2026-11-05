@@ -22,7 +22,7 @@ actuals:
   tokens: 8308         # chars/4 over the 4 files actually changed (33,234 chars) — the plan estimated 35,000
   diff_tokens: 5572    # chars/4 over the realized diff alone (22,288 chars)
   tasks: 2
-  commits: 2           # MEASURED: git rev-list --count 0a880d67..HEAD at SUMMARY time (2 production commits; the docs commits follow)
+  commits: 5           # MEASURED: git rev-list --count 0a880d67..HEAD — 2 production + 3 docs (SUMMARY, state/roadmap/ledger, this count)
 plan_head_before: 0a880d673c5ddbe9b63a67acb81bc0c00df2435d
 
 tech-stack:
