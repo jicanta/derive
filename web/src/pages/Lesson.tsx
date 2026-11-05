@@ -14,6 +14,7 @@ import { PlanCard } from '../components/PlanCard';
 import { QuizCard } from '../components/QuizCard';
 import { ResourceCard } from '../components/ResourceCard';
 import { api } from '../lib/api';
+import { removeHtmlAttr, setHtmlAttr } from '../lib/htmlAttr';
 import { describePrefs } from '../lib/prefs';
 import { useLesson } from '../lib/useLesson';
 import { useMaterials } from '../lib/useMaterials';
@@ -125,6 +126,41 @@ export function LessonPage() {
 
   const ordered = useMemo(() => topoOrder(state.nodes), [state.nodes]);
   const timeline = useMemo(() => [...state.items].sort((a, b) => (a.at ?? 0) - (b.at ?? 0)), [state.items]);
+
+  /**
+   * What focus mode leaves of the timeline: the open card plus the one tutor
+   * block immediately above it, which is the whole of what the learner is
+   * supposed to be thinking about. With no card open it is the last tutor
+   * block alone; with neither, nothing, and the quiet line renders instead.
+   *
+   * It is a filter over the same items, rendered by the same switch, so every
+   * card keeps its React key across the toggle and `animate-fade-up` is not
+   * re-triggered — the card must not flash on entering focus.
+   */
+  const focused = useMemo(() => {
+    if (!focus) return timeline;
+    const idOf = (it: (typeof timeline)[number]) =>
+      it.kind === 'quiz' ? it.quiz.id : it.kind === 'ask' ? it.ask.id : it.kind === 'explain' ? it.explain.id : it.kind === 'plan' ? it.plan.id : null;
+    const at = activePromptId ? timeline.findIndex((it) => idOf(it) === activePromptId) : -1;
+    if (at < 0) {
+      const last = [...timeline].reverse().find((it) => it.kind === 'assistant');
+      return last ? [last] : [];
+    }
+    const above = [...timeline.slice(0, at)].reverse().find((it) => it.kind === 'assistant');
+    return above ? [above, timeline[at]] : [timeline[at]];
+  }, [focus, timeline, activePromptId]);
+
+  /**
+   * The posture itself, written through the one helper rather than inline, so
+   * Phase 6's theme, accent, font and size extend a single seam. Removed when
+   * focus goes off and again on unmount, so leaving the lesson clears it —
+   * and because nothing is persisted, so does a reload.
+   */
+  useEffect(() => {
+    if (focus) setHtmlAttr('data-focus');
+    else removeHtmlAttr('data-focus');
+    return () => removeHtmlAttr('data-focus');
+  }, [focus]);
   const labelOf = (nodeId: string | null | undefined) => (nodeId ? state.nodes.find((n) => n.id === nodeId)?.label ?? null : null);
   const indexOf = (nodeId: string) => ordered.findIndex((n) => n.id === nodeId) + 1;
   const locked = state.nodes.filter((n) => n.status === 'locked').length;
@@ -172,6 +208,9 @@ export function LessonPage() {
       if (e.key === '?') {
         e.preventDefault();
         setHelp((v) => !v);
+      } else if (e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setFocus((v) => !v);
       } else if (e.key === 'Escape') {
         if (help) {
           e.preventDefault();
@@ -205,7 +244,14 @@ export function LessonPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <header className="flex items-center gap-5 px-5 md:px-6 h-[60px] border-b hairline shrink-0">
+      {/* The strip that replaces the hidden header, so focus always says how to leave. */}
+      {focus && (
+        <div role="status" className="h-7 shrink-0 grid place-items-center font-mono text-[10px] tracking-[0.16em] uppercase text-ink-500">
+          focus · esc to leave
+        </div>
+      )}
+      {/* data-focus-hide marks the three regions focus hides. The header's marker is the one that will leave this file: 05-07 extracts this inline header into the shared PageHeader component and carries the marker there. */}
+      <header data-focus-hide className="flex items-center gap-5 px-5 md:px-6 h-[60px] border-b hairline shrink-0">
         <Link to="/" className="text-ink-400 hover:text-ink-50 transition-colors" title="All lessons">
           <ArrowLeft size={18} strokeWidth={1.8} />
         </Link>
@@ -283,8 +329,9 @@ export function LessonPage() {
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[232px_minmax(0,1fr)_452px] lg:grid-cols-[minmax(0,1fr)_420px]">
-        <aside className="hidden xl:block border-r hairline min-h-0 overflow-y-auto scroll-thin">
+      {/* The columns are swapped from state, not just hidden: display:none on a child does not collapse a declared track, so without this the focused card would keep its old width and sit offset left with an empty gutter on the right. */}
+      <div className={`flex-1 min-h-0 grid ${focus ? 'grid-cols-1' : 'grid-cols-1 xl:grid-cols-[232px_minmax(0,1fr)_452px] lg:grid-cols-[minmax(0,1fr)_420px]'}`}>
+        <aside data-focus-hide className="hidden xl:block border-r hairline min-h-0 overflow-y-auto scroll-thin">
           <OutlineRail nodes={state.nodes} goal={state.lesson?.goal ?? null} materials={state.materials} uploading={upload.uploading} />
         </aside>
 
@@ -298,7 +345,9 @@ export function LessonPage() {
             className="flex-1 overflow-y-auto scroll-thin px-5 md:px-12 pt-8"
           >
             <div className="mx-auto max-w-[680px] space-y-6">
-              {timeline.map((it) => {
+              {/* Reserved for the neither-present case, so it never appears above a card the learner can answer. */}
+              {focus && focused.length === 0 && <p className="font-mono text-[11px] text-ink-500">Nothing to focus on yet. Esc to leave.</p>}
+              {focused.map((it) => {
                 switch (it.kind) {
                   case 'user':
                     return (
@@ -471,7 +520,7 @@ export function LessonPage() {
           </div>
         </section>
 
-        <aside className="hidden lg:flex flex-col min-h-0 border-l hairline bg-ink-900/50">
+        <aside data-focus-hide className="hidden lg:flex flex-col min-h-0 border-l hairline bg-ink-900/50">
           <div className="h-[46px] px-5 border-b hairline flex items-center justify-between">
             <span className="eyebrow">Dependency map</span>
             <Legend />

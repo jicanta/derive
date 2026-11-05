@@ -175,6 +175,9 @@ body::before {
 .node-pop { opacity: 0; transform: translate(-50%, 4px); transition: opacity 0.15s ease, transform 0.15s ease; }
 .react-flow__node:hover .node-pop { opacity: 1; transform: translate(-50%, 0); }
 
+/* Focus mode. A descendant selector on purpose: the marker travels with the element it marks, so moving a marked region into a shared component needs no change here. */
+html[data-focus] [data-focus-hide] { display: none; }
+
 .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
 .scroll-thin::-webkit-scrollbar-thumb { background: var(--color-ink-700); border-radius: 8px; }
 .scroll-thin::-webkit-scrollbar-track { background: transparent; }
