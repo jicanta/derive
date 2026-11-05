@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { grade, implicitLapse, implicitRepetition, retrievability, schedule } from '../src/schedule.js';
+import { grade, implicitLapse, implicitRepetition, retrievability, schedule, weakestFirst } from '../src/schedule.js';
 
 const DAY = 86_400_000;
 const fresh = { stability: null, difficulty: null, reps: 0, lapses: 0, last_review: null, review_at: null, interval_days: 1 };
@@ -78,5 +78,56 @@ describe('fractional implicit repetition', () => {
     const credited = { ...node, ...implicitRepetition(node, 0.5, now + 7 * DAY)! };
     assert.ok(retrievability(credited, now + 7 * DAY) > r7, 'credit restores it');
     assert.equal(retrievability(fresh), 1, 'an unscheduled node is not forgotten');
+  });
+});
+
+describe('weakestFirst', () => {
+  const now = Date.UTC(2026, 0, 15);
+  /** A dependency reviewed `days` ago with the stability a first confident pass earns, plus the two precomputed tie-break fields. */
+  const dep = (id: string, days: number, extra: { missed?: boolean; status?: string } = {}) => ({
+    id,
+    ...fresh,
+    ...schedule(fresh, 'good', now - days * DAY),
+    missed: extra.missed ?? false,
+    status: extra.status ?? 'locked',
+  });
+
+  it('puts the least likely recalled first', () => {
+    const order = weakestFirst([dep('recent', 1), dep('oldest', 40), dep('middle', 10)], now).map((d) => d.id);
+    assert.deepEqual(order, ['oldest', 'middle', 'recent']);
+  });
+
+  it('does not mutate its input', () => {
+    const input = [dep('recent', 1), dep('oldest', 40)];
+    const copy = [...input];
+    weakestFirst(input, now);
+    assert.deepEqual(input, copy, 'the caller\'s array was reordered under it');
+  });
+
+  it('breaks a tie in retrievability on what this lesson\'s checks showed', () => {
+    const [first, second] = weakestFirst([dep('passed', 10), dep('missed', 10, { missed: true })], now);
+    assert.equal(first.id, 'missed', 'a miss beats a pass at equal retrievability');
+    assert.equal(second.id, 'passed');
+    assert.ok(Math.abs(retrievability(first, now) - retrievability(second, now)) < 1e-12, 'the two really were tied');
+  });
+
+  it('breaks a tie in both on status, shaky before pending before locked', () => {
+    const unscheduled = (id: string, status: string) => ({ id, ...fresh, missed: false, status });
+    const order = weakestFirst([unscheduled('c', 'locked'), unscheduled('a', 'shaky'), unscheduled('b', 'pending')], now).map((d) => d.id);
+    assert.deepEqual(order, ['a', 'b', 'c']);
+  });
+
+  it('leaves a dependency with no FSRS state last, where the retrievability fallback puts it', () => {
+    // `retrievability()` returns a flat 1 for a node with no memory state: never
+    // scheduled is not the same as forgotten, so a decayed locked dependency is
+    // the weaker of the two and the remediation goes there.
+    const none = { id: 'never-scheduled', ...fresh, missed: false, status: 'pending' };
+    assert.equal(retrievability(none, now), 1);
+    assert.deepEqual(weakestFirst([none, dep('decayed', 30)], now).map((d) => d.id), ['decayed', 'never-scheduled']);
+  });
+
+  it('returns the one dependency there is, and an empty order for none', () => {
+    assert.deepEqual(weakestFirst([dep('only', 3)], now).map((d) => d.id), ['only']);
+    assert.deepEqual(weakestFirst([], now), []);
   });
 });

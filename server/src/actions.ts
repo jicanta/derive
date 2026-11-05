@@ -27,6 +27,7 @@ import {
   listMemory,
   nodeRecord,
   QUIZ_TESTS,
+  quizzesOn,
   recordQuiz,
   replaceGraph,
   resolveMisconceptions,
@@ -37,7 +38,7 @@ import {
   type QuizPurpose,
   type QuizTests,
 } from './db.js';
-import type { Confidence } from './schedule.js';
+import { weakestFirst, type Confidence } from './schedule.js';
 import { emit, emitEphemeral } from './events.js';
 import {
   addResource,
@@ -183,11 +184,27 @@ function afterCumulative(result: 'correct' | 'incorrect' | 'dont_know', confiden
   );
 }
 
-/** The nodes a node rests on and what the checks on each have shown, for a remediation instruction. */
-function dependencyRecord(lessonId: string, nodeId: string): string {
+/**
+ * The nodes a node rests on, weakest first.
+ *
+ * The walk is the one the remediation already did; what is new is the order,
+ * and it costs no read. `weakestFirst` cannot see either tie-break from the
+ * scheduler, so both ride in precomputed: the status is on the row this
+ * already has, and the miss flag comes out of `quizzesOn`, the same per-node
+ * check record `nodeRecord` renders a sentence from two lines below. A pretest
+ * miss is the learner's honest guess before instruction and is not a miss here,
+ * exactly as `nodeRecord` and the misconception write already treat it.
+ */
+function rankedDependencies(lessonId: string, nodeId: string) {
   const node = getNode(lessonId, nodeId);
   const nodes = new Map(listNodes(lessonId).map((n) => [n.node_id, n]));
   const deps = (JSON.parse(node?.depends_on || '[]') as string[]).map((d) => nodes.get(d)).filter((d): d is NonNullable<typeof d> => !!d);
+  return weakestFirst(deps.map((d) => ({ ...d, missed: quizzesOn(lessonId, d.node_id).some((r) => r.correct === 0 && r.purpose !== 'pretest') })));
+}
+
+/** The nodes a node rests on and what the checks on each have shown, for a remediation instruction. */
+function dependencyRecord(lessonId: string, nodeId: string): string {
+  const deps = rankedDependencies(lessonId, nodeId);
   if (!deps.length) return 'It is a ground truth: nothing below it, so re-state it and ask a fresh question on it directly.';
   return `it rests on ${deps.map((d) => `"${d.label}" [${d.node_id}] (${d.status}; ${nodeRecord(lessonId, d.node_id)})`).join(', ')}.`;
 }

@@ -90,6 +90,55 @@ export function retrievability(node: Parameters<typeof cardOf>[0], now = Date.no
 }
 
 /**
+ * One dependency of a node, as the ranking reads it: whatever
+ * `retrievability()` needs, plus the two facts the scheduler cannot see for
+ * itself. Both are precomputed by the caller from reads the remediation
+ * already performs, so ranking a dependency list costs an ordering and not a
+ * query.
+ */
+export type DependencyRank = Parameters<typeof retrievability>[0] & {
+  /** Whether this lesson's own checks on this dependency have shown a miss. A miss outranks a pass at equal retrievability. */
+  missed: boolean;
+  /** The dependency's state in the graph: shaky is weaker than pending, pending than teaching, teaching than locked. */
+  status: string;
+};
+
+/**
+ * How weak a status is, worst first. `shaky` is a claim known not to have
+ * held; `pending` was never established; `teaching` is being established now;
+ * `locked` held at least once. Only reached when retrievability and the miss
+ * flag are both tied, which is the all-unscheduled case. A status this table
+ * does not know ranks with `locked`: an unrecognised state is not evidence of
+ * weakness, and guessing it is would send the remediation to the wrong node.
+ */
+const STATUS_WEAKNESS: Record<string, number> = { shaky: 0, pending: 1, teaching: 2, locked: 3 };
+const weakness = (status: string): number => STATUS_WEAKNESS[status] ?? STATUS_WEAKNESS.locked;
+
+/**
+ * The nodes a claim rests on, weakest first: the one to re-check after a miss
+ * is the first element.
+ *
+ * It ranks a node's **own direct dependencies** and nothing deeper. That is the
+ * method's one-step-down rule for targeted remediation, and it is also what
+ * stops a learner who missed the goal being sent all the way down to a ground
+ * truth: a search of the whole subgraph finds the true root cause and costs the
+ * learner every level between.
+ *
+ * Weakest means lowest chance of still being recalled, which is the figure
+ * FSRS exists to give and the only one that sees a dependency locked weeks ago
+ * in another lesson and since decayed. Ties — and every dependency with no
+ * schedule at all ties at 1 — are broken by what this lesson's checks showed
+ * (a miss beats a pass), then by status. Pure: it takes rows and returns an
+ * order, so its order is pinned by a test with no database behind it. The
+ * input array is not mutated.
+ */
+export function weakestFirst<T extends DependencyRank>(deps: readonly T[], now = Date.now()): T[] {
+  const keyed = deps.map((d) => ({ d, r: retrievability(d, now) }));
+  keyed.sort((a, b) => a.r - b.r || Number(b.d.missed) - Number(a.d.missed) || weakness(a.d.status) - weakness(b.d.status));
+  return keyed.map((k) => k.d);
+}
+
+/**
  * Fractional implicit repetition, after Math Academy's FIRe model (Skycak,
  * The Math Academy Way, ch. 18 and 29): using a claim to derive something
  * built on top of it is itself a retrieval of that claim. When a node is
