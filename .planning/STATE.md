@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Learning Experience
 status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-11-05T00:03:53.151Z"
+stopped_at: Completed 05-03-PLAN.md
+last_updated: "2026-11-05T00:31:53.938Z"
 last_activity: 2026-11-04
 last_activity_desc: Phase 05 execution started
-state_head: d57538b56bdbb93c28140b6065315aff3b8fce53
+state_head: 6b9200caa913b8baf4998307fe2437985713cfdd
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 52
-  completed_plans: 46
+  completed_plans: 47
   percent: 57
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-22)
 ## Current Position
 
 Phase: 05 (Learning Experience) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
 Last activity: 2026-11-04 — Phase 05 execution started
 
@@ -103,6 +103,7 @@ Progress: [██████░░░░] 57%
 | Phase 04 P06 | 5 min | 2 tasks | 2 files |
 | Phase 05 P01 | 16 min | 2 tasks | 11 files |
 | Phase 05 P02 | 9 min | 2 tasks | 4 files |
+| Phase 05 P03 | 16 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -234,6 +235,10 @@ Recent decisions affecting current work:
 - [Phase 05]: Voice splits prose with a pure sentences(text, from) returning only complete sentences plus the first unconsumed index; a sub-24-character sentence waits for the next one except at the end of the text, where the alternative is never saying it
 - [Phase 05]: prefs.language resolves through web/src/lib/locales.ts, committed pure data in pricing.ts's discipline: keys in their own script, folded on both sides at lookup, null for the absent name and navigator.language as the fallback
 - [Phase 05]: Mic arming has two triggers: the streaming guard in afterSpeech (never open between two sentences of one block) and an effect on the streaming true-to-false edge, because the block's last sentence is normally spoken before that edge
+- [Phase 05]: Phase 05: gradeQuiz (and settleAsk/settlePlan/settleExplain) live outside the promise that used to hold them, so a card restored from the prompts table is graded by the same code as a live one — verdict, quiz row, FSRS write, misconception, instruction
+- [Phase 05]: Phase 05: the grading status line is one emitEphemeral inside gradeQuiz, after the quiz_result emit — grading is in actions.ts, not in a driver, so one call reaches all three and none of them is touched; no TOOL_LABELS entry, because grading is not a tool
+- [Phase 05]: Phase 05: a companion lesson starts no fresh turn on the restore path (its model is in the terminal); the graded result waits on the row for answer/collect, and only an agent lesson gets runTurn
+- [Phase 05]: Phase 05: the browser's fold lives in web/src/lib/lessonReducer.ts with no react, and server/test/reducer.test.ts pins EVENT_TYPES against the server's emit sites in both directions, failing by name
 
 ### Pending Todos
 
@@ -266,6 +271,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-05T00:03:29.460Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-11-05T00:31:37.561Z
+Stopped at: Completed 05-03-PLAN.md
 Resume file: None

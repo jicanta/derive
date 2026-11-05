@@ -60,7 +60,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **LEARN-09**: Remediation names and re-quizzes the weakest prerequisite; quiz distractors draw on the learner's recorded misconceptions; warm-up and cumulative quiz are named in the UI
 - [ ] **LEARN-10**: Voice mode auto-arms the mic after a question, speaks in sentence chunks, and uses the learner's language
 - [ ] **LEARN-11**: Learner sees streaming status (thinking, calling quiz, grading) while waiting, and the next card is prefetched
-- [ ] **LEARN-12**: Open cards survive a server restart: open prompts are persisted and rehydrated, so no dead card is left in the browser
+- [x] **LEARN-12**: Open cards survive a server restart: open prompts are persisted and rehydrated, so no dead card is left in the browser
 
 ### Personalization (style, not method)
 
@@ -177,7 +177,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LEARN-09 | Phase 5 | Pending |
 | LEARN-10 | Phase 5 | Pending |
 | LEARN-11 | Phase 5 | Pending |
-| LEARN-12 | Phase 5 | Pending |
+| LEARN-12 | Phase 5 | Complete |
 | STYLE-01 | Phase 6 | Pending |
 | STYLE-02 | Phase 6 | Pending |
 | STYLE-04 | Phase 6 | Pending |

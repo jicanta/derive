@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 33
+open_count: 34
 waived_count: 0
 fixed_count: 0
-total_count: 33
-last_updated: 2026-11-05T00:01:23.906Z
+total_count: 34
+last_updated: 2026-11-05T00:32:03.178Z
 ---
 
 # Broken Windows Ledger
@@ -48,6 +48,7 @@ last_updated: 2026-11-05T00:01:23.906Z
 | 31 | 05 | deviation | server/src/db.ts |  | deleteLearner has no learner-scoped prompts DELETE (impossible after its lesson loop); covered by the counting case in server/test/tx.test.ts instead | open |  | 2026-11-04T23:47:17.218Z |  |
 | 32 | 05 | deviation | web/src/lib/useVoiceMode.ts |  | Mic arming needed a second trigger beyond the streaming guard: an effect on the streaming true->false edge, because a block's last sentence is usually said before that edge and nothing is left to resolve and arm | open |  | 2026-11-05T00:01:23.764Z |  |
 | 33 | 05 | deviation | web/src/lib/useVoiceMode.ts |  | The shipped assistant branch re-said every finished block on each items change (no spoken.has check); the per-item character offset closes it, which is the must-have 'never spoken twice' | open |  | 2026-11-05T00:01:23.906Z |  |
+| 34 | 05 | deviation | server/src/index.ts |  | Restore-path fresh turn is agent-mode only: a companion lesson starts no server-side turn, by design (05-03 deviation 1) | open |  | 2026-11-05T00:32:03.178Z |  |
 
 ````json
 [
@@ -477,6 +478,19 @@ last_updated: 2026-11-05T00:01:23.906Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-05T00:01:23.906Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 34,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "server/src/index.ts",
+    "line": null,
+    "description": "Restore-path fresh turn is agent-mode only: a companion lesson starts no server-side turn, by design (05-03 deviation 1)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-05T00:32:03.178Z",
     "resolved_at": null,
     "milestone": null
   }
