@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Learning Experience
 status: executing
-stopped_at: Completed 05-04-PLAN.md
-last_updated: "2026-11-05T00:51:59.398Z"
+stopped_at: Completed 05-05-PLAN.md
+last_updated: "2026-11-05T01:04:00.896Z"
 last_activity: 2026-11-04
 last_activity_desc: Phase 05 execution started
-state_head: 6f2d58843fbeeec08940f52fdbbdb20c8a2a7bbe
+state_head: afb8d244476b9ee16b1877974d25d8dd5322ceba
 progress:
   total_phases: 7
   completed_phases: 4
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-22)
 ## Current Position
 
 Phase: 05 (Learning Experience) — EXECUTING
-Plan: 5 of 8
+Plan: 6 of 8
 Status: Ready to execute
 Last activity: 2026-11-04 — Phase 05 execution started
 
@@ -105,6 +105,7 @@ Progress: [██████░░░░] 57%
 | Phase 05 P02 | 9 min | 2 tasks | 4 files |
 | Phase 05 P03 | 16 min | 3 tasks | 8 files |
 | Phase 05 P04 | 12 min | 3 tasks | 9 files |
+| Phase 05 P05 | 8 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -244,6 +245,8 @@ Recent decisions affecting current work:
 - [Phase 05]: A locked node with no FSRS state leaves estimated knowledge entirely, numerator and denominator both — retrievability() returns a flat 1 for it, so counting it would over-report the one figure the panel exists to be honest about
 - [Phase 05]: Under ten first review tries the route sends trueRetention: null and the panel says 'not enough reviews yet'; the threshold lives only in db.ts — A perfect score over one review is a true statement that means nothing; the one honest number in the app must never be confidently wrong
 - [Phase 05]: The Atlas stability ramp is logarithmic over the 70-100% gold band, applied as an inline color-mix style, and withholds the just-locked animation — A fainter fill crosses a band near 60-65% where neither the dark nor the light label text clears 4.5:1; Tailwind v4 resolves arbitrary values at build time, so a per-node color-mix cannot be a class
+- [Phase 05]: Focus mode needs three mechanisms, not one CSS rule: React state owns it, the state writes a document-element attribute through one helper, and the grid columns swap by className — display:none on a grid child does not collapse a declared track.
+- [Phase 05]: ? is reassigned to the help overlay and 0 keeps 'I don't know'; the eight-word teach-back floor moves into send() so no route in can bypass it.
 
 ### Pending Todos
 
@@ -276,6 +279,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-05T00:51:46.632Z
-Stopped at: Completed 05-04-PLAN.md
+Last session: 2026-11-05T01:04:00.790Z
+Stopped at: Completed 05-05-PLAN.md
 Resume file: None
