@@ -57,9 +57,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **LEARN-04**: Learner sees honest retention stats from FSRS data: estimated knowledge, true versus desired retention, forecast
 - [x] **LEARN-07**: The Atlas is coloured by memory stability so growth is visible at a glance
 - [x] **LEARN-08**: Learner can enter a focus mode that hides everything but the current card
-- [ ] **LEARN-09**: Remediation names and re-quizzes the weakest prerequisite; quiz distractors draw on the learner's recorded misconceptions; warm-up and cumulative quiz are named in the UI
+- [x] **LEARN-09**: Remediation names and re-quizzes the weakest prerequisite; quiz distractors draw on the learner's recorded misconceptions; warm-up and cumulative quiz are named in the UI
 - [ ] **LEARN-10**: Voice mode auto-arms the mic after a question, speaks in sentence chunks, and uses the learner's language
-- [ ] **LEARN-11**: Learner sees streaming status (thinking, calling quiz, grading) while waiting, and the next card is prefetched
+- [x] **LEARN-11**: Learner sees streaming status (thinking, calling quiz, grading) while waiting, and the next card is prefetched
 - [x] **LEARN-12**: Open cards survive a server restart: open prompts are persisted and rehydrated, so no dead card is left in the browser
 
 ### Personalization (style, not method)
@@ -174,9 +174,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LEARN-04 | Phase 5 | Complete |
 | LEARN-07 | Phase 5 | Complete |
 | LEARN-08 | Phase 5 | Complete |
-| LEARN-09 | Phase 5 | Pending |
+| LEARN-09 | Phase 5 | Complete |
 | LEARN-10 | Phase 5 | Pending |
-| LEARN-11 | Phase 5 | Pending |
+| LEARN-11 | Phase 5 | Complete |
 | LEARN-12 | Phase 5 | Complete |
 | STYLE-01 | Phase 6 | Pending |
 | STYLE-02 | Phase 6 | Pending |

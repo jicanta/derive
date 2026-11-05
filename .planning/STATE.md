@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Learning Experience
 status: executing
-stopped_at: Completed 05-05-PLAN.md
-last_updated: "2026-11-05T01:04:00.896Z"
+stopped_at: Completed 05-06-PLAN.md
+last_updated: "2026-11-05T01:35:50.962Z"
 last_activity: 2026-11-04
 last_activity_desc: Phase 05 execution started
-state_head: afb8d244476b9ee16b1877974d25d8dd5322ceba
+state_head: 74059c4410b3b2434d778a56d0c1677c075b861f
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 52
-  completed_plans: 48
+  completed_plans: 50
   percent: 57
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-22)
 ## Current Position
 
 Phase: 05 (Learning Experience) — EXECUTING
-Plan: 6 of 8
+Plan: 7 of 8
 Status: Ready to execute
 Last activity: 2026-11-04 — Phase 05 execution started
 
@@ -106,6 +106,7 @@ Progress: [██████░░░░] 57%
 | Phase 05 P03 | 16 min | 3 tasks | 8 files |
 | Phase 05 P04 | 12 min | 3 tasks | 9 files |
 | Phase 05 P05 | 8 min | 3 tasks | 8 files |
+| Phase 05 P06 | 21 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -247,6 +248,9 @@ Recent decisions affecting current work:
 - [Phase 05]: The Atlas stability ramp is logarithmic over the 70-100% gold band, applied as an inline color-mix style, and withholds the just-locked animation — A fainter fill crosses a band near 60-65% where neither the dark nor the light label text clears 4.5:1; Tailwind v4 resolves arbitrary values at build time, so a per-node color-mix cannot be a class
 - [Phase 05]: Focus mode needs three mechanisms, not one CSS rule: React state owns it, the state writes a document-element attribute through one helper, and the grid columns swap by className — display:none on a grid child does not collapse a declared track.
 - [Phase 05]: ? is reassigned to the help overlay and 0 keeps 'I don't know'; the eight-word teach-back floor moves into send() so no route in can bypass it.
+- [Phase 05]: 05-06: the remediation gate permits the named prerequisite AND the node that just missed; a graded quiz on either lifts it, and each new miss re-arms it — a gate holding only the prerequisite would refuse the method's own fresh question on the same claim
+- [Phase 05]: 05-06: weakestFirst lives in schedule.ts as a pure ranking with both tie-breaks precomputed onto its row-shaped input, so its order is pinned by a test that opens no file
+- [Phase 05]: 05-06: conformance exitCodeFor now fails on a false verdict in its own right (and accepts a bare row array), so a newly added verdict cannot be decorative
 
 ### Pending Todos
 
@@ -279,6 +283,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-05T01:04:00.790Z
-Stopped at: Completed 05-05-PLAN.md
+Last session: 2026-11-05T01:32:40.521Z
+Stopped at: Completed 05-06-PLAN.md
 Resume file: None
