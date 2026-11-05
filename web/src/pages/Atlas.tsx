@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DeriveNode, layoutGraph } from '../components/Graph';
 import { Markdown } from '../components/Markdown';
+import { RetentionPanel } from '../components/RetentionPanel';
 import { api } from '../lib/api';
 import type { Atlas, GraphNode } from '../lib/types';
 
@@ -189,6 +190,8 @@ export function AtlasPage() {
                 {open.length === 0 && <li className="text-sm text-ink-500">None outstanding.</li>}
               </ul>
             </div>
+
+            <RetentionPanel />
 
             <div className="border-t hairline pt-4 flex gap-4 font-mono text-[10px] text-ink-500">
               <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-gold-500" />locked</span>

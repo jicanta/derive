@@ -47,6 +47,7 @@ import {
   loadTurnMessages,
   promptCards,
   renameLearner,
+  retention,
   updateLearnerPrefs,
   setAnswerIn,
   setPromptAnswer,
@@ -1380,6 +1381,11 @@ app.get('/api/atlas', (c) => {
 });
 
 app.get('/api/profile', (c) => c.json({ ...actions.profile(learnerOf(c)), learner: getLearner(learnerOf(c)) }));
+
+// ---------- retention ----------
+
+/** What the learner is holding: estimated knowledge, true versus desired retention, and the fortnight ahead. The learner is the resolved one, never one named in a request. */
+app.get('/api/retention', (c) => c.json(retention(learnerOf(c))));
 
 /** How a learner wants to be taught, for the plugin (the web app patches the learner directly). */
 app.get('/api/preferences', (c) => {

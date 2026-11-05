@@ -1,4 +1,4 @@
-import type { Atlas, CapabilityResult, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, LessonView, Library, Material, ProviderView, Resource, SearchView, Settings, Stats, TeachingTest, TestResult, TutorChoice, UsageView } from './types';
+import type { Atlas, CapabilityResult, DueNode, Learner, LearnerPrefs, Lesson, LessonSummary, LessonView, Library, Material, ProviderView, Resource, Retention, SearchView, Settings, Stats, TeachingTest, TestResult, TutorChoice, UsageView } from './types';
 
 /**
  * The selected learner profile, kept in this browser. Sent on every request
@@ -89,6 +89,8 @@ export const api = {
   due: () => get('/api/review').then((r) => j<DueNode[]>(r)),
   startReview: () => post('/api/review').then((r) => j<Lesson>(r)),
   atlas: () => get('/api/atlas').then((r) => j<Atlas>(r)),
+  /** What the learner is holding: estimated knowledge, true versus desired retention, and the fortnight ahead. */
+  retention: () => get('/api/retention').then((r) => j<Retention>(r)),
   /** The learner's library: links, videos, books, papers, courses and notes the tutor can read and point to. */
   library: (f: { q?: string; kind?: string; tag?: string } = {}) => {
     const qs = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]).toString();

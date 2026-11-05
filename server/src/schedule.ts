@@ -17,8 +17,17 @@ import type { NodeRow } from './db.js';
 
 const DAY = 86_400_000;
 
+/**
+ * The recall probability a review is scheduled for: a node comes back when the
+ * chance of still holding it drops to this. Fixed for every learner — a
+ * per-learner slider would let someone quietly ask to forget more, which is not
+ * the method. Exported because the Atlas shows it as the desired-retention
+ * target, and that figure must be this number rather than a second copy of it.
+ */
+export const REQUEST_RETENTION = 0.9;
+
 /** Learning steps are for flashcards seen minutes apart; a node is checked once per lesson, so every grade lands in the review state directly. */
-const scheduler = fsrs(generatorParameters({ request_retention: 0.9, enable_fuzz: false, learning_steps: [], relearning_steps: [] }));
+const scheduler = fsrs(generatorParameters({ request_retention: REQUEST_RETENTION, enable_fuzz: false, learning_steps: [], relearning_steps: [] }));
 
 export type Confidence = 'sure' | 'unsure';
 export type Grade = 'again' | 'hard' | 'good';

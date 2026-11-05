@@ -267,6 +267,8 @@ export type NodeRow = {
   review_at: number | null;
   interval_days: number;
   reps: number;
+  /** FSRS memory strength in days; null until the node is first locked. The Atlas deepens a locked node's gold with it. */
+  stability: number | null;
 };
 
 export type DueNode = NodeRow & { topic: string };
@@ -390,3 +392,27 @@ export type TimelineItemBase =
   | { kind: 'error'; seq: number; text: string };
 
 export type Stats = { lessons: number; locked: number; quizzes: number; correct: number; due: number; vault: boolean; library?: number; learner?: Learner };
+
+/** One day of the retention forecast. `day` is local midnight in ms; index 0 is today and also carries everything already overdue. */
+export type ForecastDay = { day: number; count: number };
+
+/**
+ * What the learner is holding, hand-mirrored from the server's `Retention`.
+ * Both percentages arrive as whole numbers: the server reads FSRS and does the
+ * arithmetic, so this panel interpolates figures and computes none of them.
+ */
+export type Retention = {
+  /** Estimated knowledge: the sum of retrievability over the qualifying locked nodes, rounded. */
+  held: number;
+  /** Its denominator. Zero means the block does not render. */
+  locked: number;
+  /** A whole percent, or null when fewer than ten first review tries back it. */
+  trueRetention: number | null;
+  /** How many first review tries the 90-day window held. */
+  reviewSample: number;
+  /** The desired-retention target as a whole percent: FSRS's fixed `request_retention`. */
+  desired: number;
+  forecast: ForecastDay[];
+  /** The earliest review still ahead, or null when nothing is scheduled. */
+  nextReviewAt: number | null;
+};

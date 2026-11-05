@@ -1,4 +1,4 @@
-import { grade, implicitLapse, implicitRepetition, retrievability, schedule, type Confidence, type Grade, type Scheduled } from './schedule.js';
+import { grade, implicitLapse, implicitRepetition, REQUEST_RETENTION, retrievability, schedule, type Confidence, type Grade, type Scheduled } from './schedule.js';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
@@ -329,6 +329,37 @@ const q = {
       (SELECT COUNT(*) FROM nodes n JOIN lessons l ON l.id = n.lesson_id WHERE l.learner_id = $l AND l.scratch = 0 AND n.status = 'locked') AS locked,
       (SELECT COUNT(*) FROM quiz_results q JOIN lessons l ON l.id = q.lesson_id WHERE l.learner_id = $l AND l.scratch = 0) AS quizzes,
       (SELECT COUNT(*) FROM quiz_results q JOIN lessons l ON l.id = q.lesson_id WHERE l.learner_id = $l AND l.scratch = 0 AND q.correct = 1) AS correct
+  `),
+  // The retention reads behind the Atlas block. Each one carries the same two
+  // filters the learner-wide statements above carry — `l.scratch = 0` and, on
+  // the node reads, `n.source_lesson IS NULL` — because a review session copies
+  // a node, and counting the copy as well as its source would make estimated
+  // knowledge report a claim twice. The FSRS columns are required to be non-null
+  // here rather than defaulted: `retrievability()` returns a flat 1 for a node
+  // with no memory state, so a node with none is left out of the figure
+  // altogether rather than silently counted as perfectly held.
+  retentionNodes: db.prepare(`
+    SELECT n.stability, n.difficulty, n.reps, n.lapses, n.last_review, n.review_at, n.interval_days
+    FROM nodes n JOIN lessons l ON l.id = n.lesson_id
+    WHERE l.learner_id = $l AND l.scratch = 0 AND n.source_lesson IS NULL AND n.status = 'locked'
+      AND n.stability IS NOT NULL AND n.difficulty IS NOT NULL
+  `),
+  // Every review-purpose row in the window, oldest first, so the caller can keep
+  // the first try per (lesson, node). `quiz_results` has no attempt ordinal, and
+  // `ORDER BY ts, id` is the same ordering `quizzesOn` already reads nodes by.
+  retentionReviews: db.prepare(`
+    SELECT q.lesson_id, q.node_id, q.correct FROM quiz_results q JOIN lessons l ON l.id = q.lesson_id
+    WHERE l.learner_id = $l AND l.scratch = 0 AND q.purpose = 'review' AND q.ts >= $since
+    ORDER BY q.ts, q.id
+  `),
+  retentionForecast: db.prepare(`
+    SELECT n.review_at FROM nodes n JOIN lessons l ON l.id = n.lesson_id
+    WHERE l.learner_id = $l AND l.scratch = 0 AND n.source_lesson IS NULL AND n.status = 'locked'
+      AND n.review_at IS NOT NULL AND n.review_at < $until
+  `),
+  retentionNext: db.prepare(`
+    SELECT MIN(n.review_at) AS next FROM nodes n JOIN lessons l ON l.id = n.lesson_id
+    WHERE l.learner_id = $l AND l.scratch = 0 AND n.source_lesson IS NULL AND n.status = 'locked' AND n.review_at > $now
   `),
 };
 
@@ -1403,6 +1434,114 @@ export function buildReviewGraph(lessonId: string, learnerId: string, limit = 6)
 
 export function stats(learnerId: string) {
   return q.stats.get({ l: learnerId }) as { lessons: number; locked: number; quizzes: number; correct: number };
+}
+
+// ---------- retention ----------
+
+/** The window true retention is measured over. Long enough to hold a term's worth of reviews, short enough that the figure is about the learner now. */
+const RETENTION_WINDOW_DAYS = 90;
+/**
+ * Below this many first review tries in the window, true retention is withheld
+ * rather than printed. A perfect score over one review is a true statement that
+ * means nothing, and the one honest number in the app must never be confidently
+ * wrong. It is the only one of the four figures with a threshold: estimated
+ * knowledge is a computation over nodes rather than an estimate from a sample,
+ * the target is a constant, and an empty fortnight is a fact.
+ */
+const RETENTION_SAMPLE_FLOOR = 10;
+/** The fortnight the forecast covers. */
+const FORECAST_DAYS = 14;
+
+/** One day of the forecast. */
+export type ForecastDay = {
+  /** Local midnight of that day, in ms. Index 0 is today. */
+  day: number;
+  /** Reviews falling on that day. Index 0 also carries everything already overdue, because that is what the learner can do now. */
+  count: number;
+};
+
+/** What the learner is holding, for the Atlas retention block. Both percentages are whole numbers, computed here so the browser interpolates them and calculates nothing. */
+export type Retention = {
+  /** Estimated knowledge: the sum of `retrievability()` over the qualifying locked nodes, rounded. */
+  held: number;
+  /** The denominator of that figure: how many locked nodes it was summed over. Zero means the block does not render. */
+  locked: number;
+  /** True retention as a whole percent, or null when the sample is under the floor. */
+  trueRetention: number | null;
+  /** How many first review tries the window held, so the caller need not infer the threshold. */
+  reviewSample: number;
+  /** Desired retention as a whole percent: the scheduler's own `request_retention`, not a second copy of it. */
+  desired: number;
+  forecast: ForecastDay[];
+  /** The earliest review still ahead, or null when nothing is scheduled. */
+  nextReviewAt: number | null;
+};
+
+/**
+ * What the learner is holding right now, read straight from the FSRS state the
+ * scheduler wrote. Nothing here models decay a second time: a panel that
+ * disagreed with the dates the learner is being given would be worse than no
+ * panel.
+ *
+ * True retention is the share of **first** review tries passed — the earliest
+ * `purpose = 'review'` row per (lesson, node) inside the 90-day window, and the
+ * count of those first rows is the denominator. `quiz_results` carries no
+ * attempt ordinal, so that sentence is the definition rather than a reading of
+ * one, and it is also the learner-facing tooltip, which is why it is written
+ * once here. A review session copies a node, so the same underlying claim
+ * reviewed in three sessions is three legitimate first tries; that is intended.
+ *
+ * A locked node with no FSRS state is excluded from estimated knowledge
+ * entirely — numerator and denominator both — because `retrievability()`
+ * returns a flat 1 for it and counting it would over-report the one figure this
+ * block exists to be honest about.
+ */
+export function retention(learnerId: string, now = Date.now()): Retention {
+  const nodes = q.retentionNodes.all({ l: learnerId }) as Parameters<typeof retrievability>[0][];
+  const held = nodes.reduce((s, n) => s + retrievability(n, now), 0);
+
+  const since = now - RETENTION_WINDOW_DAYS * DAY;
+  const first = new Map<string, number>();
+  for (const r of q.retentionReviews.all({ l: learnerId, since }) as { lesson_id: string; node_id: string | null; correct: number }[]) {
+    const key = `${r.lesson_id}${r.node_id ?? ''}`;
+    if (!first.has(key)) first.set(key, r.correct);
+  }
+  const sample = first.size;
+  const passed = [...first.values()].filter((c) => c === 1).length;
+
+  // Days are stepped with setDate rather than by adding 86_400_000, so a clock
+  // change inside the fortnight does not slide every boundary an hour.
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  const days: number[] = [];
+  for (let i = 0; i < FORECAST_DAYS; i++) {
+    const d = new Date(midnight);
+    d.setDate(d.getDate() + i);
+    days.push(d.getTime());
+  }
+  const after = new Date(midnight);
+  after.setDate(after.getDate() + FORECAST_DAYS);
+  const counts = new Array<number>(FORECAST_DAYS).fill(0);
+  for (const r of q.retentionForecast.all({ l: learnerId, until: after.getTime() }) as { review_at: number }[]) {
+    let i = 0;
+    for (let k = FORECAST_DAYS - 1; k > 0; k--) {
+      if (r.review_at >= days[k]) {
+        i = k;
+        break;
+      }
+    }
+    counts[i]++;
+  }
+
+  return {
+    held: Math.round(held),
+    locked: nodes.length,
+    trueRetention: sample >= RETENTION_SAMPLE_FLOOR ? Math.round((passed / sample) * 100) : null,
+    reviewSample: sample,
+    desired: Math.round(REQUEST_RETENTION * 100),
+    forecast: days.map((day, i) => ({ day, count: counts[i] })),
+    nextReviewAt: (q.retentionNext.get({ l: learnerId, now }) as { next: number | null }).next ?? null,
+  };
 }
 
 // ---------- course material ----------
