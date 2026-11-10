@@ -61,6 +61,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **LEARN-10**: Voice mode auto-arms the mic after a question, speaks in sentence chunks, and uses the learner's language
 - [x] **LEARN-11**: Learner sees streaming status (thinking, calling quiz, grading) while waiting, and the next card is prefetched
 - [x] **LEARN-12**: Open cards survive a server restart: open prompts are persisted and rehydrated, so no dead card is left in the browser
+- [ ] **LEARN-18**: A correct-and-sure answer is challenged once with a plausible counter-claim before the node locks; defending it locks the node, abandoning it does not
+- [ ] **LEARN-19**: A derived node locks only after two independent intuition-or-transfer passes, at least one of them in a later turn than the one that taught it
+- [ ] **LEARN-20**: After a re-derivation the server requires a fresh check on the same claim from a different angle before anything else
+- [ ] **LEARN-21**: The tutor credits the learner with no insight they did not actually express; a vague answer is named as vague, not completed on their behalf
+- [ ] **LEARN-22**: The learner can say "harder", "easier" or "just tell me" mid-lesson, and "just tell me" overrides the Socratic default for that one question only
 
 ### Personalization (style, not method)
 

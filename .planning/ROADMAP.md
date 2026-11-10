@@ -20,6 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Owned Loop: API Keys and Gateways** - Derive's own agent loop on Anthropic, OpenAI and Gemini keys, OpenRouter and any OpenAI-compatible endpoint, with full parity, web search on every path and per-lesson cost in the header (completed 2026-10-14)
 - [x] **Phase 4: Local Models, Parity Proof and Usage** - Free, offline lessons on Ollama, LM Studio and llama.cpp without silent truncation; "test teaching"; nightly conformance harness; usage page with a running total by provider, model and lesson (completed 2026-10-22)
 - [ ] **Phase 5: Learning Experience** - Home says what to do next, due count everywhere, keyboard-first cards, honest retention stats, stability-coloured Atlas, focus mode, sharper remediation, better voice mode, streaming status, restart-safe cards
+- [ ] **Phase 05.1: Socratic Rigor** (INSERTED) - The five rules the method states but does not enforce: a confident answer defended under challenge, two independent checks with one unprompted, a re-check after every re-derivation, no credit for unexpressed insight, and the learner's own harder/easier/just-tell-me
 - [ ] **Phase 6: Personalization** - Theme, accent, font (dyslexia-friendly, self-hosted), size, reduced motion, tone and language; per learner, behind Settings, applied before first paint, method untouched
 - [ ] **Phase 7: Adoption** - One-command install via a published package, Claude Code marketplace and Codex skills listings, docs site, README as landing page, contributor guide, directory submissions
 
@@ -332,6 +333,30 @@ Plans:
 
 **UI hint**: yes
 **Research**: Not needed for the domain — Anki, Math Academy and Duolingo patterns are documented and the FSRS data already exists — but `05-RESEARCH.md` was produced to verify the landing points, and it corrects three of the four hints below. The `prompts` table is **migration 11, not 12**. There are **no Phase 6 `<html>` style attributes yet**: Phase 5 is the first code in the repo to touch the document element and therefore establishes the convention rather than joining it. `voice.test.ts` and the reducer test cannot live in `web/`, which has no test runner, no `test` script and no importable `tsx`; both go in `server/test/` and import the web module across the package boundary, which a probe proved runs under the shipped runner with no new dependency. Graph reuse across lessons stays deferred to v2 — that hint is accurate.
+
+### Phase 05.1: Socratic Rigor (INSERTED)
+
+**Goal**: The understanding gate stops being passable by one lucky answer. Five rules Derive's method states but does not enforce — a confident answer defended under challenge, two independent checks with one of them unprompted, a re-check after every re-derivation, no credit for insight the learner did not express, and the learner's own "harder / easier / just tell me" — are written into `method/` once and enforced server-side where a tool result can hold the tutor to them.
+**Mode:** mvp
+**Depends on**: Phase 5
+**Parallelizable with**: Phases 6 and 7 (method and gate only; shares no file with the style or packaging work)
+**Requirements**: LEARN-18, LEARN-19, LEARN-20, LEARN-21, LEARN-22
+**Success Criteria** (what must be TRUE):
+
+  1. A correct-and-sure answer on a derived node draws one plausible counter-claim before the lock; the learner who defends it locks the node, and the learner who abandons it gets a fresh question instead of a lock
+  2. `hasUnderstandingPass` requires two independent intuition-or-transfer passes with at least one recorded in a later turn than the one that taught the node, and `node_status` refuses the lock with the method's own sentence until both exist
+  3. After the tutor re-derives a missed claim, the server's next instruction is a fresh check on that same claim from a different angle, and a quiz anywhere else is refused
+  4. The method text forbids crediting unexpressed insight, and the conformance harness asserts the rule is present on every rendered surface (app, plugin skill, both Codex skills)
+  5. The learner can type or press "harder", "easier" or "just tell me" during a lesson; "just tell me" answers the current question expositorily and does not change the stored learner preference
+  6. `pnpm method` renders the five rules to all surfaces with CI failing on drift, and the Jane Street `socratic-tutor` skill is credited beside the existing amosblomqvist/learn and Math Academy credits (MIT)
+
+**Plans**: TBD
+**UI hint**: minor — the three learner controls ride the Phase 05 keyboard layer and the `?` overlay; no new screen, no new card
+**Research**: Not needed — the source is one 5.2KB MIT `SKILL.md` (janestreet/agent_skills), already read and diffed against `method/`; the four ideas it carries that Derive already implements better (0-5 skill map, save/resume blocks, the intent guard, negative-scope frontmatter) are explicitly out of scope. The open design question is the definition of "unprompted" for criterion 2 — the `turns` table from Phase 01-06 gives a turn id per quiz row, which is the intended discriminator.
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 05.1 to break down)
 
 ### Phase 6: Personalization
 
